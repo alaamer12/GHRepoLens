@@ -9,7 +9,7 @@ from collections import Counter
 import re
 import os
 
-from reports import GitHubAnalyzer
+from reports import GithubLens
 from config import create_sample_config, load_config_from_file
 
 
@@ -30,7 +30,7 @@ def run_demo(token: str, username: str, config=None) -> None:
     
     try:
         # Initialize analyzer
-        analyzer = GitHubAnalyzer(demo_config["GITHUB_TOKEN"], demo_config["USERNAME"], demo_config)
+        analyzer = GithubLens(demo_config["GITHUB_TOKEN"], demo_config["USERNAME"], demo_config)
         
         # Check for existing checkpoint
         checkpoint_exists = Path(demo_config["CHECKPOINT_FILE"]).exists()
@@ -245,7 +245,7 @@ def main(demo_mode=False):
     
     try:
         # Initialize analyzer
-        analyzer = GitHubAnalyzer(config['GITHUB_TOKEN'], config['USERNAME'], config)
+        analyzer = GithubLens(config['GITHUB_TOKEN'], config['USERNAME'], config)
         
         # Check for checkpoint
         checkpoint_exists = Path(CHECKPOINT_FILE).exists()

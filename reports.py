@@ -24,7 +24,880 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-class GitHubAnalyzer:
+
+class GithubVisualizer:
+    """Class responsible for creating visualizations from GitHub repository data"""
+    
+    def __init__(self, username: str, reports_dir: Path):
+        """Initialize the visualizer with username and reports directory"""
+        self.username = username
+        self.reports_dir = reports_dir
+    
+    def create_visualizations(self, all_stats: List[RepoStats]) -> None:
+        """Generate visual reports with charts and graphs"""
+        logger.info("Generating visual report")
+        
+        # Filter out empty repositories for most visualizations
+        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
+        
+        # Set style for matplotlib
+        plt.style.use('seaborn-v0_8')
+        sns.set_palette("husl")
+        
+        # Create subplots for different visualizations
+        fig = make_subplots(
+            rows=4, cols=2,
+            subplot_titles=[
+                'Top 10 Languages by LOC',
+                'Repository Size Distribution',
+                'File Type Distribution',
+                'Activity Timeline',
+                'Stars vs LOC Correlation',
+                'Maintenance Score Distribution',
+                'Repository Age Distribution',
+                'Quality Metrics Overview'
+            ],
+            specs=[
+                [{"type": "bar"}, {"type": "histogram"}],
+                [{"type": "pie"}, {"type": "scatter"}],
+                [{"type": "scatter"}, {"type": "histogram"}],
+                [{"type": "bar"}, {"type": "bar"}]
+            ]
+        )
+        
+        # 1. Top 10 Languages by LOC
+        all_languages = defaultdict(int)
+        for stats in non_empty_repos:
+            for lang, loc in stats.languages.items():
+                all_languages[lang] += loc
+        
+        if all_languages:
+            top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
+            langs, locs = zip(*top_languages)
+            
+            fig.add_trace(
+                go.Bar(x=list(langs), y=list(locs), name="Languages"),
+                row=1, col=1
+            )
+        
+        # 2. Repository Size Distribution
+        repo_sizes = [stats.total_loc for stats in non_empty_repos if stats.total_loc > 0]
+        if repo_sizes:
+            fig.add_trace(
+                go.Histogram(x=repo_sizes, nbinsx=20, name="Repo Sizes"),
+                row=1, col=2
+            )
+        
+        # 3. File Type Distribution (Top 10)
+        all_file_types = defaultdict(int)
+        for stats in non_empty_repos:
+            for file_type, count in stats.file_types.items():
+                all_file_types[file_type] += count
+        
+        if all_file_types:
+            top_file_types = sorted(all_file_types.items(), key=lambda x: x[1], reverse=True)[:10]
+            types, counts = zip(*top_file_types)
+            
+            fig.add_trace(
+                go.Pie(labels=list(types), values=list(counts), name="File Types"),
+                row=2, col=1
+            )
+        
+        # 4. Activity Timeline (commits per month)
+        commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
+        if commit_dates:
+            # Group by month
+            monthly_commits = defaultdict(int)
+            for date in commit_dates:
+                month_key = date.strftime('%Y-%m')
+                monthly_commits[month_key] += 1
+            
+            # Get last 12 months
+            sorted_months = sorted(monthly_commits.items())[-12:]
+            if sorted_months:
+                months, commit_counts = zip(*sorted_months)
+                
+                fig.add_trace(
+                    go.Scatter(x=list(months), y=list(commit_counts), 
+                             mode='lines+markers', name="Activity"),
+                    row=2, col=2
+                )
+        
+        # 5. Stars vs LOC Correlation
+        stars = [stats.stars for stats in non_empty_repos]
+        locs = [stats.total_loc for stats in non_empty_repos]
+        names = [stats.name for stats in non_empty_repos]
+        
+        fig.add_trace(
+            go.Scatter(x=locs, y=stars, mode='markers',
+                      text=names, name="Repos",
+                      hovertemplate='<b>%{text}</b><br>LOC: %{x}<br>Stars: %{y}'),
+            row=3, col=1
+        )
+        
+        # 6. Maintenance Score Distribution
+        maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
+        if maintenance_scores:
+            fig.add_trace(
+                go.Histogram(x=maintenance_scores, nbinsx=20, name="Maintenance Scores"),
+                row=3, col=2
+            )
+        
+        # 7. Repository Age Distribution
+        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in non_empty_repos]
+        if ages:
+            fig.add_trace(
+                go.Histogram(x=ages, nbinsx=15, name="Repository Ages (Years)"),
+                row=4, col=1
+            )
+        
+        # 8. Quality Metrics Overview
+        quality_metrics = {
+            'Has Documentation': sum(1 for s in non_empty_repos if s.has_docs),
+            'Has Tests': sum(1 for s in non_empty_repos if s.has_tests),
+            'Is Active': sum(1 for s in non_empty_repos if s.is_active),
+            'Has License': sum(1 for s in non_empty_repos if s.license_name),
+        }
+        
+        fig.add_trace(
+            go.Bar(x=list(quality_metrics.keys()), y=list(quality_metrics.values()),
+                   name="Quality Metrics"),
+            row=4, col=2
+        )
+        
+        # Update layout
+        fig.update_layout(
+            height=2000,
+            title_text=f"📊 GitHub Repository Analysis Dashboard - {self.username}",
+            title_x=0.5,
+            showlegend=False,
+            template="plotly_white"
+        )
+        
+        # Update axes labels
+        fig.update_xaxes(title_text="Language", row=1, col=1)
+        fig.update_yaxes(title_text="Lines of Code", row=1, col=1)
+        
+        fig.update_xaxes(title_text="Lines of Code", row=1, col=2)
+        fig.update_yaxes(title_text="Count", row=1, col=2)
+        
+        fig.update_xaxes(title_text="Month", row=2, col=2)
+        fig.update_yaxes(title_text="Commits", row=2, col=2)
+        
+        fig.update_xaxes(title_text="Lines of Code", row=3, col=1)
+        fig.update_yaxes(title_text="Stars", row=3, col=1)
+        
+        fig.update_xaxes(title_text="Maintenance Score", row=3, col=2)
+        fig.update_yaxes(title_text="Count", row=3, col=2)
+        
+        fig.update_xaxes(title_text="Age (Years)", row=4, col=1)
+        fig.update_yaxes(title_text="Count", row=4, col=1)
+        
+        fig.update_xaxes(title_text="Quality Metric", row=4, col=2)
+        fig.update_yaxes(title_text="Count", row=4, col=2)
+        
+        # Save as interactive HTML
+        report_path = self.reports_dir / "visual_report.html"
+        
+        # Create HTML with custom styling and interactivity
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>GitHub Repository Analysis Dashboard</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                }}
+                .container {{
+                    max-width: 1400px;
+                    margin: 0 auto;
+                    background: white;
+                    border-radius: 15px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 30px;
+                    text-align: center;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 2.5em;
+                    font-weight: 300;
+                }}
+                .header p {{
+                    margin: 10px 0 0 0;
+                    opacity: 0.9;
+                    font-size: 1.1em;
+                }}
+                .content {{
+                    padding: 30px;
+                }}
+                .stats-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 30px;
+                }}
+                .stat-card {{
+                    background: #f8f9fa;
+                    padding: 20px;
+                    border-radius: 10px;
+                    text-align: center;
+                    border-left: 4px solid #667eea;
+                }}
+                .stat-number {{
+                    font-size: 2em;
+                    font-weight: bold;
+                    color: #333;
+                    margin-bottom: 5px;
+                }}
+                .stat-label {{
+                    color: #666;
+                    font-size: 0.9em;
+                }}
+                .chart-container {{
+                    margin: 20px 0;
+                    padding: 20px;
+                    background: #f8f9fa;
+                    border-radius: 10px;
+                }}
+                .theme-toggle {{
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: rgba(255,255,255,0.2);
+                    color: white;
+                    border: 2px solid rgba(255,255,255,0.3);
+                    padding: 10px 15px;
+                    border-radius: 25px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                }}
+                .theme-toggle:hover {{
+                    background: rgba(255,255,255,0.3);
+                }}
+                @media (prefers-color-scheme: dark) {{
+                    .dark-theme .container {{
+                        background: #1a1a1a;
+                        color: white;
+                    }}
+                    .dark-theme .stat-card,
+                    .dark-theme .chart-container {{
+                        background: #2d2d2d;
+                        color: white;
+                    }}
+                }}
+            </style>
+        </head>
+        <body>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+            <div class="container">
+                <div class="header">
+                    <h1>📊 GitHub Repository Analysis</h1>
+                    <p>User: {self.username} | Generated: {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}</p>
+                </div>
+                <div class="content">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-number">{len(non_empty_repos)}</div>
+                            <div class="stat-label">Total Repositories</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{sum(s.total_loc for s in non_empty_repos):,}</div>
+                            <div class="stat-label">Total Lines of Code</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{sum(s.stars for s in non_empty_repos):,}</div>
+                            <div class="stat-label">Total Stars</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{sum(1 for s in non_empty_repos if s.is_active)}</div>
+                            <div class="stat-label">Active Repositories</div>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <div id="main-dashboard"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <script>
+                // Plot the main dashboard
+                var plotData = {fig.to_json()};
+                Plotly.newPlot('main-dashboard', plotData.data, plotData.layout, {{responsive: true}});
+                
+                // Theme toggle functionality
+                function toggleTheme() {{
+                    document.body.classList.toggle('dark-theme');
+                    const button = document.querySelector('.theme-toggle');
+                    if (document.body.classList.contains('dark-theme')) {{
+                        button.innerHTML = '☀️ Light Mode';
+                        Plotly.relayout('main-dashboard', {{
+                            'paper_bgcolor': '#1a1a1a',
+                            'plot_bgcolor': '#1a1a1a',
+                            'font.color': 'white'
+                        }});
+                    }} else {{
+                        button.innerHTML = '🌙 Dark Mode';
+                        Plotly.relayout('main-dashboard', {{
+                            'paper_bgcolor': 'white',
+                            'plot_bgcolor': 'white',
+                            'font.color': 'black'
+                        }});
+                    }}
+                }}
+                
+                // Add hover effects and animations
+                document.querySelectorAll('.stat-card').forEach(card => {{
+                    card.addEventListener('mouseenter', function() {{
+                        this.style.transform = 'translateY(-5px)';
+                        this.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
+                        this.style.transition = 'all 0.3s ease';
+                    }});
+                    
+                    card.addEventListener('mouseleave', function() {{
+                        this.style.transform = 'translateY(0)';
+                        this.style.boxShadow = 'none';
+                    }});
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        logger.info(f"Visual report saved to {report_path}")
+        
+        # Also create individual static charts for detailed analysis
+        self.create_detailed_charts(all_stats)
+
+    def create_detailed_charts(self, all_stats: List[RepoStats]) -> None:
+        """Create additional detailed charts"""
+        logger.info("Creating detailed charts")
+        
+        # Filter out empty repositories for most charts
+        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
+        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
+        
+        # 1. Repository Timeline Chart
+        fig, ax = plt.subplots(figsize=(15, 8))
+        
+        # Prepare data for timeline
+        repo_data = []
+        for stats in all_stats:  # Include all repos, even empty ones
+            # Ensure dates are timezone-aware
+            created = ensure_utc(stats.created_at)
+            last_commit = ensure_utc(stats.last_commit_date or stats.last_pushed)
+            
+            # Mark empty repositories differently
+            is_empty = "Empty repository with no files" in stats.anomalies
+                
+            repo_data.append({
+                'name': stats.name,
+                'created': created,
+                'last_commit': last_commit,
+                'loc': stats.total_loc,
+                'stars': stats.stars,
+                'is_active': stats.is_active,
+                'is_empty': is_empty
+            })
+        
+        # Sort by creation date
+        repo_data.sort(key=lambda x: x['created'])
+        
+        # Create timeline
+        for i, repo in enumerate(repo_data):
+            # Use different color/style for empty repositories
+            if repo['is_empty']:
+                color = 'red'
+                alpha = 0.3
+                marker = 'x'
+            else:
+                color = 'green' if repo['is_active'] else 'gray'
+                alpha = 0.7 if repo['is_active'] else 0.3
+                marker = 'o'
+            
+            # Plot line from creation to last commit
+            ax.plot([repo['created'], repo['last_commit']], [i, i], 
+                   color=color, alpha=alpha, linewidth=2)
+            
+            # Add markers
+            ax.scatter(repo['created'], i, color='blue', s=50, alpha=0.7, marker=marker, label='Created' if i == 0 else "")
+            ax.scatter(repo['last_commit'], i, color=color, s=repo['stars']*2+20, alpha=alpha, marker=marker)
+        
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Repository')
+        ax.set_title('Repository Timeline (Creation → Last Commit)')
+        ax.grid(True, alpha=0.3)
+        
+        # Format dates
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        plt.xticks(rotation=45)
+        
+        plt.tight_layout()
+        plt.savefig(self.reports_dir / 'repository_timeline.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 2. Language Evolution Chart
+        if len(non_empty_repos) > 1:
+            fig, ax = plt.subplots(figsize=(12, 8))
+            
+            # Group repositories by creation year and analyze language usage
+            yearly_languages = defaultdict(lambda: defaultdict(int))
+            
+            for stats in non_empty_repos:
+                # Ensure date is timezone-aware
+                created_at = ensure_utc(stats.created_at)
+                    
+                year = created_at.year
+                for lang, loc in stats.languages.items():
+                    yearly_languages[year][lang] += loc
+            
+            # Get top 5 languages overall
+            all_lang_totals = defaultdict(int)
+            for year_data in yearly_languages.values():
+                for lang, loc in year_data.items():
+                    all_lang_totals[lang] += loc
+            
+            top_languages = sorted(all_lang_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+            top_lang_names = [lang for lang, _ in top_languages]
+            
+            # Create stacked area chart
+            years = sorted(yearly_languages.keys())
+            lang_data = {lang: [] for lang in top_lang_names}
+            
+            for year in years:
+                year_total = sum(yearly_languages[year].values()) or 1
+                for lang in top_lang_names:
+                    percentage = (yearly_languages[year][lang] / year_total) * 100
+                    lang_data[lang].append(percentage)
+            
+            # Plot stacked area
+            ax.stackplot(years, *[lang_data[lang] for lang in top_lang_names], 
+                        labels=top_lang_names, alpha=0.7)
+            
+            ax.set_xlabel('Year')
+            ax.set_ylabel('Percentage of Code (%)')
+            ax.set_title('Language Usage Evolution Over Time')
+            ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+            ax.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'language_evolution.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # 3. Maintenance Quality Heatmap (only for non-empty repos)
+        fig, ax = plt.subplots(figsize=(14, 10))
+        
+        # Create matrix for heatmap
+        quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
+        
+        # Select top repos by maintenance score (non-empty only)
+        top_repos = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
+        repo_names = [stats.name[:20] for stats in top_repos]  # Top 20 repos
+        
+        quality_matrix = []
+        for stats in top_repos:
+            row = [
+                1 if stats.has_docs else 0,
+                1 if stats.has_tests else 0,
+                1 if stats.is_active else 0,
+                1 if stats.license_name else 0,
+                1 if stats.open_issues < 5 else 0
+            ]
+            quality_matrix.append(row)
+        
+        if quality_matrix:  # Only create heatmap if we have non-empty repos
+            # Create heatmap
+            sns.heatmap(quality_matrix, 
+                      xticklabels=quality_factors,
+                      yticklabels=repo_names,
+                      cmap='RdYlGn',
+                      annot=True,
+                      fmt='d',
+                      cbar_kws={'label': 'Quality Score'})
+            
+            ax.set_title('Repository Maintenance Quality Matrix')
+            ax.set_xlabel('Quality Factors')
+            ax.set_ylabel('Repositories')
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'quality_heatmap.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # 4. Empty vs Non-Empty Repository Pie Chart
+        if len(empty_repos) > 0:
+            fig, ax = plt.subplots(figsize=(10, 10))
+            labels = ['Non-Empty Repositories', 'Empty Repositories']
+            sizes = [len(non_empty_repos), len(empty_repos)]
+            colors = ['#66b3ff', '#ff9999']
+            
+            ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
+                  startangle=90, shadow=True)
+            ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+            
+            plt.title('Empty vs Non-Empty Repositories')
+            plt.savefig(self.reports_dir / 'empty_repos_chart.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        logger.info("Detailed charts saved to reports directory")
+
+
+class GithubReporter:
+    """Class responsible for generating reports from GitHub repository data"""
+    
+    def __init__(self, username: str, reports_dir: Path):
+        """Initialize the reporter with username and reports directory"""
+        self.username = username
+        self.reports_dir = reports_dir
+    
+    def generate_detailed_report(self, all_stats: List[RepoStats]) -> None:
+        """Generate detailed per-repository report"""
+        logger.info("Generating detailed repository report")
+        
+        report_path = self.reports_dir / "repo_details.md"
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(f"# 📊 Detailed Repository Analysis Report\n\n")
+            f.write(f"**User:** {self.username}\n")
+            f.write(f"**Generated:** {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"**Total Repositories:** {len(all_stats)}\n\n")
+            
+            # Table of Contents
+            f.write("## 📋 Table of Contents\n\n")
+            for i, stats in enumerate(all_stats, 1):
+                anchor = stats.name.lower().replace(' ', '-').replace('_', '-')
+                f.write(f"{i}. [🔗 {stats.name}](#{anchor})\n")
+            f.write("\n---\n\n")
+            
+            # Empty repositories
+            empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
+            if empty_repos:
+                f.write("## 🗑️ Empty Repositories\n\n")
+                f.write("The following repositories are empty (have no files or commits):\n\n")
+                for repo in empty_repos:
+                    f.write(f"- **{repo.name}** - Created on {repo.created_at.strftime('%Y-%m-%d')}\n")
+                f.write("\n---\n\n")
+            
+            # Top repositories by maintenance score
+            f.write("### 🔧 Top 10 Best Maintained Repositories\n\n")
+            # Filter out empty repositories for this ranking
+            non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
+            top_by_maintenance = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:10]
+            for i, stats in enumerate(top_by_maintenance, 1):
+                f.write(f"{i}. **{stats.name}** - {stats.maintenance_score:.1f}/100\n")
+            f.write("\n")
+            
+            # Most active repositories
+            f.write("### 🚀 Most Active Repositories (Recent Activity)\n\n")
+            active_repos_sorted = sorted([s for s in all_stats if s.is_active and "Empty repository with no files" not in s.anomalies], 
+                                       key=lambda x: x.last_commit_date, reverse=True)[:10]
+            for i, stats in enumerate(active_repos_sorted, 1):
+                f.write(f"{i}. **{stats.name}** - Last commit: {stats.last_commit_date.strftime('%Y-%m-%d')}\n")
+            f.write("\n")
+            
+            # Project age analysis
+            f.write("## 📅 Project Age Analysis\n\n")
+            oldest_repos = sorted(all_stats, key=lambda x: x.created_at)[:5]
+            newest_repos = sorted(all_stats, key=lambda x: x.created_at, reverse=True)[:5]
+            
+            f.write("### 🏛️ Oldest Projects\n")
+            for i, stats in enumerate(oldest_repos, 1):
+                f.write(f"{i}. **{stats.name}** - Created: {stats.created_at.strftime('%Y-%m-%d')}\n")
+            f.write("\n")
+            
+            f.write("### 🆕 Newest Projects\n")
+            for i, stats in enumerate(newest_repos, 1):
+                f.write(f"{i}. **{stats.name}** - Created: {stats.created_at.strftime('%Y-%m-%d')}\n")
+            f.write("\n")
+            
+            # Anomaly detection
+            f.write("## 🚨 Repository Anomalies\n\n")
+            
+            # Large repos without docs
+            large_no_docs = [s for s in all_stats if s.total_loc > 1000 and not s.has_docs]
+            if large_no_docs:
+                f.write("### 📚 Large Repositories Without Documentation\n")
+                for stats in sorted(large_no_docs, key=lambda x: x.total_loc, reverse=True)[:5]:
+                    f.write(f"- **{stats.name}** - {stats.total_loc:,} LOC, no documentation\n")
+                f.write("\n")
+            
+            # Large repos without tests
+            large_no_tests = [s for s in all_stats if s.total_loc > 1000 and not s.has_tests]
+            if large_no_tests:
+                f.write("### 🧪 Large Repositories Without Tests\n")
+                for stats in sorted(large_no_tests, key=lambda x: x.total_loc, reverse=True)[:5]:
+                    f.write(f"- **{stats.name}** - {stats.total_loc:,} LOC, no tests\n")
+                f.write("\n")
+            
+            # Stale repositories
+            stale_repos = [s for s in all_stats if not s.is_active and s.total_loc > 100]
+            if stale_repos:
+                f.write("### 💤 Potentially Stale Repositories\n")
+                for stats in sorted(stale_repos, key=lambda x: x.last_commit_date)[:10]:
+                    f.write(f"- **{stats.name}** - Last activity: {stats.last_commit_date.strftime('%Y-%m-%d')}\n")
+                f.write("\n")
+            
+            # Individual repository reports
+            for stats in all_stats:
+                anchor = stats.name.lower().replace(' ', '-').replace('_', '-')
+                f.write(f"## <a id='{anchor}'></a>📦 {stats.name}\n\n")
+                
+                # Basic info
+                f.write("### ℹ️ Basic Information\n")
+                f.write(f"- **Repository Name:** {stats.name}\n")
+                f.write(f"- **Visibility:** {'🔒 Private' if stats.is_private else '🌍 Public'}\n")
+                f.write(f"- **Default Branch:** {stats.default_branch}\n")
+                f.write(f"- **Type:** ")
+                
+                repo_type = []
+                if stats.is_fork:
+                    repo_type.append("🍴 Fork")
+                if stats.is_archived:
+                    repo_type.append("📦 Archived")
+                if stats.is_template:
+                    repo_type.append("📋 Template")
+                if "Empty repository with no files" in stats.anomalies:
+                    repo_type.append("🗑️ Empty")
+                if not repo_type:
+                    repo_type.append("📁 Regular")
+                
+                f.write(" | ".join(repo_type) + "\n")
+                f.write(f"- **Created:** {stats.created_at.strftime('%Y-%m-%d')}\n")
+                f.write(f"- **Last Pushed:** {stats.last_pushed.strftime('%Y-%m-%d') if stats.last_pushed else 'Unknown'}\n")
+                
+                if stats.description:
+                    f.write(f"- **Description:** {stats.description}\n")
+                if stats.homepage:
+                    f.write(f"- **Homepage:** {stats.homepage}\n")
+                f.write("\n")
+                
+                # Skip detailed analysis for empty repositories
+                if "Empty repository with no files" in stats.anomalies:
+                    f.write("### ⚠️ Empty Repository\n")
+                    f.write("This repository does not contain any files or commits.\n\n")
+                    f.write("---\n\n")
+                    continue
+            
+                # Code statistics
+                f.write("### 📈 Code Statistics\n")
+                f.write(f"- **Total Files:** {stats.total_files:,}\n")
+                f.write(f"- **Total Lines of Code:** {stats.total_loc:,}\n")
+                f.write(f"- **Average LOC per File:** {stats.avg_loc_per_file:.1f}\n")
+                f.write(f"- **Repository Size:** {stats.size_kb:,} KB\n")
+                f.write("\n")
+                
+                # Languages
+                if stats.languages:
+                    f.write("### 💻 Languages Used\n")
+                    sorted_langs = sorted(stats.languages.items(), key=lambda x: x[1], reverse=True)
+                    for lang, loc in sorted_langs[:10]:  # Top 10 languages
+                        percentage = (loc / stats.total_loc * 100) if stats.total_loc > 0 else 0
+                        f.write(f"- **{lang}:** {loc:,} LOC ({percentage:.1f}%)\n")
+                    f.write("\n")
+                
+                # File types
+                if stats.file_types:
+                    f.write("### 📄 File Types\n")
+                    sorted_types = sorted(stats.file_types.items(), key=lambda x: x[1], reverse=True)
+                    for file_type, count in sorted_types[:10]:  # Top 10 file types
+                        f.write(f"- **{file_type}:** {count} files\n")
+                    f.write("\n")
+                
+                # Quality indicators
+                f.write("### ✅ Quality Indicators\n")
+                f.write(f"- **Has Documentation:** {'✅ Yes' if stats.has_docs else '❌ No'}\n")
+                f.write(f"- **Has Tests:** {'✅ Yes' if stats.has_tests else '❌ No'}\n")
+                f.write(f"- **Is Active:** {'✅ Yes' if stats.is_active else '❌ No'} (commits in last 6 months)\n")
+                f.write(f"- **License:** {stats.license_name or '❌ No License'}\n")
+                f.write(f"- **Maintenance Score:** {stats.maintenance_score:.1f}/100\n")
+                f.write("\n")
+                
+                # Dependencies
+                if stats.dependency_files:
+                    f.write("### 📦 Dependency Files\n")
+                    for dep_file in stats.dependency_files:
+                        f.write(f"- `{dep_file}`\n")
+                    f.write("\n")
+                
+                # Community stats
+                f.write("### 👥 Community Statistics\n")
+                f.write(f"- **Stars:** ⭐ {stats.stars:,}\n")
+                f.write(f"- **Forks:** 🍴 {stats.forks:,}\n")
+                f.write(f"- **Watchers:** 👀 {stats.watchers:,}\n")
+                f.write(f"- **Contributors:** 👤 {stats.contributors_count:,}\n")
+                f.write(f"- **Open Issues:** 🐛 {stats.open_issues:,}\n")
+                f.write(f"- **Open Pull Requests:** 🔄 {stats.open_prs:,}\n")
+                f.write("\n")
+                
+                # Topics
+                if stats.topics:
+                    f.write("### 🏷️ Topics\n")
+                    f.write(f"- {' | '.join(f'`{topic}`' for topic in stats.topics)}\n")
+                    f.write("\n")
+                
+                # Activity
+                f.write("### 📅 Activity\n")
+                f.write(f"- **Last Commit:** {stats.last_commit_date.strftime('%Y-%m-%d %H:%M:%S') if stats.last_commit_date else 'Unknown'}\n")
+                f.write("\n")
+                
+                f.write("---\n\n")
+        
+        logger.info(f"Detailed report saved to {report_path}")
+
+    def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
+        """Generate aggregated statistics report"""
+        logger.info("Generating aggregated statistics report")
+        
+        report_path = self.reports_dir / "aggregated_stats.md"
+        
+        # Separate empty and non-empty repositories
+        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
+        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
+        
+        # Calculate aggregated statistics (excluding empty repos for most metrics)
+        total_repos = len(all_stats)
+        total_empty_repos = len(empty_repos)
+        total_loc = sum(stats.total_loc for stats in non_empty_repos)
+        total_files = sum(stats.total_files for stats in non_empty_repos)
+        total_stars = sum(stats.stars for stats in all_stats)  # Include stars from all repos
+        total_forks = sum(stats.forks for stats in all_stats)  # Include forks from all repos
+        total_watchers = sum(stats.watchers for stats in all_stats)  # Include watchers from all repos
+        
+        # Calculate excluded files statistics
+        total_excluded_files = sum(getattr(stats, 'excluded_file_count', 0) for stats in all_stats)
+        all_files_including_excluded = total_files + total_excluded_files
+        
+        # Language statistics
+        all_languages = defaultdict(int)
+        for stats in non_empty_repos:
+            for lang, loc in stats.languages.items():
+                all_languages[lang] += loc
+        
+        # License statistics
+        license_counts = Counter(stats.license_name for stats in all_stats if stats.license_name)
+        
+        # Activity statistics
+        active_repos = sum(1 for stats in non_empty_repos if stats.is_active)
+        repos_with_docs = sum(1 for stats in non_empty_repos if stats.has_docs)
+        repos_with_tests = sum(1 for stats in non_empty_repos if stats.has_tests)
+        
+        # Average statistics (only for non-empty repos)
+        non_empty_count = len(non_empty_repos)
+        avg_loc_per_repo = total_loc / non_empty_count if non_empty_count > 0 else 0
+        avg_files_per_repo = total_files / non_empty_count if non_empty_count > 0 else 0
+        avg_maintenance_score = sum(stats.maintenance_score for stats in non_empty_repos) / non_empty_count if non_empty_count > 0 else 0
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(f"# 📊 Aggregated Repository Statistics\n\n")
+            f.write(f"**User:** {self.username}\n")
+            f.write(f"**Generated:** {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            # Overview
+            f.write("## 🔍 Overview\n\n")
+            f.write(f"- **Total Repositories Analyzed:** {total_repos:,}\n")
+            if total_empty_repos > 0:
+                f.write(f"- **Empty Repositories:** {total_empty_repos:,} ({total_empty_repos/total_repos*100:.1f}%)\n")
+            f.write(f"- **Total Lines of Code:** {total_loc:,}\n")
+            f.write(f"- **Total Files Analyzed:** {total_files:,}\n")
+            
+            # Add excluded files information if applicable
+            if total_excluded_files > 0:
+                excluded_percentage = (total_excluded_files / all_files_including_excluded * 100) if all_files_including_excluded > 0 else 0
+                f.write(f"- **Files Excluded from Analysis:** {total_excluded_files:,} ({excluded_percentage:.1f}% of all files)\n")
+                f.write(f"- **Total Files (Including Excluded):** {all_files_including_excluded:,}\n")
+            
+            f.write(f"- **Average LOC per Repository:** {avg_loc_per_repo:,.0f} (excluding empty repos)\n")
+            f.write(f"- **Average Files per Repository:** {avg_files_per_repo:.1f} (excluding empty repos)\n")
+            f.write(f"- **Average Maintenance Score:** {avg_maintenance_score:.1f}/100 (excluding empty repos)\n")
+            f.write("\n")
+            
+            # Community stats
+            f.write("## 👥 Community Statistics\n\n")
+            f.write(f"- **Total Stars:** ⭐ {total_stars:,}\n")
+            f.write(f"- **Total Forks:** 🍴 {total_forks:,}\n")
+            f.write(f"- **Total Watchers:** 👀 {total_watchers:,}\n")
+            f.write("\n")
+            
+            # Language usage
+            f.write("## 💻 Language Usage Summary\n\n")
+            if all_languages:
+                sorted_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)
+                f.write("| Language | Lines of Code | Percentage |\n")
+                f.write("|----------|---------------|------------|\n")
+                for lang, loc in sorted_languages[:15]:  # Top 15 languages
+                    percentage = (loc / total_loc * 100) if total_loc > 0 else 0
+                    f.write(f"| {lang} | {loc:,} | {percentage:.1f}% |\n")
+            else:
+                f.write("No language data available.\n")
+            f.write("\n")
+            
+            # Quality metrics
+            f.write("## ✅ Quality Metrics\n\n")
+            non_empty_percent = 100 * (total_repos - total_empty_repos) / total_repos if total_repos > 0 else 0
+            f.write(f"- **Non-Empty Repositories:** {non_empty_count} ({non_empty_percent:.1f}%)\n")
+            f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
+            f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
+            f.write(f"- **Active Repositories:** {active_repos} ({active_repos/non_empty_count*100:.1f}% of non-empty)\n")
+            f.write(f"- **Repositories with License:** {len(license_counts)} ({len(license_counts)/total_repos*100:.1f}%)\n")
+            f.write("\n")
+            
+            # Add excluded content information
+            if total_excluded_files > 0:
+                f.write("## 📁 Files & Directories Exclusion\n\n")
+                f.write("For accuracy, the following content was excluded from LOC analysis:\n\n")
+                f.write("- **Build artifacts:** bin, obj, build, dist, target, Debug, Release, x64, etc.\n")
+                f.write("- **Package directories:** node_modules, vendor, venv, .gradle, etc.\n")
+                f.write("- **IDE settings:** .vs, .vscode, .idea, __pycache__, etc.\n") 
+                f.write("- **Generated files:** Binary files, compiled outputs, etc.\n")
+                f.write("\nThis exclusion provides more accurate source code metrics by focusing on developer-written code rather than including auto-generated files, binary artifacts, or third-party dependencies.\n\n")
+            
+            # License distribution
+            if license_counts:
+                f.write("## ⚖️ License Distribution\n\n")
+                f.write("| License | Count | Percentage |\n")
+                f.write("|---------|-------|------------|\n")
+                for license_name, count in license_counts.most_common(10):
+                    percentage = (count / total_repos * 100)
+                    f.write(f"| {license_name} | {count} | {percentage:.1f}% |\n")
+                f.write("\n")
+            
+            # Repository rankings (excluding empty repositories)
+            f.write("## 🏆 Repository Rankings\n\n")
+            
+            # Top repositories by LOC
+            f.write("### 📏 Top 10 Largest Repositories (by LOC)\n\n")
+            top_by_loc = sorted(non_empty_repos, key=lambda x: x.total_loc, reverse=True)[:10]
+            for i, stats in enumerate(top_by_loc, 1):
+                f.write(f"{i}. **{stats.name}** - {stats.total_loc:,} LOC\n")
+            f.write("\n")
+            
+            # Top repositories by stars
+            f.write("### ⭐ Top 10 Most Starred Repositories\n\n")
+            top_by_stars = sorted(all_stats, key=lambda x: x.stars, reverse=True)[:10]
+            for i, stats in enumerate(top_by_stars, 1):
+                empty_tag = " (empty)" if "Empty repository with no files" in stats.anomalies else ""
+                f.write(f"{i}. **{stats.name}** - {stats.stars:,} stars{empty_tag}\n")
+            f.write("\n")
+        
+        logger.info(f"Aggregated report saved to {report_path}")
+
+
+class GithubLens:
     """Main analyzer class for GitHub repositories with comprehensive analysis capabilities"""
     
     def __init__(self, token: str, username: str, config: Dict[str, Any] = None):
@@ -1020,858 +1893,117 @@ class GitHubAnalyzer:
 
     def generate_detailed_report(self, all_stats: List[RepoStats]) -> None:
         """Generate detailed per-repository report"""
-        logger.info("Generating detailed repository report")
-        
-        report_path = self.reports_dir / "repo_details.md"
-        
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(f"# 📊 Detailed Repository Analysis Report\n\n")
-            f.write(f"**User:** {self.username}\n")
-            f.write(f"**Generated:** {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"**Total Repositories:** {len(all_stats)}\n\n")
-            
-            # Table of Contents
-            f.write("## 📋 Table of Contents\n\n")
-            for i, stats in enumerate(all_stats, 1):
-                anchor = stats.name.lower().replace(' ', '-').replace('_', '-')
-                f.write(f"{i}. [🔗 {stats.name}](#{anchor})\n")
-            f.write("\n---\n\n")
-            
-            # Empty repositories
-            empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
-            if empty_repos:
-                f.write("## 🗑️ Empty Repositories\n\n")
-                f.write("The following repositories are empty (have no files or commits):\n\n")
-                for repo in empty_repos:
-                    f.write(f"- **{repo.name}** - Created on {repo.created_at.strftime('%Y-%m-%d')}\n")
-                f.write("\n---\n\n")
-            
-            # Top repositories by maintenance score
-            f.write("### 🔧 Top 10 Best Maintained Repositories\n\n")
-            # Filter out empty repositories for this ranking
-            non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-            top_by_maintenance = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:10]
-            for i, stats in enumerate(top_by_maintenance, 1):
-                f.write(f"{i}. **{stats.name}** - {stats.maintenance_score:.1f}/100\n")
-            f.write("\n")
-            
-            # Most active repositories
-            f.write("### 🚀 Most Active Repositories (Recent Activity)\n\n")
-            active_repos_sorted = sorted([s for s in all_stats if s.is_active and "Empty repository with no files" not in s.anomalies], 
-                                       key=lambda x: x.last_commit_date, reverse=True)[:10]
-            for i, stats in enumerate(active_repos_sorted, 1):
-                f.write(f"{i}. **{stats.name}** - Last commit: {stats.last_commit_date.strftime('%Y-%m-%d')}\n")
-            f.write("\n")
-            
-            # Project age analysis
-            f.write("## 📅 Project Age Analysis\n\n")
-            oldest_repos = sorted(all_stats, key=lambda x: x.created_at)[:5]
-            newest_repos = sorted(all_stats, key=lambda x: x.created_at, reverse=True)[:5]
-            
-            f.write("### 🏛️ Oldest Projects\n")
-            for i, stats in enumerate(oldest_repos, 1):
-                f.write(f"{i}. **{stats.name}** - Created: {stats.created_at.strftime('%Y-%m-%d')}\n")
-            f.write("\n")
-            
-            f.write("### 🆕 Newest Projects\n")
-            for i, stats in enumerate(newest_repos, 1):
-                f.write(f"{i}. **{stats.name}** - Created: {stats.created_at.strftime('%Y-%m-%d')}\n")
-            f.write("\n")
-            
-            # Anomaly detection
-            f.write("## 🚨 Repository Anomalies\n\n")
-            
-            # Large repos without docs
-            large_no_docs = [s for s in all_stats if s.total_loc > 1000 and not s.has_docs]
-            if large_no_docs:
-                f.write("### 📚 Large Repositories Without Documentation\n")
-                for stats in sorted(large_no_docs, key=lambda x: x.total_loc, reverse=True)[:5]:
-                    f.write(f"- **{stats.name}** - {stats.total_loc:,} LOC, no documentation\n")
-                f.write("\n")
-            
-            # Large repos without tests
-            large_no_tests = [s for s in all_stats if s.total_loc > 1000 and not s.has_tests]
-            if large_no_tests:
-                f.write("### 🧪 Large Repositories Without Tests\n")
-                for stats in sorted(large_no_tests, key=lambda x: x.total_loc, reverse=True)[:5]:
-                    f.write(f"- **{stats.name}** - {stats.total_loc:,} LOC, no tests\n")
-                f.write("\n")
-            
-            # Stale repositories
-            stale_repos = [s for s in all_stats if not s.is_active and s.total_loc > 100]
-            if stale_repos:
-                f.write("### 💤 Potentially Stale Repositories\n")
-                for stats in sorted(stale_repos, key=lambda x: x.last_commit_date)[:10]:
-                    f.write(f"- **{stats.name}** - Last activity: {stats.last_commit_date.strftime('%Y-%m-%d')}\n")
-                f.write("\n")
-            
-            # Individual repository reports
-            for stats in all_stats:
-                anchor = stats.name.lower().replace(' ', '-').replace('_', '-')
-                f.write(f"## <a id='{anchor}'></a>📦 {stats.name}\n\n")
-                
-                # Basic info
-                f.write("### ℹ️ Basic Information\n")
-                f.write(f"- **Repository Name:** {stats.name}\n")
-                f.write(f"- **Visibility:** {'🔒 Private' if stats.is_private else '🌍 Public'}\n")
-                f.write(f"- **Default Branch:** {stats.default_branch}\n")
-                f.write(f"- **Type:** ")
-                
-                repo_type = []
-                if stats.is_fork:
-                    repo_type.append("🍴 Fork")
-                if stats.is_archived:
-                    repo_type.append("📦 Archived")
-                if stats.is_template:
-                    repo_type.append("📋 Template")
-                if "Empty repository with no files" in stats.anomalies:
-                    repo_type.append("🗑️ Empty")
-                if not repo_type:
-                    repo_type.append("📁 Regular")
-                
-                f.write(" | ".join(repo_type) + "\n")
-                f.write(f"- **Created:** {stats.created_at.strftime('%Y-%m-%d')}\n")
-                f.write(f"- **Last Pushed:** {stats.last_pushed.strftime('%Y-%m-%d') if stats.last_pushed else 'Unknown'}\n")
-                
-                if stats.description:
-                    f.write(f"- **Description:** {stats.description}\n")
-                if stats.homepage:
-                    f.write(f"- **Homepage:** {stats.homepage}\n")
-                f.write("\n")
-                
-                # Skip detailed analysis for empty repositories
-                if "Empty repository with no files" in stats.anomalies:
-                    f.write("### ⚠️ Empty Repository\n")
-                    f.write("This repository does not contain any files or commits.\n\n")
-                    f.write("---\n\n")
-                    continue
-            
-                # Code statistics
-                f.write("### 📈 Code Statistics\n")
-                f.write(f"- **Total Files:** {stats.total_files:,}\n")
-                f.write(f"- **Total Lines of Code:** {stats.total_loc:,}\n")
-                f.write(f"- **Average LOC per File:** {stats.avg_loc_per_file:.1f}\n")
-                f.write(f"- **Repository Size:** {stats.size_kb:,} KB\n")
-                f.write("\n")
-                
-                # Languages
-                if stats.languages:
-                    f.write("### 💻 Languages Used\n")
-                    sorted_langs = sorted(stats.languages.items(), key=lambda x: x[1], reverse=True)
-                    for lang, loc in sorted_langs[:10]:  # Top 10 languages
-                        percentage = (loc / stats.total_loc * 100) if stats.total_loc > 0 else 0
-                        f.write(f"- **{lang}:** {loc:,} LOC ({percentage:.1f}%)\n")
-                    f.write("\n")
-                
-                # File types
-                if stats.file_types:
-                    f.write("### 📄 File Types\n")
-                    sorted_types = sorted(stats.file_types.items(), key=lambda x: x[1], reverse=True)
-                    for file_type, count in sorted_types[:10]:  # Top 10 file types
-                        f.write(f"- **{file_type}:** {count} files\n")
-                    f.write("\n")
-                
-                # Quality indicators
-                f.write("### ✅ Quality Indicators\n")
-                f.write(f"- **Has Documentation:** {'✅ Yes' if stats.has_docs else '❌ No'}\n")
-                f.write(f"- **Has Tests:** {'✅ Yes' if stats.has_tests else '❌ No'}\n")
-                f.write(f"- **Is Active:** {'✅ Yes' if stats.is_active else '❌ No'} (commits in last 6 months)\n")
-                f.write(f"- **License:** {stats.license_name or '❌ No License'}\n")
-                f.write(f"- **Maintenance Score:** {stats.maintenance_score:.1f}/100\n")
-                f.write("\n")
-                
-                # Dependencies
-                if stats.dependency_files:
-                    f.write("### 📦 Dependency Files\n")
-                    for dep_file in stats.dependency_files:
-                        f.write(f"- `{dep_file}`\n")
-                    f.write("\n")
-                
-                # Community stats
-                f.write("### 👥 Community Statistics\n")
-                f.write(f"- **Stars:** ⭐ {stats.stars:,}\n")
-                f.write(f"- **Forks:** 🍴 {stats.forks:,}\n")
-                f.write(f"- **Watchers:** 👀 {stats.watchers:,}\n")
-                f.write(f"- **Contributors:** 👤 {stats.contributors_count:,}\n")
-                f.write(f"- **Open Issues:** 🐛 {stats.open_issues:,}\n")
-                f.write(f"- **Open Pull Requests:** 🔄 {stats.open_prs:,}\n")
-                f.write("\n")
-                
-                # Topics
-                if stats.topics:
-                    f.write("### 🏷️ Topics\n")
-                    f.write(f"- {' | '.join(f'`{topic}`' for topic in stats.topics)}\n")
-                    f.write("\n")
-                
-                # Activity
-                f.write("### 📅 Activity\n")
-                f.write(f"- **Last Commit:** {stats.last_commit_date.strftime('%Y-%m-%d %H:%M:%S') if stats.last_commit_date else 'Unknown'}\n")
-                f.write("\n")
-                
-                f.write("---\n\n")
-        
-        logger.info(f"Detailed report saved to {report_path}")
+        reporter = GithubReporter(self.username, self.reports_dir)
+        reporter.generate_detailed_report(all_stats)
 
     def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
         """Generate aggregated statistics report"""
-        logger.info("Generating aggregated statistics report")
+        reporter = GithubReporter(self.username, self.reports_dir)
+        reporter.generate_aggregated_report(all_stats)
         
-        report_path = self.reports_dir / "aggregated_stats.md"
-        
-        # Separate empty and non-empty repositories
-        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
-        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-        
-        # Calculate aggregated statistics (excluding empty repos for most metrics)
-        total_repos = len(all_stats)
-        total_empty_repos = len(empty_repos)
-        total_loc = sum(stats.total_loc for stats in non_empty_repos)
-        total_files = sum(stats.total_files for stats in non_empty_repos)
-        total_stars = sum(stats.stars for stats in all_stats)  # Include stars from all repos
-        total_forks = sum(stats.forks for stats in all_stats)  # Include forks from all repos
-        total_watchers = sum(stats.watchers for stats in all_stats)  # Include watchers from all repos
-        
-        # Calculate excluded files statistics
-        total_excluded_files = sum(getattr(stats, 'excluded_file_count', 0) for stats in all_stats)
-        all_files_including_excluded = total_files + total_excluded_files
-        
-        # Language statistics
-        all_languages = defaultdict(int)
-        for stats in non_empty_repos:
-            for lang, loc in stats.languages.items():
-                all_languages[lang] += loc
-        
-        # License statistics
-        license_counts = Counter(stats.license_name for stats in all_stats if stats.license_name)
-        
-        # Activity statistics
-        active_repos = sum(1 for stats in non_empty_repos if stats.is_active)
-        repos_with_docs = sum(1 for stats in non_empty_repos if stats.has_docs)
-        repos_with_tests = sum(1 for stats in non_empty_repos if stats.has_tests)
-        
-        # Average statistics (only for non-empty repos)
-        non_empty_count = len(non_empty_repos)
-        avg_loc_per_repo = total_loc / non_empty_count if non_empty_count > 0 else 0
-        avg_files_per_repo = total_files / non_empty_count if non_empty_count > 0 else 0
-        avg_maintenance_score = sum(stats.maintenance_score for stats in non_empty_repos) / non_empty_count if non_empty_count > 0 else 0
-        
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(f"# 📊 Aggregated Repository Statistics\n\n")
-            f.write(f"**User:** {self.username}\n")
-            f.write(f"**Generated:** {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            
-            # Overview
-            f.write("## 🔍 Overview\n\n")
-            f.write(f"- **Total Repositories Analyzed:** {total_repos:,}\n")
-            if total_empty_repos > 0:
-                f.write(f"- **Empty Repositories:** {total_empty_repos:,} ({total_empty_repos/total_repos*100:.1f}%)\n")
-            f.write(f"- **Total Lines of Code:** {total_loc:,}\n")
-            f.write(f"- **Total Files Analyzed:** {total_files:,}\n")
-            
-            # Add excluded files information if applicable
-            if total_excluded_files > 0:
-                excluded_percentage = (total_excluded_files / all_files_including_excluded * 100) if all_files_including_excluded > 0 else 0
-                f.write(f"- **Files Excluded from Analysis:** {total_excluded_files:,} ({excluded_percentage:.1f}% of all files)\n")
-                f.write(f"- **Total Files (Including Excluded):** {all_files_including_excluded:,}\n")
-            
-            f.write(f"- **Average LOC per Repository:** {avg_loc_per_repo:,.0f} (excluding empty repos)\n")
-            f.write(f"- **Average Files per Repository:** {avg_files_per_repo:.1f} (excluding empty repos)\n")
-            f.write(f"- **Average Maintenance Score:** {avg_maintenance_score:.1f}/100 (excluding empty repos)\n")
-            f.write("\n")
-            
-            # Community stats
-            f.write("## 👥 Community Statistics\n\n")
-            f.write(f"- **Total Stars:** ⭐ {total_stars:,}\n")
-            f.write(f"- **Total Forks:** 🍴 {total_forks:,}\n")
-            f.write(f"- **Total Watchers:** 👀 {total_watchers:,}\n")
-            f.write("\n")
-            
-            # Language usage
-            f.write("## 💻 Language Usage Summary\n\n")
-            if all_languages:
-                sorted_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)
-                f.write("| Language | Lines of Code | Percentage |\n")
-                f.write("|----------|---------------|------------|\n")
-                for lang, loc in sorted_languages[:15]:  # Top 15 languages
-                    percentage = (loc / total_loc * 100) if total_loc > 0 else 0
-                    f.write(f"| {lang} | {loc:,} | {percentage:.1f}% |\n")
-            else:
-                f.write("No language data available.\n")
-            f.write("\n")
-            
-            # Quality metrics
-            f.write("## ✅ Quality Metrics\n\n")
-            non_empty_percent = 100 * (total_repos - total_empty_repos) / total_repos if total_repos > 0 else 0
-            f.write(f"- **Non-Empty Repositories:** {non_empty_count} ({non_empty_percent:.1f}%)\n")
-            f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
-            f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
-            f.write(f"- **Active Repositories:** {active_repos} ({active_repos/non_empty_count*100:.1f}% of non-empty)\n")
-            f.write(f"- **Repositories with License:** {len(license_counts)} ({len(license_counts)/total_repos*100:.1f}%)\n")
-            f.write("\n")
-            
-            # Add excluded content information
-            if total_excluded_files > 0:
-                f.write("## 📁 Files & Directories Exclusion\n\n")
-                f.write("For accuracy, the following content was excluded from LOC analysis:\n\n")
-                f.write("- **Build artifacts:** bin, obj, build, dist, target, Debug, Release, x64, etc.\n")
-                f.write("- **Package directories:** node_modules, vendor, venv, .gradle, etc.\n")
-                f.write("- **IDE settings:** .vs, .vscode, .idea, __pycache__, etc.\n") 
-                f.write("- **Generated files:** Binary files, compiled outputs, etc.\n")
-                f.write("\nThis exclusion provides more accurate source code metrics by focusing on developer-written code rather than including auto-generated files, binary artifacts, or third-party dependencies.\n\n")
-            
-            # License distribution
-            if license_counts:
-                f.write("## ⚖️ License Distribution\n\n")
-                f.write("| License | Count | Percentage |\n")
-                f.write("|---------|-------|------------|\n")
-                for license_name, count in license_counts.most_common(10):
-                    percentage = (count / total_repos * 100)
-                    f.write(f"| {license_name} | {count} | {percentage:.1f}% |\n")
-                f.write("\n")
-            
-            # Repository rankings (excluding empty repositories)
-            f.write("## 🏆 Repository Rankings\n\n")
-            
-            # Top repositories by LOC
-            f.write("### 📏 Top 10 Largest Repositories (by LOC)\n\n")
-            top_by_loc = sorted(non_empty_repos, key=lambda x: x.total_loc, reverse=True)[:10]
-            for i, stats in enumerate(top_by_loc, 1):
-                f.write(f"{i}. **{stats.name}** - {stats.total_loc:,} LOC\n")
-            f.write("\n")
-            
-            # Top repositories by stars
-            f.write("### ⭐ Top 10 Most Starred Repositories\n\n")
-            top_by_stars = sorted(all_stats, key=lambda x: x.stars, reverse=True)[:10]
-            for i, stats in enumerate(top_by_stars, 1):
-                empty_tag = " (empty)" if "Empty repository with no files" in stats.anomalies else ""
-                f.write(f"{i}. **{stats.name}** - {stats.stars:,} stars{empty_tag}\n")
-            f.write("\n")
-        
-        logger.info(f"Aggregated report saved to {report_path}")
-
     def create_visualizations(self, all_stats: List[RepoStats]) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
+        visualizer = GithubVisualizer(self.username, self.reports_dir)
+        visualizer.create_visualizations(all_stats)
+
+    def save_json_report(self, all_stats: List[RepoStats]) -> None:
+        """Save data as JSON for programmatic consumption"""
+        exporter = GithubExporter(self.username, self.reports_dir)
+        exporter.save_json_report(all_stats)
+
+    def is_excluded_path(self, file_path: str) -> bool:
+        """Check if a file path should be excluded from analysis"""
+        path_parts = file_path.split('/')
         
-        # Filter out empty repositories for most visualizations
-        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-        
-        # Set style for matplotlib
-        plt.style.use('seaborn-v0_8')
-        sns.set_palette("husl")
-        
-        # Create subplots for different visualizations
-        fig = make_subplots(
-            rows=4, cols=2,
-            subplot_titles=[
-                'Top 10 Languages by LOC',
-                'Repository Size Distribution',
-                'File Type Distribution',
-                'Activity Timeline',
-                'Stars vs LOC Correlation',
-                'Maintenance Score Distribution',
-                'Repository Age Distribution',
-                'Quality Metrics Overview'
-            ],
-            specs=[
-                [{"type": "bar"}, {"type": "histogram"}],
-                [{"type": "pie"}, {"type": "scatter"}],
-                [{"type": "scatter"}, {"type": "histogram"}],
-                [{"type": "bar"}, {"type": "bar"}]
-            ]
-        )
-        
-        # 1. Top 10 Languages by LOC
-        all_languages = defaultdict(int)
-        for stats in non_empty_repos:
-            for lang, loc in stats.languages.items():
-                all_languages[lang] += loc
-        
-        if all_languages:
-            top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
-            langs, locs = zip(*top_languages)
-            
-            fig.add_trace(
-                go.Bar(x=list(langs), y=list(locs), name="Languages"),
-                row=1, col=1
-            )
-        
-        # 2. Repository Size Distribution
-        repo_sizes = [stats.total_loc for stats in non_empty_repos if stats.total_loc > 0]
-        if repo_sizes:
-            fig.add_trace(
-                go.Histogram(x=repo_sizes, nbinsx=20, name="Repo Sizes"),
-                row=1, col=2
-            )
-        
-        # 3. File Type Distribution (Top 10)
-        all_file_types = defaultdict(int)
-        for stats in non_empty_repos:
-            for file_type, count in stats.file_types.items():
-                all_file_types[file_type] += count
-        
-        if all_file_types:
-            top_file_types = sorted(all_file_types.items(), key=lambda x: x[1], reverse=True)[:10]
-            types, counts = zip(*top_file_types)
-            
-            fig.add_trace(
-                go.Pie(labels=list(types), values=list(counts), name="File Types"),
-                row=2, col=1
-            )
-        
-        # 4. Activity Timeline (commits per month)
-        commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
-        if commit_dates:
-            # Group by month
-            monthly_commits = defaultdict(int)
-            for date in commit_dates:
-                month_key = date.strftime('%Y-%m')
-                monthly_commits[month_key] += 1
-            
-            # Get last 12 months
-            sorted_months = sorted(monthly_commits.items())[-12:]
-            if sorted_months:
-                months, commit_counts = zip(*sorted_months)
+        # Check if any part of the path matches excluded directories
+        for part in path_parts:
+            if part in EXCLUDED_DIRECTORIES:
+                return True
                 
-                fig.add_trace(
-                    go.Scatter(x=list(months), y=list(commit_counts), 
-                             mode='lines+markers', name="Activity"),
-                    row=2, col=2
-                )
-        
-        # 5. Stars vs LOC Correlation
-        stars = [stats.stars for stats in non_empty_repos]
-        locs = [stats.total_loc for stats in non_empty_repos]
-        names = [stats.name for stats in non_empty_repos]
-        
-        fig.add_trace(
-            go.Scatter(x=locs, y=stars, mode='markers',
-                      text=names, name="Repos",
-                      hovertemplate='<b>%{text}</b><br>LOC: %{x}<br>Stars: %{y}'),
-            row=3, col=1
-        )
-        
-        # 6. Maintenance Score Distribution
-        maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
-        if maintenance_scores:
-            fig.add_trace(
-                go.Histogram(x=maintenance_scores, nbinsx=20, name="Maintenance Scores"),
-                row=3, col=2
-            )
-        
-        # 7. Repository Age Distribution
-        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in non_empty_repos]
-        if ages:
-            fig.add_trace(
-                go.Histogram(x=ages, nbinsx=15, name="Repository Ages (Years)"),
-                row=4, col=1
-            )
-        
-        # 8. Quality Metrics Overview
-        quality_metrics = {
-            'Has Documentation': sum(1 for s in non_empty_repos if s.has_docs),
-            'Has Tests': sum(1 for s in non_empty_repos if s.has_tests),
-            'Is Active': sum(1 for s in non_empty_repos if s.is_active),
-            'Has License': sum(1 for s in non_empty_repos if s.license_name),
-        }
-        
-        fig.add_trace(
-            go.Bar(x=list(quality_metrics.keys()), y=list(quality_metrics.values()),
-                   name="Quality Metrics"),
-            row=4, col=2
-        )
-        
-        # Update layout
-        fig.update_layout(
-            height=2000,
-            title_text=f"📊 GitHub Repository Analysis Dashboard - {self.username}",
-            title_x=0.5,
-            showlegend=False,
-            template="plotly_white"
-        )
-        
-        # Update axes labels
-        fig.update_xaxes(title_text="Language", row=1, col=1)
-        fig.update_yaxes(title_text="Lines of Code", row=1, col=1)
-        
-        fig.update_xaxes(title_text="Lines of Code", row=1, col=2)
-        fig.update_yaxes(title_text="Count", row=1, col=2)
-        
-        fig.update_xaxes(title_text="Month", row=2, col=2)
-        fig.update_yaxes(title_text="Commits", row=2, col=2)
-        
-        fig.update_xaxes(title_text="Lines of Code", row=3, col=1)
-        fig.update_yaxes(title_text="Stars", row=3, col=1)
-        
-        fig.update_xaxes(title_text="Maintenance Score", row=3, col=2)
-        fig.update_yaxes(title_text="Count", row=3, col=2)
-        
-        fig.update_xaxes(title_text="Age (Years)", row=4, col=1)
-        fig.update_yaxes(title_text="Count", row=4, col=1)
-        
-        fig.update_xaxes(title_text="Quality Metric", row=4, col=2)
-        fig.update_yaxes(title_text="Count", row=4, col=2)
-        
-        # Save as interactive HTML
-        report_path = self.reports_dir / "visual_report.html"
-        
-        # Create HTML with custom styling and interactivity
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>GitHub Repository Analysis Dashboard</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    margin: 0;
-                    padding: 20px;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                }}
-                .container {{
-                    max-width: 1400px;
-                    margin: 0 auto;
-                    background: white;
-                    border-radius: 15px;
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                    overflow: hidden;
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 30px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 2.5em;
-                    font-weight: 300;
-                }}
-                .header p {{
-                    margin: 10px 0 0 0;
-                    opacity: 0.9;
-                    font-size: 1.1em;
-                }}
-                .content {{
-                    padding: 30px;
-                }}
-                .stats-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 30px;
-                }}
-                .stat-card {{
-                    background: #f8f9fa;
-                    padding: 20px;
-                    border-radius: 10px;
-                    text-align: center;
-                    border-left: 4px solid #667eea;
-                }}
-                .stat-number {{
-                    font-size: 2em;
-                    font-weight: bold;
-                    color: #333;
-                    margin-bottom: 5px;
-                }}
-                .stat-label {{
-                    color: #666;
-                    font-size: 0.9em;
-                }}
-                .chart-container {{
-                    margin: 20px 0;
-                    padding: 20px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }}
-                .theme-toggle {{
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: rgba(255,255,255,0.2);
-                    color: white;
-                    border: 2px solid rgba(255,255,255,0.3);
-                    padding: 10px 15px;
-                    border-radius: 25px;
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                }}
-                .theme-toggle:hover {{
-                    background: rgba(255,255,255,0.3);
-                }}
-                @media (prefers-color-scheme: dark) {{
-                    .dark-theme .container {{
-                        background: #1a1a1a;
-                        color: white;
-                    }}
-                    .dark-theme .stat-card,
-                    .dark-theme .chart-container {{
-                        background: #2d2d2d;
-                        color: white;
-                    }}
-                }}
-            </style>
-        </head>
-        <body>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
-            <div class="container">
-                <div class="header">
-                    <h1>📊 GitHub Repository Analysis</h1>
-                    <p>User: {self.username} | Generated: {datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </div>
-                <div class="content">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-number">{len(non_empty_repos)}</div>
-                            <div class="stat-label">Total Repositories</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-number">{sum(s.total_loc for s in non_empty_repos):,}</div>
-                            <div class="stat-label">Total Lines of Code</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-number">{sum(s.stars for s in non_empty_repos):,}</div>
-                            <div class="stat-label">Total Stars</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-number">{sum(1 for s in non_empty_repos if s.is_active)}</div>
-                            <div class="stat-label">Active Repositories</div>
-                        </div>
-                    </div>
-                    <div class="chart-container">
-                        <div id="main-dashboard"></div>
-                    </div>
-                </div>
-            </div>
+        # Also check for specific file patterns to exclude
+        file_name = path_parts[-1] if path_parts else ""
+        if any(file_name.endswith(ext) for ext in BINARY_EXTENSIONS):
+            return True
             
-            <script>
-                // Plot the main dashboard
-                var plotData = {fig.to_json()};
-                Plotly.newPlot('main-dashboard', plotData.data, plotData.layout, {{responsive: true}});
-                
-                // Theme toggle functionality
-                function toggleTheme() {{
-                    document.body.classList.toggle('dark-theme');
-                    const button = document.querySelector('.theme-toggle');
-                    if (document.body.classList.contains('dark-theme')) {{
-                        button.innerHTML = '☀️ Light Mode';
-                        Plotly.relayout('main-dashboard', {{
-                            'paper_bgcolor': '#1a1a1a',
-                            'plot_bgcolor': '#1a1a1a',
-                            'font.color': 'white'
-                        }});
-                    }} else {{
-                        button.innerHTML = '🌙 Dark Mode';
-                        Plotly.relayout('main-dashboard', {{
-                            'paper_bgcolor': 'white',
-                            'plot_bgcolor': 'white',
-                            'font.color': 'black'
-                        }});
-                    }}
-                }}
-                
-                // Add hover effects and animations
-                document.querySelectorAll('.stat-card').forEach(card => {{
-                    card.addEventListener('mouseenter', function() {{
-                        this.style.transform = 'translateY(-5px)';
-                        this.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        this.style.transition = 'all 0.3s ease';
-                    }});
-                    
-                    card.addEventListener('mouseleave', function() {{
-                        this.style.transform = 'translateY(0)';
-                        this.style.boxShadow = 'none';
-                    }});
-                }});
-            </script>
-        </body>
-        </html>
+        return False
+
+    def display_rate_usage(self, frequency_seconds=30):
         """
+        Display GitHub API rate usage information in an interactive way
+        that updates in place.
         
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
-        logger.info(f"Visual report saved to {report_path}")
-        
-        # Also create individual static charts for detailed analysis
-        self.create_detailed_charts(all_stats)
-
-    def create_detailed_charts(self, all_stats: List[RepoStats]) -> None:
-        """Create additional detailed charts"""
-        logger.info("Creating detailed charts")
-        
-        # Filter out empty repositories for most charts
-        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
-        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-        
-        # 1. Repository Timeline Chart
-        fig, ax = plt.subplots(figsize=(15, 8))
-        
-        # Prepare data for timeline
-        repo_data = []
-        for stats in all_stats:  # Include all repos, even empty ones
-            # Ensure dates are timezone-aware
-            created = ensure_utc(stats.created_at)
-            last_commit = ensure_utc(stats.last_commit_date or stats.last_pushed)
+        Args:
+            frequency_seconds: How often to update the display (in seconds)
+        """
+        try:
+            # Initialize display if not already done
+            if not hasattr(self, 'rate_display'):
+                self.rate_display = GitHubRateDisplay()
             
-            # Mark empty repositories differently
-            is_empty = "Empty repository with no files" in stats.anomalies
+            # Update rate data directly from the API
+            self.rate_display.update_from_api(self.github)
+            
+            # Display immediately
+            self.rate_display.display_once()
+            
+            # Check if below threshold
+            return self.rate_display.is_low_on_requests(self.config["CHECKPOINT_THRESHOLD"])
+            
+        except Exception as e:
+            logger.error(f"Error displaying rate usage: {e}")
+            # Fall back to simple display
+            print(f"\n📊 GitHub API Rate: API rate display failed")
+            return False
+
+    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
+        """
+        Check if the rate limit is approaching threshold and create a checkpoint if needed.
+        
+        Args:
+            all_stats: List of RepoStats objects analyzed so far
+            analyzed_repo_names: List of repository names already analyzed
+            remaining_repos: List of Repository objects still to analyze
+            
+        Returns:
+            Boolean: True if should stop processing, False if can continue
+        """
+        try:
+            # Update rate data from API
+            self.rate_display.update_from_api(self.github)
+            remaining = self.rate_display.rate_data["remaining"]
+            limit = self.rate_display.rate_data["limit"]
+            
+            # Check if below checkpoint threshold
+            if remaining <= self.config["CHECKPOINT_THRESHOLD"]:
+                logger.warning(f"Rate limit low: {remaining} of {limit} remaining")
                 
-            repo_data.append({
-                'name': stats.name,
-                'created': created,
-                'last_commit': last_commit,
-                'loc': stats.total_loc,
-                'stars': stats.stars,
-                'is_active': stats.is_active,
-                'is_empty': is_empty
-            })
-        
-        # Sort by creation date
-        repo_data.sort(key=lambda x: x['created'])
-        
-        # Create timeline
-        for i, repo in enumerate(repo_data):
-            # Use different color/style for empty repositories
-            if repo['is_empty']:
-                color = 'red'
-                alpha = 0.3
-                marker = 'x'
-            else:
-                color = 'green' if repo['is_active'] else 'gray'
-                alpha = 0.7 if repo['is_active'] else 0.3
-                marker = 'o'
-            
-            # Plot line from creation to last commit
-            ax.plot([repo['created'], repo['last_commit']], [i, i], 
-                   color=color, alpha=alpha, linewidth=2)
-            
-            # Add markers
-            ax.scatter(repo['created'], i, color='blue', s=50, alpha=0.7, marker=marker, label='Created' if i == 0 else "")
-            ax.scatter(repo['last_commit'], i, color=color, s=repo['stars']*2+20, alpha=alpha, marker=marker)
-        
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Repository')
-        ax.set_title('Repository Timeline (Creation → Last Commit)')
-        ax.grid(True, alpha=0.3)
-        
-        # Format dates
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-        plt.xticks(rotation=45)
-        
-        plt.tight_layout()
-        plt.savefig(self.reports_dir / 'repository_timeline.png', dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # 2. Language Evolution Chart
-        if len(non_empty_repos) > 1:
-            fig, ax = plt.subplots(figsize=(12, 8))
-            
-            # Group repositories by creation year and analyze language usage
-            yearly_languages = defaultdict(lambda: defaultdict(int))
-            
-            for stats in non_empty_repos:
-                # Ensure date is timezone-aware
-                created_at = ensure_utc(stats.created_at)
+                # Display rate usage
+                self.rate_display.display_once()
+                
+                # Create checkpoint
+                if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
                     
-                year = created_at.year
-                for lang, loc in stats.languages.items():
-                    yearly_languages[year][lang] += loc
-            
-            # Get top 5 languages overall
-            all_lang_totals = defaultdict(int)
-            for year_data in yearly_languages.values():
-                for lang, loc in year_data.items():
-                    all_lang_totals[lang] += loc
-            
-            top_languages = sorted(all_lang_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-            top_lang_names = [lang for lang, _ in top_languages]
-            
-            # Create stacked area chart
-            years = sorted(yearly_languages.keys())
-            lang_data = {lang: [] for lang in top_lang_names}
-            
-            for year in years:
-                year_total = sum(yearly_languages[year].values()) or 1
-                for lang in top_lang_names:
-                    percentage = (yearly_languages[year][lang] / year_total) * 100
-                    lang_data[lang].append(percentage)
-            
-            # Plot stacked area
-            ax.stackplot(years, *[lang_data[lang] for lang in top_lang_names], 
-                        labels=top_lang_names, alpha=0.7)
-            
-            ax.set_xlabel('Year')
-            ax.set_ylabel('Percentage of Code (%)')
-            ax.set_title('Language Usage Evolution Over Time')
-            ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-            ax.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            plt.savefig(self.reports_dir / 'language_evolution.png', dpi=300, bbox_inches='tight')
-            plt.close()
-        
-        # 3. Maintenance Quality Heatmap (only for non-empty repos)
-        fig, ax = plt.subplots(figsize=(14, 10))
-        
-        # Create matrix for heatmap
-        quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
-        
-        # Select top repos by maintenance score (non-empty only)
-        top_repos = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
-        repo_names = [stats.name[:20] for stats in top_repos]  # Top 20 repos
-        
-        quality_matrix = []
-        for stats in top_repos:
-            row = [
-                1 if stats.has_docs else 0,
-                1 if stats.has_tests else 0,
-                1 if stats.is_active else 0,
-                1 if stats.license_name else 0,
-                1 if stats.open_issues < 5 else 0
-            ]
-            quality_matrix.append(row)
-        
-        if quality_matrix:  # Only create heatmap if we have non-empty repos
-            # Create heatmap
-            sns.heatmap(quality_matrix, 
-                      xticklabels=quality_factors,
-                      yticklabels=repo_names,
-                      cmap='RdYlGn',
-                      annot=True,
-                      fmt='d',
-                      cbar_kws={'label': 'Quality Score'})
-            
-            ax.set_title('Repository Maintenance Quality Matrix')
-            ax.set_xlabel('Quality Factors')
-            ax.set_ylabel('Repositories')
-            
-            plt.tight_layout()
-            plt.savefig(self.reports_dir / 'quality_heatmap.png', dpi=300, bbox_inches='tight')
-            plt.close()
-        
-        # 4. Empty vs Non-Empty Repository Pie Chart
-        if len(empty_repos) > 0:
-            fig, ax = plt.subplots(figsize=(10, 10))
-            labels = ['Non-Empty Repositories', 'Empty Repositories']
-            sizes = [len(non_empty_repos), len(empty_repos)]
-            colors = ['#66b3ff', '#ff9999']
-            
-            ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
-                  startangle=90, shadow=True)
-            ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
-            
-            plt.title('Empty vs Non-Empty Repositories')
-            plt.savefig(self.reports_dir / 'empty_repos_chart.png', dpi=300, bbox_inches='tight')
-            plt.close()
-        
-        logger.info("Detailed charts saved to reports directory")
+                # Return True to indicate should stop processing
+                return True
+                
+            # Still have enough requests
+            return False
+                
+        except Exception as e:
+            logger.error(f"Error checking rate limit: {e}")
+            return False
 
+
+class GithubExporter:
+    """Class responsible for exporting GitHub repository data to various formats"""
+    
+    def __init__(self, username: str, reports_dir: Path):
+        """Initialize the exporter with username and reports directory"""
+        self.username = username
+        self.reports_dir = reports_dir
+    
     def save_json_report(self, all_stats: List[RepoStats]) -> None:
         """Save data as JSON for programmatic consumption"""
         logger.info("Saving JSON report")
@@ -2001,86 +2133,3 @@ class GitHubAnalyzer:
             json.dump(json_data, f, indent=2, cls=DateTimeEncoder, ensure_ascii=False)
         
         logger.info(f"JSON report saved to {json_path}")
-
-    def is_excluded_path(self, file_path: str) -> bool:
-        """Check if a file path should be excluded from analysis"""
-        path_parts = file_path.split('/')
-        
-        # Check if any part of the path matches excluded directories
-        for part in path_parts:
-            if part in EXCLUDED_DIRECTORIES:
-                return True
-                
-        # Also check for specific file patterns to exclude
-        file_name = path_parts[-1] if path_parts else ""
-        if any(file_name.endswith(ext) for ext in BINARY_EXTENSIONS):
-            return True
-            
-        return False
-
-    def display_rate_usage(self, frequency_seconds=30):
-        """
-        Display GitHub API rate usage information in an interactive way
-        that updates in place.
-        
-        Args:
-            frequency_seconds: How often to update the display (in seconds)
-        """
-        try:
-            # Initialize display if not already done
-            if not hasattr(self, 'rate_display'):
-                self.rate_display = GitHubRateDisplay()
-            
-            # Update rate data directly from the API
-            self.rate_display.update_from_api(self.github)
-            
-            # Display immediately
-            self.rate_display.display_once()
-            
-            # Check if below threshold
-            return self.rate_display.is_low_on_requests(self.config["CHECKPOINT_THRESHOLD"])
-            
-        except Exception as e:
-            logger.error(f"Error displaying rate usage: {e}")
-            # Fall back to simple display
-            print(f"\n📊 GitHub API Rate: API rate display failed")
-            return False
-
-    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
-        """
-        Check if the rate limit is approaching threshold and create a checkpoint if needed.
-        
-        Args:
-            all_stats: List of RepoStats objects analyzed so far
-            analyzed_repo_names: List of repository names already analyzed
-            remaining_repos: List of Repository objects still to analyze
-            
-        Returns:
-            Boolean: True if should stop processing, False if can continue
-        """
-        try:
-            # Update rate data from API
-            self.rate_display.update_from_api(self.github)
-            remaining = self.rate_display.rate_data["remaining"]
-            limit = self.rate_display.rate_data["limit"]
-            
-            # Check if below checkpoint threshold
-            if remaining <= self.config["CHECKPOINT_THRESHOLD"]:
-                logger.warning(f"Rate limit low: {remaining} of {limit} remaining")
-                
-                # Display rate usage
-                self.rate_display.display_once()
-                
-                # Create checkpoint
-                if self.config["ENABLE_CHECKPOINTING"] and all_stats:
-                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
-                    
-                # Return True to indicate should stop processing
-                return True
-                
-            # Still have enough requests
-            return False
-                
-        except Exception as e:
-            logger.error(f"Error checking rate limit: {e}")
-            return False
