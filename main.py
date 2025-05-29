@@ -7,6 +7,15 @@ It handles configuration loading, user input validation, and executes the analys
 """
 
 import os
+#!/usr/bin/env python3
+"""
+GitHub Repository Analyzer - Main entry point
+
+This module provides the main entry point for the GitHub Repository Analyzer tool.
+It handles configuration loading, user input validation, and executes the analysis.
+"""
+
+import os
 from pathlib import Path
 
 from github import Github
