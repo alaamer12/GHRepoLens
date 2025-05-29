@@ -1,0 +1,7 @@
+seaborn
+matplotlib
+plotly
+tqdm
+requests
+pygithub
+
