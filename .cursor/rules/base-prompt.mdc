@@ -1,0 +1,118 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+**🔮 ADVANCED AI PROMPT: GitHub Repository Analyzer (Written + Visual Reports)**
+
+> **Goal:**
+> Create a professional-grade Python script that uses the GitHub API to **iterate over all public and private repositories** of a user (with a provided **personal access token**) and generates **two detailed reports**:
+
+---
+
+### 📄 Report 1: Written Report (Markdown / HTML / TXT format)
+
+Divided into **two output files**:
+
+#### A. Per-Repository Report File (`reports/repo_details.md`)
+
+* Each repository report includes detailed statistics:
+
+  * **Repository Name**
+  * **Is Private / Public**
+  * **Default Branch**
+  * **Is Fork / Is Archived / Is Template**
+  * **Date Created / Last Pushed**
+  * **Languages Used** (from GitHub API and from file analysis fallback)
+  * **Has Documentation** (`docs/` directory or `/README.md`)
+  * **Total Number of Files**
+  * **Total Lines of Code (LOC)** — excluding vendored, config, and binary files
+  * **Average LOC per File**
+  * **Most Common File Types**
+  * **Test Coverage** — Detects if the repo contains test files (e.g., `tests/`, `*_test.py`)
+  * **Dependency Files** (e.g., `requirements.txt`, `package.json`, `pyproject.toml`)
+  * **Last Commit Date**
+  * **Is Active** (e.g., commits in the last 6 months)
+  * **License Type**
+  * **Contributors Count**
+  * **Open Issues / Pull Requests Count**
+  * **Main Topics or Tags**
+* Each repo block is separated by `---`.
+* Add a **Table of Contents (ToC)** at the top that links to each repository's section (via anchor links in markdown).
+
+#### B. Aggregated Overview Report File (`reports/aggregated_stats.md`)
+
+Summarize all repositories with:
+
+* **Total Repos Analyzed**
+* **Language Usage Summary** (sorted by LOC or file count)
+* **Average Repo Size (LOC, files)**
+* **Most Common Project Structures**
+* **Percentage of Repos with Docs**
+* **Percentage of Repos with Tests**
+* **Most Frequently Used Licenses**
+* **Total Stars, Forks, Watchers**
+* **Activity Heatmap (repos with recent activity vs dormant ones)**
+
+---
+
+### 📊 Report 2: Visual Report (PDF / Interactive HTML with Charts)
+
+Use data from the analysis to generate visual dashboards with `matplotlib`, `seaborn`, or `plotly`:
+
+#### Repository Rankings:
+
+* **Top 10 Largest Repositories (LOC)**
+* **Top 10 Most Active Repositories** (recent commit activity)
+* **Top 10 Most Maintained Repositories** (presence of CI/CD, tests, docs, commit frequency)
+* **Top 10 Oldest / Youngest Projects**
+* **Top 10 Most Starred / Forked / Watched Repos**
+
+#### Visual Aggregates:
+
+* **Bar Chart** – Language usage across repos
+* **Pie Chart** – File type distribution
+* **Boxplot** – LOC distribution per repo
+* **Heatmap** – Last commit activity over time
+* **Stacked Area Chart** – Language adoption over time (if possible from commit history)
+* **Bubble Chart** – Repo size vs activity vs stars
+
+Include:
+
+* **Interactivity** (hover for data, clickable links if using `plotly`)
+* **Theme-Switching** (light/dark for HTML)
+
+---
+
+### ⚖️ Script Requirements
+
+* Use `PyGithub` or direct GitHub API calls (with token)
+* Use `tqdm.auto.tqdm` for progress bars:
+
+  * Main repo progress: `tqdm(..., leave=True, colour='green')`
+  * Sub-tasks per repo (e.g., counting files): `tqdm(..., leave=False, colour='cyan')`
+* Local file scanning using `os`, `pathlib`, and optionally `cloc`
+* Use `matplotlib`, `seaborn`, `plotly`, or `pandas-profiling` for visualizations
+* Output locations:
+
+  * Written report per-repo: `reports/repo_details.md`
+  * Written report aggregate: `reports/aggregated_stats.md`
+  * Visual report: `reports/visual_report.html`
+* Modular code structure with helper functions and `main()`
+* Token and settings passed as variables in the script (no CLI)
+* Include logging, exception handling, and clear organization
+
+---
+
+### ✅ Bonus Intelligence Tasks (Optional but Smart Enhancements)
+
+* **Generate a JSON report for programmatic consumption**
+* **Flag anomalous repos** (e.g., high LOC but no README or tests)
+* **Detect stale dependencies** (if possible)
+* **Rank repos by estimated maintenance quality**
+* **Auto-detect monorepos** (multiple language or sub-package support)
+
+---
+
+**Final Output:**
+A Python script (`analyze_github_repos.py`) that produces a large detailed repo-by-repo report with ToC, an aggregated summary file, and a rich visual report. Runs from a `main()` function using an internally provided GitHub token and `tqdm` for styled progress tracking.
