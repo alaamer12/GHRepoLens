@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from tqdm.auto import tqdm
-from config import  logger
+from config import logger, Configuration
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     """Ensure a datetime object has UTC timezone information."""
@@ -183,7 +183,7 @@ class GitHubRateDisplay:
 class Checkpoint:
     """Class to handle saving and loading analysis checkpoints."""
     
-    def __init__(self, config: Dict[str, Any], username: str):
+    def __init__(self, config: Configuration, username: str):
         self.config = config
         self.username = username
         self.checkpoint_path = Path(config["CHECKPOINT_FILE"])

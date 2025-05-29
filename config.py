@@ -8,9 +8,28 @@ import logging
 import configparser
 from pathlib import Path
 from datetime import datetime
+from typing import TypedDict, Dict, Any, Optional, List, Union
+
+class Configuration(TypedDict):
+    """TypedDict defining the structure and types of configuration parameters."""
+    GITHUB_TOKEN: str
+    USERNAME: str
+    REPORTS_DIR: str
+    CLONE_DIR: str
+    MAX_WORKERS: int
+    INACTIVE_THRESHOLD_DAYS: int
+    LARGE_REPO_LOC_THRESHOLD: int
+    SKIP_FORKS: bool
+    SKIP_ARCHIVED: bool
+    INCLUDE_PRIVATE: bool
+    ANALYZE_CLONES: bool
+    ENABLE_CHECKPOINTING: bool
+    CHECKPOINT_FILE: str
+    CHECKPOINT_THRESHOLD: int
+    RESUME_FROM_CHECKPOINT: bool
 
 # Configuration - these will be replaced by command line args or config file
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Configuration = {
     "GITHUB_TOKEN": "your_github_token_here",
     "USERNAME": "your_username_here",
     "REPORTS_DIR": "reports",
@@ -304,7 +323,7 @@ def setup_logging(log_dir="logs"):
     logger.info(f"Logging initialized. Log file: {log_file}")
     return logger
 
-def load_config_from_file(config_file: str) -> dict:
+def load_config_from_file(config_file: str) -> Configuration:
     """Load configuration from a file"""
     config = DEFAULT_CONFIG.copy()
     
@@ -365,7 +384,7 @@ def load_config_from_file(config_file: str) -> dict:
         logger.error(f"Error loading config file {config_file}: {e}")
         return config
 
-def create_sample_config():
+def create_sample_config() -> None:
     """Create a sample configuration file if it doesn't exist"""
     config_file = 'config.ini.sample'
     

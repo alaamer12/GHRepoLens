@@ -2,7 +2,7 @@ from asyncio.log import logger
 from urllib import request
 from zipfile import Path
 
-from main import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES, DEFAULT_CONFIG, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS
+from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES, DEFAULT_CONFIG, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, Configuration
 from models import RepoStats
 from utilities import Checkpoint, GitHubRateDisplay, ensure_utc
 import json
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict, Counter
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import concurrent.futures
 
 from github import Github
@@ -900,7 +900,7 @@ class GithubReporter:
 class GithubLens:
     """Main analyzer class for GitHub repositories with comprehensive analysis capabilities"""
     
-    def __init__(self, token: str, username: str, config: Dict[str, Any] = None):
+    def __init__(self, token: str, username: str, config: Optional[Configuration] = None):
         """Initialize the analyzer with GitHub token and configuration"""
         self.config = DEFAULT_CONFIG.copy()
         if config:
@@ -1158,7 +1158,7 @@ class GithubExporter:
 class GithubAnalyzer:
     """Class responsible for analyzing GitHub repositories"""
     
-    def __init__(self, github, username: str, config: Dict[str, Any] = None):
+    def __init__(self, github, username: str, config: Optional[Configuration] = None):
         """Initialize the analyzer with GitHub client, username and configuration"""
         self.github = github
         self.username = username

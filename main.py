@@ -1,7 +1,8 @@
 from pathlib import Path
 from venv import logger
+from typing import Optional
 
-from config import DEFAULT_CONFIG
+from config import DEFAULT_CONFIG, Configuration
 from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
 from tqdm.auto import tqdm
@@ -13,12 +14,12 @@ from reports import GithubLens
 from config import create_sample_config, load_config_from_file
 
 
-def run_demo(token: str, username: str, config=None) -> None:
+def run_demo(token: str, username: str, config: Optional[Configuration] = None) -> None:
     """Run a demonstration analysis on only 10 repositories for quick testing"""
     logger.info("🔮 Starting GitHub Repository Analyzer in DEMO mode (10 repos max)")
     
     # Create configuration with default settings
-    demo_config = DEFAULT_CONFIG.copy()
+    demo_config: Configuration = DEFAULT_CONFIG.copy()
     demo_config["GITHUB_TOKEN"] = token
     demo_config["USERNAME"] = username
     # Set demo-specific checkpoint file to avoid mixing with full analysis
@@ -209,7 +210,7 @@ def main(demo_mode=False):
     # If demo mode is requested, run the demo function instead
     if demo_mode:
         # Create demo config with proper threshold
-        demo_config = DEFAULT_CONFIG.copy()
+        demo_config: Configuration = DEFAULT_CONFIG.copy()
         demo_config["GITHUB_TOKEN"] = GITHUB_TOKEN
         demo_config["USERNAME"] = USERNAME
         demo_config["CHECKPOINT_THRESHOLD"] = CHECKPOINT_THRESHOLD
@@ -225,7 +226,7 @@ def main(demo_mode=False):
         return
     
     # Create the final configuration dictionary
-    config = {
+    config: Configuration = {
         "GITHUB_TOKEN": GITHUB_TOKEN,
         "USERNAME": USERNAME,
         "REPORTS_DIR": REPORTS_DIR,
