@@ -938,10 +938,11 @@ class GithubLens:
         self.analyzer = GithubAnalyzer(self.github, username, self.config)
         # Set rate display for analyzer
         self.analyzer.rate_display = self.rate_display
+        self.analyzer.checkpoint = self.checkpoint
         
         logger.info(f"Initialized analyzer for user: {username}")
         
-    def start_continuous_rate_monitoring(self, update_interval=30):
+    def start_monitoring(self, update_interval=30):
         """
         Start continuous rate monitoring in a background thread.
         
@@ -965,7 +966,7 @@ class GithubLens:
             logger.error(f"Error starting continuous rate monitoring: {e}")
             return False
             
-    def stop_continuous_rate_monitoring(self):
+    def stop_monitoring(self):
         """Stop continuous rate monitoring"""
         try:
             self.rate_display.stop()
@@ -974,82 +975,230 @@ class GithubLens:
         except Exception as e:
             logger.error(f"Error stopping continuous rate monitoring: {e}")
             return False
-    
-    def save_checkpoint(self, all_stats: List[RepoStats], analyzed_repo_names: List[str], remaining_repos: List[Repository]) -> None:
-        """Delegate checkpoint saving to the Checkpoint class."""
-        self.checkpoint.save(all_stats, analyzed_repo_names, remaining_repos)
-    
-    def load_checkpoint(self) -> Dict[str, Any]:
-        """Delegate checkpoint loading to the Checkpoint class."""
-        return self.checkpoint.load()
 
     def setup_github_client(self, token: str):
         """Set up GitHub client with custom backoff handling to show progress bars"""
         try:
-            # Custom exception handler for GitHub client to visualize backoffs
-            def backoff_handler(exception, *args, **kwargs):
-                if isinstance(exception, RateLimitExceededException):
-                    reset_time = self.github.get_rate_limit().core.reset
-                    wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
-                    if wait_time > 0:
-                        logger.warning(f"Rate limit exceeded. Waiting {wait_time:.1f}s until reset.")
-                        self.analyzer._visualize_wait(wait_time, "Rate limit cooldown")
-                        return True  # Retry after backoff
-                    return False  # Don't retry if no wait time
-                
-                # Handle backoff responses
-                if isinstance(exception, GithubException) and hasattr(exception, "data"):
-                    # Look for backoff information in the exception
-                    message = str(exception)
-                    backoff_match = re.search(r"Setting next backoff to (\d+\.\d+)s", message)
-                    if backoff_match:
-                        wait_time = float(backoff_match.group(1))
-                        if wait_time > 0:
-                            logger.warning(f"GitHub API backoff triggered. Waiting {wait_time:.1f}s.")
-                            self.analyzer._visualize_wait(wait_time, "GitHub API backoff")
-                            return True  # Retry after backoff
-                
-                return False  # Don't retry for other exceptions
-            
-            # Create GitHub client
             self.github = Github(token)
-            
-            # We can't directly customize PyGithub's backoff handler, but we'll use our own check
-            # before making API calls in _check_rate_limit
-            
         except Exception as e:
             logger.error(f"Error setting up GitHub client: {e}")
             raise
-    
-    def _check_rate_limit(self) -> None:
-        """Check GitHub API rate limit and wait if necessary"""
-        try:
-            # Increment API request counter
-            self.api_requests_made += 1
-            
-            # Update rate data from API
-            self.rate_display.update_from_api(self.github)
-            
-            # Get data from display object
-            remaining = self.rate_display.rate_data["remaining"]
-            reset_time = self.rate_display.rate_data["reset_time"]
-            
-            if remaining < 100:  # Low on remaining requests
-                # Display current rate usage
-                self.rate_display.display_once()
-                
-                # Check if we need to wait
-                wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
-                if wait_time > 0:
-                    logger.warning(f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
-                    self.analyzer._visualize_wait(wait_time, "Rate limit cooldown")
-        except Exception as e:
-            logger.warning(f"Could not check rate limit: {e}")
 
     def analyze_single_repository(self, repo: Repository) -> RepoStats:
         """Analyze a single repository using the GithubAnalyzer"""
         # Pass to the analyzer instance
         return self.analyzer.analyze_single_repository(repo)
+
+    def analyze_all_repositories(self) -> List[RepoStats]:
+        """Analyze all repositories for the user"""
+        # Delegate to the analyzer instance
+        return self.analyzer.analyze_all_repositories()
+
+    def generate_detailed_report(self, all_stats: List[RepoStats]) -> None:
+        """Generate detailed per-repository report"""
+        reporter = GithubReporter(self.username, self.reports_dir)
+        reporter.generate_detailed_report(all_stats)
+
+    def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
+        """Generate aggregated statistics report"""
+        reporter = GithubReporter(self.username, self.reports_dir)
+        reporter.generate_aggregated_report(all_stats)
+        
+    def create_visualizations(self, all_stats: List[RepoStats]) -> None:
+        """Generate visual reports with charts and graphs"""
+        logger.info("Generating visual report")
+        visualizer = GithubVisualizer(self.username, self.reports_dir)
+        visualizer.create_visualizations(all_stats)
+
+    def save_json_report(self, all_stats: List[RepoStats]) -> None:
+        """Save data as JSON for programmatic consumption"""
+        exporter = GithubExporter(self.username, self.reports_dir)
+        exporter.save_json_report(all_stats)
+
+
+class GithubExporter:
+    """Class responsible for exporting GitHub repository data to various formats"""
+    
+    def __init__(self, username: str, reports_dir: Path):
+        """Initialize the exporter with username and reports directory"""
+        self.username = username
+        self.reports_dir = reports_dir
+    
+    def save_json_report(self, all_stats: List[RepoStats]) -> None:
+        """Save data as JSON for programmatic consumption"""
+        logger.info("Saving JSON report")
+        
+        # Count empty repositories
+        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
+        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
+        
+        # Custom JSON encoder for datetime objects
+        class DateTimeEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, datetime):
+                    # Ensure the datetime has timezone info before serialization
+                    if obj.tzinfo is None:
+                        obj = obj.replace(tzinfo=timezone.utc)
+                    return obj.isoformat()
+                return super().default(obj)
+        
+        # Convert RepoStats to dictionaries with field-by-field error handling
+        repo_dicts = []
+        for stats in all_stats:
+            try:
+                # Manual conversion instead of using asdict to avoid serialization issues
+                repo_dict = {}
+                
+                # Basic repository information
+                repo_dict["name"] = stats.name
+                repo_dict["is_private"] = stats.is_private
+                repo_dict["default_branch"] = stats.default_branch
+                repo_dict["is_fork"] = stats.is_fork
+                repo_dict["is_archived"] = stats.is_archived
+                repo_dict["is_template"] = stats.is_template
+                
+                # Handle datetime fields with timezone awareness
+                repo_dict["created_at"] = stats.created_at.replace(tzinfo=timezone.utc) if stats.created_at else None
+                repo_dict["last_pushed"] = stats.last_pushed.replace(tzinfo=timezone.utc) if stats.last_pushed else None
+                repo_dict["last_commit_date"] = stats.last_commit_date.replace(tzinfo=timezone.utc) if stats.last_commit_date else None
+                
+                # Code statistics
+                repo_dict["languages"] = dict(stats.languages) if stats.languages else {}
+                repo_dict["total_files"] = stats.total_files
+                repo_dict["total_loc"] = stats.total_loc
+                repo_dict["avg_loc_per_file"] = stats.avg_loc_per_file
+                repo_dict["file_types"] = dict(stats.file_types) if stats.file_types else {}
+                repo_dict["size_kb"] = stats.size_kb
+                
+                # Quality indicators
+                repo_dict["has_docs"] = stats.has_docs
+                repo_dict["has_readme"] = stats.has_readme
+                repo_dict["has_tests"] = stats.has_tests
+                repo_dict["test_files_count"] = stats.test_files_count
+                repo_dict["test_coverage_percentage"] = stats.test_coverage_percentage
+                repo_dict["has_cicd"] = stats.has_cicd
+                repo_dict["cicd_files"] = list(stats.cicd_files) if stats.cicd_files else []
+                repo_dict["dependency_files"] = list(stats.dependency_files) if stats.dependency_files else []
+                
+                # Activity metrics
+                repo_dict["is_active"] = stats.is_active
+                repo_dict["commit_frequency"] = stats.commit_frequency
+                repo_dict["commits_last_month"] = stats.commits_last_month
+                repo_dict["commits_last_year"] = stats.commits_last_year
+                
+                # Community metrics
+                repo_dict["license_name"] = stats.license_name
+                repo_dict["license_spdx_id"] = stats.license_spdx_id
+                repo_dict["contributors_count"] = stats.contributors_count
+                repo_dict["open_issues"] = stats.open_issues
+                repo_dict["open_prs"] = stats.open_prs
+                repo_dict["closed_issues"] = stats.closed_issues
+                repo_dict["topics"] = list(stats.topics) if stats.topics else []
+                repo_dict["stars"] = stats.stars
+                repo_dict["forks"] = stats.forks
+                repo_dict["watchers"] = stats.watchers
+                
+                # Additional metadata
+                repo_dict["description"] = stats.description
+                repo_dict["homepage"] = stats.homepage
+                
+                # Analysis scores
+                repo_dict["maintenance_score"] = stats.maintenance_score
+                repo_dict["popularity_score"] = stats.popularity_score
+                repo_dict["code_quality_score"] = stats.code_quality_score
+                repo_dict["documentation_score"] = stats.documentation_score
+                
+                # Anomalies and structure
+                repo_dict["anomalies"] = list(stats.anomalies) if stats.anomalies else []
+                repo_dict["is_monorepo"] = stats.is_monorepo
+                repo_dict["primary_language"] = stats.primary_language
+                repo_dict["project_structure"] = dict(stats.project_structure) if stats.project_structure else {}
+                
+                repo_dicts.append(repo_dict)
+                
+            except Exception as e:
+                logger.warning(f"Failed to convert repository '{stats.name}' to JSON: {str(e)}")
+                # Add a simplified version instead
+                repo_dicts.append({
+                    "name": stats.name,
+                    "error": f"Failed to serialize: {str(e)}",
+                    "is_private": getattr(stats, "is_private", False),
+                    "total_files": getattr(stats, "total_files", 0),
+                    "total_loc": getattr(stats, "total_loc", 0)
+                })
+        
+        json_data = {
+            'metadata': {
+                'username': self.username,
+                'generated_at': datetime.now().replace(tzinfo=timezone.utc).isoformat(),
+                'total_repositories': len(all_stats),
+                'empty_repositories': len(empty_repos),
+                'analyzer_version': '1.0.0'
+            },
+            'repositories': repo_dicts,
+            'aggregated_stats': {
+                'total_loc': sum(s.total_loc for s in non_empty_repos),
+                'total_files': sum(s.total_files for s in non_empty_repos),
+                'total_stars': sum(s.stars for s in all_stats),
+                'total_forks': sum(s.forks for s in all_stats),
+                'active_repos': sum(1 for s in non_empty_repos if s.is_active),
+                'repos_with_docs': sum(1 for s in non_empty_repos if s.has_docs),
+                'repos_with_tests': sum(1 for s in non_empty_repos if s.has_tests),
+                'avg_maintenance_score': sum(s.maintenance_score for s in non_empty_repos) / len(non_empty_repos) if non_empty_repos else 0
+            }
+        }
+        
+        json_path = self.reports_dir / "repository_data.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, cls=DateTimeEncoder, ensure_ascii=False)
+        
+        logger.info(f"JSON report saved to {json_path}")
+
+
+class GithubAnalyzer:
+    """Class responsible for analyzing GitHub repositories"""
+    
+    def __init__(self, github, username: str, config: Dict[str, Any] = None):
+        """Initialize the analyzer with GitHub client, username and configuration"""
+        self.github = github
+        self.username = username
+        self.config = config
+        self.rate_display = None
+        self.session = None
+        self.user = None
+        self.checkpoint = None
+        self.max_workers = self.config.get("MAX_WORKERS", 1) if self.config else 1
+
+    def check_rate_limit(self) -> None:
+        """Check GitHub API rate limit and wait if necessary"""
+        try:
+            # Get rate data from API
+            rate_limit = self.github.get_rate_limit()
+            remaining = rate_limit.core.remaining
+            reset_time = rate_limit.core.reset
+            
+            if remaining < 100:  # Low on remaining requests
+                # Check if we need to wait
+                wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
+                if wait_time > 0:
+                    logger.warning(f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
+                    self._visualize_wait(wait_time, "Rate limit cooldown")
+        except Exception as e:
+            logger.warning(f"Could not check rate limit: {e}")
+            
+    def _visualize_wait(self, wait_time: float, desc: str):
+        """Display a progress bar for wait periods"""
+        # Cap very long waits to show reasonable progress
+        if wait_time > 3600:  # If more than an hour
+            logger.warning(f"Long wait time detected ({wait_time:.1f}s). Showing progress for first hour.")
+            print(f"⚠️ GitHub API requires a long cooldown period ({wait_time/60:.1f} minutes)")
+            print(f"The script will automatically continue after the wait period.")
+            wait_time = 3600  # Cap to 1 hour for the progress bar
+        
+        # Show progress bar for the wait
+        wait_seconds = int(wait_time)
+        for _ in tqdm(range(wait_seconds), desc=desc, colour="yellow", leave=True):
+            time.sleep(1)
 
     def analyze_all_repositories(self) -> List[RepoStats]:
         """Analyze all repositories for the user"""
@@ -1072,7 +1221,7 @@ class GithubLens:
                 print(f"📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
             
             # Initialize GitHub user with rate limit check
-            self._check_rate_limit()
+            self.check_rate_limit()
             self.user = self.github.get_user(self.username)
             
             # Get all repositories
@@ -1250,55 +1399,6 @@ class GithubLens:
                 self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
             raise
 
-    def generate_detailed_report(self, all_stats: List[RepoStats]) -> None:
-        """Generate detailed per-repository report"""
-        reporter = GithubReporter(self.username, self.reports_dir)
-        reporter.generate_detailed_report(all_stats)
-
-    def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
-        """Generate aggregated statistics report"""
-        reporter = GithubReporter(self.username, self.reports_dir)
-        reporter.generate_aggregated_report(all_stats)
-        
-    def create_visualizations(self, all_stats: List[RepoStats]) -> None:
-        """Generate visual reports with charts and graphs"""
-        logger.info("Generating visual report")
-        visualizer = GithubVisualizer(self.username, self.reports_dir)
-        visualizer.create_visualizations(all_stats)
-
-    def save_json_report(self, all_stats: List[RepoStats]) -> None:
-        """Save data as JSON for programmatic consumption"""
-        exporter = GithubExporter(self.username, self.reports_dir)
-        exporter.save_json_report(all_stats)
-
-    def display_rate_usage(self, frequency_seconds=30):
-        """
-        Display GitHub API rate usage information in an interactive way
-        that updates in place.
-        
-        Args:
-            frequency_seconds: How often to update the display (in seconds)
-        """
-        try:
-            # Initialize display if not already done
-            if not hasattr(self, 'rate_display'):
-                self.rate_display = GitHubRateDisplay()
-            
-            # Update rate data directly from the API
-            self.rate_display.update_from_api(self.github)
-            
-            # Display immediately
-            self.rate_display.display_once()
-            
-            # Check if below threshold
-            return self.rate_display.is_low_on_requests(self.config["CHECKPOINT_THRESHOLD"])
-            
-        except Exception as e:
-            logger.error(f"Error displaying rate usage: {e}")
-            # Fall back to simple display
-            print(f"\n📊 GitHub API Rate: API rate display failed")
-            return False
-
     def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
         """
         Check if the rate limit is approaching threshold and create a checkpoint if needed.
@@ -1337,188 +1437,14 @@ class GithubLens:
         except Exception as e:
             logger.error(f"Error checking rate limit: {e}")
             return False
-
-
-class GithubExporter:
-    """Class responsible for exporting GitHub repository data to various formats"""
     
-    def __init__(self, username: str, reports_dir: Path):
-        """Initialize the exporter with username and reports directory"""
-        self.username = username
-        self.reports_dir = reports_dir
+    def save_checkpoint(self, all_stats: List[RepoStats], analyzed_repo_names: List[str], remaining_repos: List[Repository]) -> None:
+        """Save checkpoint data during analysis"""
+        self.checkpoint.save(all_stats, analyzed_repo_names, remaining_repos)
     
-    def save_json_report(self, all_stats: List[RepoStats]) -> None:
-        """Save data as JSON for programmatic consumption"""
-        logger.info("Saving JSON report")
-        
-        # Count empty repositories
-        empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
-        non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-        
-        # Custom JSON encoder for datetime objects
-        class DateTimeEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if isinstance(obj, datetime):
-                    # Ensure the datetime has timezone info before serialization
-                    if obj.tzinfo is None:
-                        obj = obj.replace(tzinfo=timezone.utc)
-                    return obj.isoformat()
-                return super().default(obj)
-        
-        # Convert RepoStats to dictionaries with field-by-field error handling
-        repo_dicts = []
-        for stats in all_stats:
-            try:
-                # Manual conversion instead of using asdict to avoid serialization issues
-                repo_dict = {}
-                
-                # Basic repository information
-                repo_dict["name"] = stats.name
-                repo_dict["is_private"] = stats.is_private
-                repo_dict["default_branch"] = stats.default_branch
-                repo_dict["is_fork"] = stats.is_fork
-                repo_dict["is_archived"] = stats.is_archived
-                repo_dict["is_template"] = stats.is_template
-                
-                # Handle datetime fields with timezone awareness
-                repo_dict["created_at"] = stats.created_at.replace(tzinfo=timezone.utc) if stats.created_at else None
-                repo_dict["last_pushed"] = stats.last_pushed.replace(tzinfo=timezone.utc) if stats.last_pushed else None
-                repo_dict["last_commit_date"] = stats.last_commit_date.replace(tzinfo=timezone.utc) if stats.last_commit_date else None
-                
-                # Code statistics
-                repo_dict["languages"] = dict(stats.languages) if stats.languages else {}
-                repo_dict["total_files"] = stats.total_files
-                repo_dict["total_loc"] = stats.total_loc
-                repo_dict["avg_loc_per_file"] = stats.avg_loc_per_file
-                repo_dict["file_types"] = dict(stats.file_types) if stats.file_types else {}
-                repo_dict["size_kb"] = stats.size_kb
-                
-                # Quality indicators
-                repo_dict["has_docs"] = stats.has_docs
-                repo_dict["has_readme"] = stats.has_readme
-                repo_dict["has_tests"] = stats.has_tests
-                repo_dict["test_files_count"] = stats.test_files_count
-                repo_dict["test_coverage_percentage"] = stats.test_coverage_percentage
-                repo_dict["has_cicd"] = stats.has_cicd
-                repo_dict["cicd_files"] = list(stats.cicd_files) if stats.cicd_files else []
-                repo_dict["dependency_files"] = list(stats.dependency_files) if stats.dependency_files else []
-                
-                # Activity metrics
-                repo_dict["is_active"] = stats.is_active
-                repo_dict["commit_frequency"] = stats.commit_frequency
-                repo_dict["commits_last_month"] = stats.commits_last_month
-                repo_dict["commits_last_year"] = stats.commits_last_year
-                
-                # Community metrics
-                repo_dict["license_name"] = stats.license_name
-                repo_dict["license_spdx_id"] = stats.license_spdx_id
-                repo_dict["contributors_count"] = stats.contributors_count
-                repo_dict["open_issues"] = stats.open_issues
-                repo_dict["open_prs"] = stats.open_prs
-                repo_dict["closed_issues"] = stats.closed_issues
-                repo_dict["topics"] = list(stats.topics) if stats.topics else []
-                repo_dict["stars"] = stats.stars
-                repo_dict["forks"] = stats.forks
-                repo_dict["watchers"] = stats.watchers
-                
-                # Additional metadata
-                repo_dict["description"] = stats.description
-                repo_dict["homepage"] = stats.homepage
-                
-                # Analysis scores
-                repo_dict["maintenance_score"] = stats.maintenance_score
-                repo_dict["popularity_score"] = stats.popularity_score
-                repo_dict["code_quality_score"] = stats.code_quality_score
-                repo_dict["documentation_score"] = stats.documentation_score
-                
-                # Anomalies and structure
-                repo_dict["anomalies"] = list(stats.anomalies) if stats.anomalies else []
-                repo_dict["is_monorepo"] = stats.is_monorepo
-                repo_dict["primary_language"] = stats.primary_language
-                repo_dict["project_structure"] = dict(stats.project_structure) if stats.project_structure else {}
-                
-                repo_dicts.append(repo_dict)
-                
-            except Exception as e:
-                logger.warning(f"Failed to convert repository '{stats.name}' to JSON: {str(e)}")
-                # Add a simplified version instead
-                repo_dicts.append({
-                    "name": stats.name,
-                    "error": f"Failed to serialize: {str(e)}",
-                    "is_private": getattr(stats, "is_private", False),
-                    "total_files": getattr(stats, "total_files", 0),
-                    "total_loc": getattr(stats, "total_loc", 0)
-                })
-        
-        json_data = {
-            'metadata': {
-                'username': self.username,
-                'generated_at': datetime.now().replace(tzinfo=timezone.utc).isoformat(),
-                'total_repositories': len(all_stats),
-                'empty_repositories': len(empty_repos),
-                'analyzer_version': '1.0.0'
-            },
-            'repositories': repo_dicts,
-            'aggregated_stats': {
-                'total_loc': sum(s.total_loc for s in non_empty_repos),
-                'total_files': sum(s.total_files for s in non_empty_repos),
-                'total_stars': sum(s.stars for s in all_stats),
-                'total_forks': sum(s.forks for s in all_stats),
-                'active_repos': sum(1 for s in non_empty_repos if s.is_active),
-                'repos_with_docs': sum(1 for s in non_empty_repos if s.has_docs),
-                'repos_with_tests': sum(1 for s in non_empty_repos if s.has_tests),
-                'avg_maintenance_score': sum(s.maintenance_score for s in non_empty_repos) / len(non_empty_repos) if non_empty_repos else 0
-            }
-        }
-        
-        json_path = self.reports_dir / "repository_data.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, indent=2, cls=DateTimeEncoder, ensure_ascii=False)
-        
-        logger.info(f"JSON report saved to {json_path}")
-
-
-class GithubAnalyzer:
-    """Class responsible for analyzing GitHub repositories"""
-    
-    def __init__(self, github, username: str, config: Dict[str, Any] = None):
-        """Initialize the analyzer with GitHub client, username and configuration"""
-        self.github = github
-        self.username = username
-        self.config = config
-        self.rate_display = None
-        self.session = None
-        
-    def _check_rate_limit(self) -> None:
-        """Check GitHub API rate limit and wait if necessary"""
-        try:
-            # Get rate data from API
-            rate_limit = self.github.get_rate_limit()
-            remaining = rate_limit.core.remaining
-            reset_time = rate_limit.core.reset
-            
-            if remaining < 100:  # Low on remaining requests
-                # Check if we need to wait
-                wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
-                if wait_time > 0:
-                    logger.warning(f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
-                    self._visualize_wait(wait_time, "Rate limit cooldown")
-        except Exception as e:
-            logger.warning(f"Could not check rate limit: {e}")
-            
-    def _visualize_wait(self, wait_time: float, desc: str):
-        """Display a progress bar for wait periods"""
-        # Cap very long waits to show reasonable progress
-        if wait_time > 3600:  # If more than an hour
-            logger.warning(f"Long wait time detected ({wait_time:.1f}s). Showing progress for first hour.")
-            print(f"⚠️ GitHub API requires a long cooldown period ({wait_time/60:.1f} minutes)")
-            print(f"The script will automatically continue after the wait period.")
-            wait_time = 3600  # Cap to 1 hour for the progress bar
-        
-        # Show progress bar for the wait
-        wait_seconds = int(wait_time)
-        for _ in tqdm(range(wait_seconds), desc=desc, colour="yellow", leave=True):
-            time.sleep(1)
+    def load_checkpoint(self) -> Dict[str, Any]:
+        """Load checkpoint data from previous analysis"""
+        return self.checkpoint.load()
 
     def get_file_language(self, file_path: str) -> str:
         """Determine language from file extension"""
@@ -1641,7 +1567,7 @@ class GithubAnalyzer:
         
         try:
             # Check for rate limits before making API calls
-            self._check_rate_limit()
+            self.check_rate_limit()
             
             # Get repository contents recursively
             contents = repo.get_contents("")
@@ -1747,7 +1673,7 @@ class GithubAnalyzer:
         except RateLimitExceededException:
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")
             # Wait and continue with partial results
-            self._check_rate_limit()
+            self.check_rate_limit()
         except Exception as e:
             logger.error(f"Error analyzing repository {repo.name}: {e}")
         
@@ -1932,7 +1858,7 @@ class GithubAnalyzer:
             
             try:
                 # Get commit history with rate limit awareness
-                self._check_rate_limit()
+                self.check_rate_limit()
                 commits = list(repo.get_commits().get_page(0))
                 
                 if commits:
