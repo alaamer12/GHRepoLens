@@ -541,6 +541,166 @@ class RepoStats:
         if self.code_stats.is_monorepo:
             self.add_anomaly("Possible monorepo detected with multiple major languages")
 
+class GitHubRateDisplay:
+    """Class for displaying GitHub API rate usage information interactively."""
+    
+    def __init__(self):
+        """Initialize the display handler."""
+        self.running = False
+        self.thread = None
+        self.rate_data = {
+            "used": 0,
+            "remaining": 0,
+            "limit": 0,
+            "reset_time": None
+        }
+        self.update_interval = 30  # Update interval in seconds
+        self.last_displayed = 0  # Track when the rate was last displayed
+        self.box_width = 80  # Default box width
+        
+    def set_rate_data(self, used, remaining, limit, reset_time):
+        """Update the rate usage data."""
+        self.rate_data = {
+            "used": used,
+            "remaining": remaining,
+            "limit": limit,
+            "reset_time": reset_time
+        }
+    
+    def update_from_api(self, github_client):
+        """Update rate data directly from GitHub API client."""
+        try:
+            rate_limit = github_client.get_rate_limit().core
+            remaining = rate_limit.remaining
+            limit = rate_limit.limit
+            reset_time = rate_limit.reset
+            used = limit - remaining
+            
+            self.set_rate_data(used, remaining, limit, reset_time)
+            return True
+        except Exception as e:
+            logger.error(f"Error updating rate data from API: {e}")
+            return False
+    
+    def start(self, update_interval=30, github_client=None):
+        """Start displaying the rate usage information periodically."""
+        import threading
+        
+        self.update_interval = update_interval
+        self.github_client = github_client
+        if not self.running:
+            self.running = True
+            self.thread = threading.Thread(target=self._update_loop, daemon=True)
+            self.thread.start()
+            return True
+        return False
+    
+    def stop(self):
+        """Stop displaying the rate usage information."""
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=1)
+            self.thread = None
+    
+    def _update_loop(self):
+        """Main loop for updating the display."""
+        import time
+        
+        while self.running:
+            # Update from API if client is available
+            if hasattr(self, 'github_client') and self.github_client:
+                self.update_from_api(self.github_client)
+                
+            # Display the box with current data
+            self._display_box()
+            
+            # Wait for next update
+            time.sleep(self.update_interval)
+    
+    def _get_terminal_width(self):
+        """Get the width of the terminal."""
+        import shutil
+        
+        try:
+            term_width, _ = shutil.get_terminal_size((80, 20))
+            return min(term_width - 4, 80)  # Leave some margin
+        except Exception:
+            return 80  # Default fallback
+    
+    def _clear_previous_display(self, num_lines=8):
+        """Clear the previous display by moving cursor up and clearing lines."""
+        import sys
+        
+        if self.last_displayed > 0:
+            # Move up to the beginning of the previous box
+            sys.stdout.write(f"\033[{num_lines}A")
+            
+            # Clear each line of the previous box
+            for _ in range(num_lines):
+                sys.stdout.write("\033[2K")  # Clear entire line
+                sys.stdout.write("\033[1B")  # Move down one line
+            
+            # Move back up to start position
+            sys.stdout.write(f"\033[{num_lines}A")
+        
+        self.last_displayed = time.time()
+    
+    def _display_box(self, force_update=False):
+        """Display the GitHub API rate usage information in a box."""
+        import sys
+        import time
+        from datetime import datetime, timezone
+        
+        # Skip if recently displayed and not forced
+        current_time = time.time()
+        if not force_update and (current_time - self.last_displayed) < self.update_interval:
+            return
+            
+        # Get terminal width for box sizing
+        self.box_width = self._get_terminal_width()
+        
+        # Extract rate data
+        used = self.rate_data["used"]
+        remaining = self.rate_data["remaining"]
+        limit = self.rate_data["limit"]
+        reset_time = self.rate_data["reset_time"]
+        
+        # Calculate time until reset
+        now = datetime.now().replace(tzinfo=timezone.utc)
+        minutes_until_reset = 0
+        if reset_time:
+            minutes_until_reset = (reset_time - now).total_seconds() / 60
+        
+        # Calculate percentage and progress bar
+        percentage = (used / limit * 100) if limit > 0 else 0
+        bar_length = self.box_width - 30  # Leave space for text
+        filled_length = int(bar_length * used // limit) if limit > 0 else 0
+        bar = '█' * filled_length + '░' * (bar_length - filled_length)
+        
+        # Clear previous display if needed
+        self._clear_previous_display()
+        
+        # Draw the box with updated information
+        sys.stdout.write("┌" + "─" * (self.box_width - 2) + "┐\n")
+        sys.stdout.write(f"│ 📊 GitHub API Rate Usage {' ' * (self.box_width - 27)}│\n")
+        sys.stdout.write(f"│ Used: {used:,}/{limit:,} ({percentage:.1f}%)  {' ' * (self.box_width - 30 - len(str(used)) - len(str(limit)) - 9)}│\n")
+        sys.stdout.write(f"│ [{bar}] {' ' * (self.box_width - bar_length - 5)}│\n")
+        sys.stdout.write(f"│ Remaining: {remaining:,} requests {' ' * (self.box_width - 24 - len(str(remaining)))}│\n")
+        sys.stdout.write(f"│ Reset in: {minutes_until_reset:.1f} minutes {' ' * (self.box_width - 26 - len(f'{minutes_until_reset:.1f}'))}│\n")
+        sys.stdout.write(f"│ Reset time: {reset_time.strftime('%Y-%m-%d %H:%M:%S')} UTC {' ' * (self.box_width - 46)}│\n")
+        sys.stdout.write("└" + "─" * (self.box_width - 2) + "┘\n")
+        sys.stdout.flush()
+        
+        self.last_displayed = current_time
+    
+    def display_once(self):
+        """Display the rate usage information once immediately."""
+        self._display_box(force_update=True)
+    
+    def is_low_on_requests(self, threshold):
+        """Check if the remaining requests are below the threshold."""
+        return self.rate_data["remaining"] <= threshold
+
 class Checkpoint:
     """Class to handle saving and loading analysis checkpoints."""
     
@@ -655,7 +815,44 @@ class GitHubAnalyzer:
         self.api_requests_made = 0
         self.analyzed_repos = []
         
+        # Initialize rate display for interactive display
+        self.rate_display = GitHubRateDisplay()
+        
         logger.info(f"Initialized analyzer for user: {username}")
+        
+    def start_continuous_rate_monitoring(self, update_interval=30):
+        """
+        Start continuous rate monitoring in a background thread.
+        
+        Args:
+            update_interval: How often to update the display (in seconds)
+        
+        Returns:
+            True if monitoring started, False otherwise
+        """
+        try:
+            # Update the display once immediately
+            self.rate_display.update_from_api(self.github)
+            self.rate_display.display_once()
+            
+            # Start continuous monitoring
+            if self.rate_display.start(update_interval, self.github):
+                logger.info(f"Started continuous rate monitoring (updates every {update_interval}s)")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error starting continuous rate monitoring: {e}")
+            return False
+            
+    def stop_continuous_rate_monitoring(self):
+        """Stop continuous rate monitoring"""
+        try:
+            self.rate_display.stop()
+            logger.info("Stopped continuous rate monitoring")
+            return True
+        except Exception as e:
+            logger.error(f"Error stopping continuous rate monitoring: {e}")
+            return False
     
     def save_checkpoint(self, all_stats: List[RepoStats], analyzed_repo_names: List[str], remaining_repos: List[Repository]) -> None:
         """Delegate checkpoint saving to the Checkpoint class."""
@@ -723,14 +920,18 @@ class GitHubAnalyzer:
             # Increment API request counter
             self.api_requests_made += 1
             
-            rate_limit = self.github.get_rate_limit()
-            remaining = rate_limit.core.remaining
-            reset_time = rate_limit.core.reset
+            # Update rate data from API
+            self.rate_display.update_from_api(self.github)
+            
+            # Get data from display object
+            remaining = self.rate_display.rate_data["remaining"]
+            reset_time = self.rate_display.rate_data["reset_time"]
             
             if remaining < 100:  # Low on remaining requests
-                # Use interactive display for low remaining requests
-                self.display_rate_usage()
+                # Display current rate usage
+                self.rate_display.display_once()
                 
+                # Check if we need to wait
                 wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
                 if wait_time > 0:
                     logger.warning(f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
@@ -1445,7 +1646,7 @@ class GitHubAnalyzer:
             
             # Display initial rate limit usage before starting
             print("\n--- Initial API Rate Status ---")
-            self.display_rate_usage()
+            self.rate_display.display_once()  # Use our interactive display
             print("-------------------------------")
             
             # Use parallel processing if configured with multiple workers
@@ -1473,7 +1674,7 @@ class GitHubAnalyzer:
                         # Periodically show rate limit status (every 5 repos or after a batch)
                         if repo_counter % 5 == 0 or repo_counter == 1 or len(batch) == batch_size:
                             print("\n--- Current API Rate Status ---")
-                            self.display_rate_usage()
+                            self.rate_display.display_once()  # Use our interactive display
                             print("-------------------------------")
                         
                         # Check if we need to checkpoint before processing this batch
@@ -1520,7 +1721,7 @@ class GitHubAnalyzer:
                         # Periodically show rate limit status (every 5 repos)
                         if repo_counter % 5 == 0 or repo_counter == 1:
                             print("\n--- Current API Rate Status ---")
-                            self.display_rate_usage()
+                            self.rate_display.display_once()  # Use our interactive display
                             print("-------------------------------")
                         
                         # Check if we need to checkpoint
@@ -1541,7 +1742,7 @@ class GitHubAnalyzer:
             
             # Analysis completed successfully - display final rate usage
             print("\n--- Final API Rate Status ---")
-            self.display_rate_usage()
+            self.rate_display.display_once()  # Use our interactive display
             print("----------------------------")
             
             # Save final checkpoint with empty remaining repos
@@ -2583,52 +2784,62 @@ class GitHubAnalyzer:
             frequency_seconds: How often to update the display (in seconds)
         """
         try:
-            import shutil
-            import time
-            import sys
+            # Initialize display if not already done
+            if not hasattr(self, 'rate_display'):
+                self.rate_display = GitHubRateDisplay()
             
-            # Get terminal width
-            term_width, _ = shutil.get_terminal_size((80, 20))
+            # Update rate data directly from the API
+            self.rate_display.update_from_api(self.github)
             
-            rate_limit = self.github.get_rate_limit().core
-            remaining = rate_limit.remaining
-            limit = rate_limit.limit
-            reset_time = rate_limit.reset
+            # Display immediately
+            self.rate_display.display_once()
             
-            # Log rate limit info
-            reset_datetime = reset_time
-            now = datetime.now().replace(tzinfo=timezone.utc)
-            minutes_until_reset = (reset_datetime - now).total_seconds() / 60
-            
-            # Display usage in a box with a progress bar for rate limit
-            box_width = min(term_width - 4, 80)
-            
-            # Create usage progress bar
-            used = limit - remaining
-            percentage = (used / limit) * 100
-            bar_length = box_width - 30  # Leave space for text
-            filled_length = int(bar_length * used // limit)
-            bar = '█' * filled_length + '░' * (bar_length - filled_length)
-            
-            # Clear previous lines (if any)
-            sys.stdout.write("\033[K")  # Clear the current line
-            
-            # Draw the box and information
-            print("┌" + "─" * (box_width - 2) + "┐")
-            print(f"│ 📊 GitHub API Rate Usage {' ' * (box_width - 27)}│")
-            print(f"│ Used: {used:,}/{limit:,} ({percentage:.1f}%)  {' ' * (box_width - 30 - len(str(used)) - len(str(limit)) - 9)}│")
-            print(f"│ [{bar}] {' ' * (box_width - bar_length - 5)}│")
-            print(f"│ Remaining: {remaining:,} requests {' ' * (box_width - 24 - len(str(remaining)))}│")
-            print(f"│ Reset in: {minutes_until_reset:.1f} minutes {' ' * (box_width - 26 - len(f'{minutes_until_reset:.1f}'))}│")
-            print(f"│ Reset time: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')} UTC {' ' * (box_width - 46)}│")
-            print("└" + "─" * (box_width - 2) + "┘")
-            
-            return remaining <= self.config["CHECKPOINT_THRESHOLD"]
+            # Check if below threshold
+            return self.rate_display.is_low_on_requests(self.config["CHECKPOINT_THRESHOLD"])
             
         except Exception as e:
             logger.error(f"Error displaying rate usage: {e}")
             # Fall back to simple display
-            print(f"\n📊 GitHub API Rate: {remaining}/{limit} requests remaining, reset in {minutes_until_reset:.1f} min")
+            print(f"\n📊 GitHub API Rate: API rate display failed")
+            return False
+
+    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
+        """
+        Check if the rate limit is approaching threshold and create a checkpoint if needed.
+        
+        Args:
+            all_stats: List of RepoStats objects analyzed so far
+            analyzed_repo_names: List of repository names already analyzed
+            remaining_repos: List of Repository objects still to analyze
+            
+        Returns:
+            Boolean: True if should stop processing, False if can continue
+        """
+        try:
+            # Update rate data from API
+            self.rate_display.update_from_api(self.github)
+            remaining = self.rate_display.rate_data["remaining"]
+            limit = self.rate_display.rate_data["limit"]
+            
+            # Check if below checkpoint threshold
+            if remaining <= self.config["CHECKPOINT_THRESHOLD"]:
+                logger.warning(f"Rate limit low: {remaining} of {limit} remaining")
+                
+                # Display rate usage
+                self.rate_display.display_once()
+                
+                # Create checkpoint
+                if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
+                    
+                # Return True to indicate should stop processing
+                return True
+                
+            # Still have enough requests
+            return False
+                
+        except Exception as e:
+            logger.error(f"Error checking rate limit: {e}")
             return False
 
 def load_config_from_file(config_file: str) -> Dict[str, Any]:
@@ -2803,7 +3014,7 @@ def run_demo(token: str, username: str, config=None) -> None:
         
         # Display initial rate status
         print("\n--- Initial API Rate Status ---")
-        analyzer.display_rate_usage()
+        analyzer.rate_display.display_once()
         print("-------------------------------")
         
         with tqdm(total=min(10, len(all_repos)), desc="Analyzing repositories", leave=True, colour='green') as pbar:
