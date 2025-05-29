@@ -166,7 +166,14 @@ class GitHubRateDisplay:
         sys.stdout.write(f"│ [{bar}] {' ' * (self.box_width - bar_length - 5)}│\n")
         sys.stdout.write(f"│ Remaining: {remaining:,} requests {' ' * (self.box_width - 24 - len(str(remaining)))}│\n")
         sys.stdout.write(f"│ Reset in: {minutes_until_reset:.1f} minutes {' ' * (self.box_width - 26 - len(f'{minutes_until_reset:.1f}'))}│\n")
-        sys.stdout.write(f"│ Reset time: {reset_time.strftime('%Y-%m-%d %H:%M:%S')} UTC {' ' * (self.box_width - 46)}│\n")
+        
+        # Handle the case where reset_time is None
+        if reset_time:
+            reset_time_str = reset_time.strftime('%Y-%m-%d %H:%M:%S')
+            sys.stdout.write(f"│ Reset time: {reset_time_str} UTC {' ' * (self.box_width - 46)}│\n")
+        else:
+            sys.stdout.write(f"│ Reset time: Unknown {' ' * (self.box_width - 29)}│\n")
+        
         sys.stdout.write("└" + "─" * (self.box_width - 2) + "┘\n")
         sys.stdout.flush()
         

@@ -188,6 +188,126 @@ class RepoStats:
     def anomalies(self) -> List[str]:
         return self.scores.anomalies
     
+    @property
+    def avg_loc_per_file(self) -> float:
+        return self.code_stats.avg_loc_per_file
+    
+    @property
+    def file_types(self) -> Dict[str, int]:
+        return self.code_stats.file_types
+    
+    @property
+    def size_kb(self) -> int:
+        return self.code_stats.size_kb
+    
+    @property
+    def description(self) -> Optional[str]:
+        return self.base_info.description
+    
+    @property
+    def homepage(self) -> Optional[str]:
+        return self.base_info.homepage
+    
+    @property
+    def has_docs(self) -> bool:
+        return self.quality.has_docs
+    
+    @property
+    def has_readme(self) -> bool:
+        return self.quality.has_readme
+    
+    @property
+    def has_tests(self) -> bool:
+        return self.quality.has_tests
+    
+    @property
+    def test_files_count(self) -> int:
+        return self.quality.test_files_count
+    
+    @property
+    def test_coverage_percentage(self) -> Optional[float]:
+        return self.quality.test_coverage_percentage
+    
+    @property
+    def has_cicd(self) -> bool:
+        return self.quality.has_cicd
+    
+    @property
+    def cicd_files(self) -> List[str]:
+        return self.quality.cicd_files
+    
+    @property
+    def dependency_files(self) -> List[str]:
+        return self.quality.dependency_files
+    
+    @property
+    def commit_frequency(self) -> Optional[float]:
+        return self.activity.commit_frequency
+    
+    @property
+    def commits_last_month(self) -> int:
+        return self.activity.commits_last_month
+    
+    @property
+    def commits_last_year(self) -> int:
+        return self.activity.commits_last_year
+    
+    @property
+    def license_name(self) -> Optional[str]:
+        return self.community.license_name
+    
+    @property
+    def license_spdx_id(self) -> Optional[str]:
+        return self.community.license_spdx_id
+    
+    @property
+    def contributors_count(self) -> int:
+        return self.community.contributors_count
+    
+    @property
+    def open_issues(self) -> int:
+        return self.community.open_issues
+    
+    @property
+    def open_prs(self) -> int:
+        return self.community.open_prs
+    
+    @property
+    def closed_issues(self) -> int:
+        return self.community.closed_issues
+    
+    @property
+    def topics(self) -> List[str]:
+        return self.community.topics
+    
+    @property
+    def forks(self) -> int:
+        return self.community.forks
+    
+    @property
+    def watchers(self) -> int:
+        return self.community.watchers
+    
+    @property
+    def maintenance_score(self) -> float:
+        return self.scores.maintenance_score
+    
+    @property
+    def popularity_score(self) -> float:
+        return self.scores.popularity_score
+    
+    @property
+    def code_quality_score(self) -> float:
+        return self.scores.code_quality_score
+    
+    @property
+    def documentation_score(self) -> float:
+        return self.scores.documentation_score
+    
+    @property
+    def project_structure(self) -> Dict[str, int]:
+        return self.code_stats.project_structure
+    
     def add_anomaly(self, anomaly: str) -> None:
         """Add an anomaly to the repository's list of anomalies"""
         self.scores.add_anomaly(anomaly)

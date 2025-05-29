@@ -2,6 +2,8 @@ from asyncio.log import logger
 from urllib import request
 from zipfile import Path
 
+import requests
+
 from analyzer import GithubAnalyzer
 from config import DEFAULT_CONFIG, Configuration
 from models import RepoStats
@@ -33,7 +35,7 @@ class GithubLens:
         self.setup_github_client(token)
         self.username = username
         self.user = None
-        self.session = request.Session()
+        self.session = requests.Session()
         self.session.headers.update({
             'Authorization': f'token {token}',
             'Accept': 'application/vnd.github.v3+json'

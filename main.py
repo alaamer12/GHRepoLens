@@ -123,7 +123,7 @@ def _run_demo_mode(token: str, username: str, analyzer: GithubLens):
                 logger.error(f"Failed to analyze {repo.name}: {e}")
                 continue
 
-            if analyzer.check_rate_limit_and_checkpoint(
+            if analyzer.analyzer.check_rate_limit_and_checkpoint(
                 demo_stats, [s.name for s in demo_stats], []
             ):
                 break

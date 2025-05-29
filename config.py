@@ -314,7 +314,7 @@ def setup_logging(log_dir="logs"):
         level=LOG_LEVEL,
         format=LOG_FORMAT,
         handlers=[
-            logging.FileHandler(log_file),
+            logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler()
         ]
     )

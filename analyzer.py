@@ -2,7 +2,7 @@ from asyncio.log import logger
 from zipfile import Path
 
 from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES,  EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, Configuration
-from models import RepoStats
+from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
 from utilities import ensure_utc
 import time
 from pathlib import Path
@@ -813,6 +813,16 @@ class GithubAnalyzer:
                 else:
                     combined_languages[lang] = bytes_count
             
+            # Calculate estimated test coverage percentage based on test files to total files ratio
+            test_coverage_percentage = None
+            if file_stats['has_tests'] and file_stats['total_files'] > 0:
+                # Simple estimation based on test files count relative to codebase size
+                # More sophisticated estimation would require actual test coverage data
+                test_ratio = min(file_stats['test_files_count'] / max(1, file_stats['total_files'] - file_stats['test_files_count']), 1.0)
+                # Scale to percentage with diminishing returns model
+                # 0 tests = 0%, 10% test files = ~30% coverage, 20% test files = ~50% coverage, 50% test files = ~90% coverage
+                test_coverage_percentage = min(100, 100 * (1 - (1 / (1 + 2 * test_ratio))))
+            
             # Calculate all scores
             scores = self.calculate_scores(file_stats, repo)
             
@@ -822,8 +832,8 @@ class GithubAnalyzer:
                 
             last_pushed = ensure_utc(repo.pushed_at)
             
-            # Create RepoStats object
-            repo_stats = RepoStats(
+            # Create base repository info
+            base_info = BaseRepoInfo(
                 name=repo.name,
                 is_private=repo.private,
                 default_branch=repo.default_branch,
@@ -832,23 +842,45 @@ class GithubAnalyzer:
                 is_template=repo.is_template,
                 created_at=created_at,
                 last_pushed=last_pushed,
+                description=repo.description,
+                homepage=repo.homepage
+            )
+            
+            # Create code stats
+            code_stats = CodeStats(
                 languages=combined_languages,
-                has_docs=file_stats['has_docs'],
-                has_readme=file_stats['has_readme'],
                 total_files=file_stats['total_files'],
                 total_loc=file_stats['total_loc'],
                 avg_loc_per_file=avg_loc,
                 file_types=dict(file_stats['file_types']),
+                size_kb=repo.size,
+                excluded_file_count=file_stats.get('excluded_file_count', 0),
+                project_structure=file_stats.get('project_structure', {})
+            )
+            
+            # Create quality indicators
+            quality = QualityIndicators(
+                has_docs=file_stats['has_docs'],
+                has_readme=file_stats['has_readme'],
                 has_tests=file_stats['has_tests'],
                 test_files_count=file_stats['test_files_count'],
+                test_coverage_percentage=test_coverage_percentage,
                 has_cicd=file_stats.get('has_cicd', False),
                 cicd_files=file_stats.get('cicd_files', []),
-                dependency_files=file_stats['dependency_files'],
+                dependency_files=file_stats['dependency_files']
+            )
+            
+            # Create activity metrics
+            activity = ActivityMetrics(
                 last_commit_date=last_commit_date or repo.pushed_at,
                 is_active=is_active,
                 commit_frequency=commit_frequency,
                 commits_last_month=commits_last_month,
-                commits_last_year=commits_last_year,
+                commits_last_year=commits_last_year
+            )
+            
+            # Create community metrics
+            community = CommunityMetrics(
                 license_name=repo.license.name if repo.license else None,
                 license_spdx_id=repo.license.spdx_id if repo.license else None,
                 contributors_count=contributors_count,
@@ -858,19 +890,26 @@ class GithubAnalyzer:
                 topics=repo.topics,
                 stars=repo.stargazers_count,
                 forks=repo.forks_count,
-                watchers=repo.watchers_count,
-                size_kb=repo.size,
-                description=repo.description,
-                homepage=repo.homepage,
+                watchers=repo.watchers_count
+            )
+            
+            # Create analysis scores
+            scores_obj = AnalysisScores(
                 maintenance_score=scores['maintenance_score'],
                 popularity_score=scores['popularity_score'],
                 code_quality_score=scores['code_quality_score'],
-                documentation_score=scores['documentation_score'],
-                project_structure=file_stats.get('project_structure', {})
+                documentation_score=scores['documentation_score']
             )
             
-            # Store excluded file count
-            repo_stats.excluded_file_count = file_stats.get('excluded_file_count', 0)
+            # Create RepoStats object
+            repo_stats = RepoStats(
+                base_info=base_info,
+                code_stats=code_stats,
+                quality=quality,
+                activity=activity,
+                community=community,
+                scores=scores_obj
+            )
             
             # Add anomaly for empty repository
             if is_empty:
@@ -887,8 +926,8 @@ class GithubAnalyzer:
             
         except Exception as e:
             logger.error(f"Error analyzing repository {repo.name}: {e}")
-            # Return minimal stats on error
-            return RepoStats(
+            # Return minimal stats on error with proper object structure
+            base_info = BaseRepoInfo(
                 name=repo.name,
                 is_private=getattr(repo, 'private', False),
                 default_branch=getattr(repo, 'default_branch', 'unknown'),
@@ -896,48 +935,51 @@ class GithubAnalyzer:
                 is_archived=getattr(repo, 'archived', False),
                 is_template=getattr(repo, 'is_template', False),
                 created_at=getattr(repo, 'created_at', datetime.now().replace(tzinfo=timezone.utc)),
-                last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc))
+                last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc)),
+                description=getattr(repo, 'description', None),
+                homepage=getattr(repo, 'homepage', None)
             )
+            return RepoStats(base_info=base_info)
 
     def detect_anomalies(self, repo_stats: RepoStats) -> None:
         """Detect anomalies in repository data"""
         # Large repo without documentation
-        if repo_stats.total_loc > self.config["LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.has_docs:
+        if repo_stats.code_stats.total_loc > self.config["LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.quality.has_docs:
             repo_stats.add_anomaly("Large repository without documentation")
             
         # Large repo without tests
-        if repo_stats.total_loc > self.config["LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.has_tests:
+        if repo_stats.code_stats.total_loc > self.config["LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.quality.has_tests:
             repo_stats.add_anomaly("Large repository without tests")
             
         # Popular repo without docs
-        if repo_stats.stars > 10 and not repo_stats.has_docs:
+        if repo_stats.community.stars > 10 and not repo_stats.quality.has_docs:
             repo_stats.add_anomaly("Popular repository without documentation")
             
         # Many open issues
-        if repo_stats.open_issues > 20 and not repo_stats.is_active:
+        if repo_stats.community.open_issues > 20 and not repo_stats.activity.is_active:
             repo_stats.add_anomaly("Many open issues but repository is inactive")
             
         # Stale repository with stars
-        if not repo_stats.is_active and repo_stats.stars > 10:
+        if not repo_stats.activity.is_active and repo_stats.community.stars > 10:
             repo_stats.add_anomaly("Popular repository appears to be abandoned")
             
         # Project with code but no license
-        if repo_stats.total_loc > 1000 and not repo_stats.license_name:
+        if repo_stats.code_stats.total_loc > 1000 and not repo_stats.community.license_name:
             repo_stats.add_anomaly("Substantial code without license")
             
         # Imbalanced test coverage
-        if repo_stats.has_tests and repo_stats.test_files_count < repo_stats.total_files * 0.05:
+        if repo_stats.quality.has_tests and repo_stats.quality.test_files_count < repo_stats.code_stats.total_files * 0.05:
             repo_stats.add_anomaly("Low test coverage ratio")
             
         # Missing CI/CD in active project
-        if repo_stats.is_active and repo_stats.total_loc > 1000 and not repo_stats.has_cicd:
+        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_cicd:
             repo_stats.add_anomaly("Active project without CI/CD configuration")
             
         # Old repository without recent activity
-        if repo_stats.created_at and repo_stats.last_commit_date:
+        if repo_stats.base_info.created_at and repo_stats.activity.last_commit_date:
             now = datetime.now().replace(tzinfo=timezone.utc)
-            created_at = ensure_utc(repo_stats.created_at)
-            last_commit = ensure_utc(repo_stats.last_commit_date)
+            created_at = ensure_utc(repo_stats.base_info.created_at)
+            last_commit = ensure_utc(repo_stats.activity.last_commit_date)
             
             years_since_created = (now - created_at).days / 365.25
             months_since_last_commit = (now - last_commit).days / 30
@@ -958,5 +1000,5 @@ class GithubAnalyzer:
         file_name = path_parts[-1] if path_parts else ""
         if any(file_name.endswith(ext) for ext in BINARY_EXTENSIONS):
             return True
-            
-            return False
+        
+        return False

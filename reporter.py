@@ -54,10 +54,10 @@ class GithubReporter:
             
             # Most active repositories
             f.write("### 🚀 Most Active Repositories (Recent Activity)\n\n")
-            active_repos_sorted = sorted([s for s in all_stats if s.is_active and "Empty repository with no files" not in s.anomalies], 
-                                       key=lambda x: x.last_commit_date, reverse=True)[:10]
+            active_repos_sorted = sorted([s for s in all_stats if s.activity.is_active and "Empty repository with no files" not in s.scores.anomalies], 
+                                       key=lambda x: x.activity.last_commit_date, reverse=True)[:10]
             for i, stats in enumerate(active_repos_sorted, 1):
-                f.write(f"{i}. **{stats.name}** - Last commit: {stats.last_commit_date.strftime('%Y-%m-%d')}\n")
+                f.write(f"{i}. **{stats.name}** - Last commit: {stats.activity.last_commit_date.strftime('%Y-%m-%d')}\n")
             f.write("\n")
             
             # Project age analysis
@@ -172,6 +172,11 @@ class GithubReporter:
                 f.write("### ✅ Quality Indicators\n")
                 f.write(f"- **Has Documentation:** {'✅ Yes' if stats.has_docs else '❌ No'}\n")
                 f.write(f"- **Has Tests:** {'✅ Yes' if stats.has_tests else '❌ No'}\n")
+                if stats.has_tests:
+                    f.write(f"  - **Test Files:** {stats.test_files_count} files\n")
+                    if stats.quality.test_coverage_percentage is not None:
+                        coverage_emoji = "🟢" if stats.quality.test_coverage_percentage > 70 else "🟡" if stats.quality.test_coverage_percentage > 30 else "🔴"
+                        f.write(f"  - **Estimated Test Coverage:** {coverage_emoji} {stats.quality.test_coverage_percentage:.1f}% (estimated from file count)\n")
                 f.write(f"- **Is Active:** {'✅ Yes' if stats.is_active else '❌ No'} (commits in last 6 months)\n")
                 f.write(f"- **License:** {stats.license_name or '❌ No License'}\n")
                 f.write(f"- **Maintenance Score:** {stats.maintenance_score:.1f}/100\n")
@@ -203,6 +208,60 @@ class GithubReporter:
                 # Activity
                 f.write("### 📅 Activity\n")
                 f.write(f"- **Last Commit:** {stats.last_commit_date.strftime('%Y-%m-%d %H:%M:%S') if stats.last_commit_date else 'Unknown'}\n")
+                f.write(f"- **Commits Last Month:** {stats.commits_last_month:,}\n")
+                f.write(f"- **Commits Last Year:** {stats.commits_last_year:,}\n")
+                if stats.commit_frequency is not None:
+                    f.write(f"- **Monthly Commit Frequency:** {stats.commit_frequency:.1f}\n")
+                f.write("\n")
+                
+                # Project structure
+                if stats.project_structure:
+                    f.write("### 📂 Project Structure\n")
+                    sorted_structure = sorted(stats.project_structure.items(), key=lambda x: x[1], reverse=True)
+                    
+                    # Calculate directory stats
+                    total_dirs = len(stats.project_structure)
+                    total_dir_files = sum(stats.project_structure.values())
+                    
+                    # Identify potential project organization patterns
+                    has_src = any(d.lower() in ['src', 'source', 'lib', 'app'] for d in stats.project_structure)
+                    has_tests = any(d.lower() in ['test', 'tests', 'spec', 'specs'] for d in stats.project_structure)
+                    has_docs = any(d.lower() in ['doc', 'docs', 'documentation'] for d in stats.project_structure)
+                    has_scripts = any(d.lower() in ['script', 'scripts', 'tools', 'util', 'utils'] for d in stats.project_structure)
+                    has_examples = any(d.lower() in ['example', 'examples', 'demo', 'demos', 'sample', 'samples'] for d in stats.project_structure)
+                    
+                    # Repository organization pattern
+                    patterns = []
+                    if has_src and has_tests:
+                        patterns.append("Standard src/test organization")
+                    if has_docs:
+                        patterns.append("Documented project")
+                    if has_scripts:
+                        patterns.append("Includes utility scripts")
+                    if has_examples:
+                        patterns.append("Includes examples/demos")
+                    
+                    # Write project structure overview
+                    f.write(f"Repository contains {total_dirs} top-level directories with {total_dir_files} files.\n\n")
+                    if patterns:
+                        f.write(f"**Project Organization Pattern:** {', '.join(patterns)}\n\n")
+                    
+                    # Show top directories
+                    f.write("**Top-level directories:**\n\n")
+                    for dir_name, count in sorted_structure[:8]:  # Show top 8 directories
+                        percentage = (count / total_dir_files * 100) if total_dir_files > 0 else 0
+                        f.write(f"- `{dir_name}/` - {count} files ({percentage:.1f}%)\n")
+                    f.write("\n")
+                
+                # Additional scores
+                f.write("### 🏆 Quality Scores\n")
+                f.write(f"- **Primary Language:** {stats.primary_language or 'Unknown'}\n")
+                f.write(f"- **Maintenance Score:** {stats.maintenance_score:.1f}/100\n")
+                f.write(f"- **Code Quality Score:** {stats.code_quality_score:.1f}/100\n")
+                f.write(f"- **Documentation Score:** {stats.documentation_score:.1f}/100\n")
+                f.write(f"- **Popularity Score:** {stats.popularity_score:.1f}/100\n")
+                if stats.is_monorepo:
+                    f.write(f"- **Repository Type:** 📦 Monorepo (multiple major languages)\n")
                 f.write("\n")
                 
                 f.write("---\n\n")
@@ -302,6 +361,22 @@ class GithubReporter:
             f.write(f"- **Non-Empty Repositories:** {non_empty_count} ({non_empty_percent:.1f}%)\n")
             f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
             f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
+            
+            # Test coverage information
+            repos_with_coverage = [s for s in non_empty_repos if s.quality.test_coverage_percentage is not None]
+            if repos_with_coverage:
+                avg_test_coverage = sum(s.quality.test_coverage_percentage for s in repos_with_coverage) / len(repos_with_coverage)
+                f.write(f"  - **Average Test Coverage:** {avg_test_coverage:.1f}% (estimated)\n")
+                
+                # Coverage distribution
+                high_coverage = sum(1 for s in repos_with_coverage if s.quality.test_coverage_percentage > 70)
+                med_coverage = sum(1 for s in repos_with_coverage if 30 < s.quality.test_coverage_percentage <= 70)
+                low_coverage = sum(1 for s in repos_with_coverage if s.quality.test_coverage_percentage <= 30)
+                
+                f.write(f"  - **High Coverage (>70%):** {high_coverage} repos ({high_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
+                f.write(f"  - **Medium Coverage (30-70%):** {med_coverage} repos ({med_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
+                f.write(f"  - **Low Coverage (<30%):** {low_coverage} repos ({low_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
+            
             f.write(f"- **Active Repositories:** {active_repos} ({active_repos/non_empty_count*100:.1f}% of non-empty)\n")
             f.write(f"- **Repositories with License:** {len(license_counts)} ({len(license_counts)/total_repos*100:.1f}%)\n")
             f.write("\n")
@@ -343,5 +418,73 @@ class GithubReporter:
                 empty_tag = " (empty)" if "Empty repository with no files" in stats.anomalies else ""
                 f.write(f"{i}. **{stats.name}** - {stats.stars:,} stars{empty_tag}\n")
             f.write("\n")
+            
+            # Top repositories by code quality
+            if non_empty_repos:
+                f.write("### 💯 Top 10 Highest Quality Repositories\n\n")
+                top_by_quality = sorted(non_empty_repos, key=lambda x: x.code_quality_score, reverse=True)[:10]
+                for i, stats in enumerate(top_by_quality, 1):
+                    f.write(f"{i}. **{stats.name}** - Quality Score: {stats.code_quality_score:.1f}/100\n")
+                f.write("\n")
+            
+            # Top repositories by activity
+            if non_empty_repos:
+                f.write("### 🔥 Top 10 Most Active Repositories\n\n")
+                top_by_activity = sorted(non_empty_repos, key=lambda x: x.commits_last_month, reverse=True)[:10]
+                for i, stats in enumerate(top_by_activity, 1):
+                    f.write(f"{i}. **{stats.name}** - {stats.commits_last_month} commits last month\n")
+                f.write("\n")
+            
+            # Primary language distribution
+            if non_empty_repos:
+                primary_languages = Counter(stats.primary_language for stats in non_empty_repos if stats.primary_language)
+                if primary_languages:
+                    f.write("## 📊 Primary Language Distribution\n\n")
+                    f.write("| Language | Repositories | Percentage |\n")
+                    f.write("|----------|--------------|------------|\n")
+                    for lang, count in primary_languages.most_common(10):
+                        percentage = (count / non_empty_count * 100)
+                        f.write(f"| {lang} | {count} | {percentage:.1f}% |\n")
+                    f.write("\n")
+            
+            # Average quality scores
+            if non_empty_repos:
+                f.write("## 📈 Average Quality Scores\n\n")
+                avg_code_quality = sum(stats.code_quality_score for stats in non_empty_repos) / non_empty_count
+                avg_docs_quality = sum(stats.documentation_score for stats in non_empty_repos) / non_empty_count
+                avg_popularity = sum(stats.popularity_score for stats in non_empty_repos) / non_empty_count
+                
+                f.write(f"- **Average Maintenance Score:** {avg_maintenance_score:.1f}/100\n")
+                f.write(f"- **Average Code Quality Score:** {avg_code_quality:.1f}/100\n")
+                f.write(f"- **Average Documentation Score:** {avg_docs_quality:.1f}/100\n")
+                f.write(f"- **Average Popularity Score:** {avg_popularity:.1f}/100\n")
+                f.write("\n")
+            
+            # Monorepo statistics
+            monorepos = [s for s in non_empty_repos if s.is_monorepo]
+            if monorepos:
+                monorepo_percentage = (len(monorepos) / non_empty_count * 100)
+                f.write(f"## 📦 Monorepo Analysis\n\n")
+                f.write(f"- **Monorepos Detected:** {len(monorepos)} ({monorepo_percentage:.1f}% of non-empty repos)\n")
+                f.write(f"- **Average LOC in Monorepos:** {sum(s.total_loc for s in monorepos) / len(monorepos):,.0f}\n")
+                f.write("\n")
+                
+                # Top monorepos
+                f.write("### Largest Monorepos\n\n")
+                top_monorepos = sorted(monorepos, key=lambda x: x.total_loc, reverse=True)[:5]
+                for i, stats in enumerate(top_monorepos, 1):
+                    f.write(f"{i}. **{stats.name}** - {stats.total_loc:,} LOC\n")
+                f.write("\n")
+            
+            # Commit activity summary
+            if non_empty_repos:
+                total_commits_last_month = sum(stats.commits_last_month for stats in non_empty_repos)
+                total_commits_last_year = sum(stats.commits_last_year for stats in non_empty_repos)
+                
+                f.write("## 📅 Commit Activity Summary\n\n")
+                f.write(f"- **Total Commits (Last Month):** {total_commits_last_month:,}\n")
+                f.write(f"- **Total Commits (Last Year):** {total_commits_last_year:,}\n")
+                f.write(f"- **Average Monthly Commits per Active Repo:** {total_commits_last_month / active_repos:.1f} (active repos only)\n")
+                f.write("\n")
         
         logger.info(f"Aggregated report saved to {report_path}")
