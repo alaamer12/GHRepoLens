@@ -1,4 +1,6 @@
 from asyncio.log import logger
+import os
+import shutil
 from zipfile import Path
 from models import RepoStats
 from utilities import ensure_utc
@@ -103,6 +105,18 @@ class GithubVisualizer:
         self.username = username
         self.reports_dir = reports_dir
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
+
+        # Copy assets to the reports directory
+        self.copy_assets(reports_dir)
+
+    
+    def copy_assets(self, reports_dir: Path) -> None:
+        """Copy assets to the reports directory"""
+        assets_dir = Path(__file__).parent / "assets"
+        for asset in assets_dir.glob("*"):
+            dest_dir = reports_dir / "assets"
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.copy(asset, dest_dir / asset.name)
     
     def create_visualizations(self, all_stats: List[RepoStats]) -> None:
         """Generate visual reports with charts and graphs"""
@@ -325,7 +339,7 @@ class GithubVisualizer:
             <script src="https://cdn.tailwindcss.com"></script>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-            <link rel="icon" type="image/png" href="assets/logo.png">
+            <link rel="icon" type="image/png" href="assets/favicon.png">
             <script>
                 tailwind.config = {{
                     darkMode: 'class',
@@ -430,7 +444,7 @@ class GithubVisualizer:
                 <div class="bg-gradient-primary rounded-lg shadow-xl mb-8 overflow-hidden">
                     <div class="p-6 md:p-10 text-center">
                         <div class="flex justify-center mb-4">
-                            <img src="logo.png" alt="GHRepoLens Logo" class="h-24 w-auto" />
+                            <img src="assets/logo.png" alt="GHRepoLens Logo" class="h-24 w-auto" />
                         </div>
                         <h1 class="text-3xl md:text-5xl font-light text-white mb-4">📊 GitHub Repository Analysis</h1>
                         <p class="text-lg text-white/90">
