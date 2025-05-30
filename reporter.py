@@ -359,8 +359,12 @@ class GithubReporter:
             f.write("## ✅ Quality Metrics\n\n")
             non_empty_percent = 100 * (total_repos - total_empty_repos) / total_repos if total_repos > 0 else 0
             f.write(f"- **Non-Empty Repositories:** {non_empty_count} ({non_empty_percent:.1f}%)\n")
-            f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
-            f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
+            if non_empty_count > 0:
+                f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
+                f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
+            else:
+                f.write(f"- **Repositories with Documentation:** 0 (0.0% of non-empty)\n")
+                f.write(f"- **Repositories with Tests:** 0 (0.0% of non-empty)\n")
             
             # Test coverage information
             repos_with_coverage = [s for s in non_empty_repos if s.quality.test_coverage_percentage is not None]
@@ -373,12 +377,21 @@ class GithubReporter:
                 med_coverage = sum(1 for s in repos_with_coverage if 30 < s.quality.test_coverage_percentage <= 70)
                 low_coverage = sum(1 for s in repos_with_coverage if s.quality.test_coverage_percentage <= 30)
                 
-                f.write(f"  - **High Coverage (>70%):** {high_coverage} repos ({high_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
-                f.write(f"  - **Medium Coverage (30-70%):** {med_coverage} repos ({med_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
-                f.write(f"  - **Low Coverage (<30%):** {low_coverage} repos ({low_coverage/len(repos_with_coverage)*100:.1f}% of tested)\n")
+                repos_with_coverage_len = len(repos_with_coverage)
+                if repos_with_coverage_len > 0:
+                    f.write(f"  - **High Coverage (>70%):** {high_coverage} repos ({high_coverage/repos_with_coverage_len*100:.1f}% of tested)\n")
+                    f.write(f"  - **Medium Coverage (30-70%):** {med_coverage} repos ({med_coverage/repos_with_coverage_len*100:.1f}% of tested)\n")
+                    f.write(f"  - **Low Coverage (<30%):** {low_coverage} repos ({low_coverage/repos_with_coverage_len*100:.1f}% of tested)\n")
             
-            f.write(f"- **Active Repositories:** {active_repos} ({active_repos/non_empty_count*100:.1f}% of non-empty)\n")
-            f.write(f"- **Repositories with License:** {len(license_counts)} ({len(license_counts)/total_repos*100:.1f}%)\n")
+            if non_empty_count > 0:
+                f.write(f"- **Active Repositories:** {active_repos} ({active_repos/non_empty_count*100:.1f}% of non-empty)\n")
+            else:
+                f.write(f"- **Active Repositories:** 0 (0.0% of non-empty)\n")
+            
+            if total_repos > 0:
+                f.write(f"- **Repositories with License:** {len(license_counts)} ({len(license_counts)/total_repos*100:.1f}% of total)\n")
+            else:
+                f.write(f"- **Repositories with License:** 0 (0.0% of total)\n")
             f.write("\n")
             
             # Add excluded content information
@@ -397,8 +410,11 @@ class GithubReporter:
                 f.write("| License | Count | Percentage |\n")
                 f.write("|---------|-------|------------|\n")
                 for license_name, count in license_counts.most_common(10):
-                    percentage = (count / total_repos * 100)
-                    f.write(f"| {license_name} | {count} | {percentage:.1f}% |\n")
+                    if total_repos > 0:
+                        percentage = (count / total_repos * 100)
+                        f.write(f"| {license_name} | {count} | {percentage:.1f}% |\n")
+                    else:
+                        f.write(f"| {license_name} | {count} | N/A% |\n")
                 f.write("\n")
             
             # Repository rankings (excluding empty repositories)
@@ -443,29 +459,43 @@ class GithubReporter:
                     f.write("| Language | Repositories | Percentage |\n")
                     f.write("|----------|--------------|------------|\n")
                     for lang, count in primary_languages.most_common(10):
-                        percentage = (count / non_empty_count * 100)
-                        f.write(f"| {lang} | {count} | {percentage:.1f}% |\n")
+                        if non_empty_count > 0:
+                            percentage = (count / non_empty_count * 100)
+                            f.write(f"| {lang} | {count} | {percentage:.1f}% |\n")
+                        else:
+                            f.write(f"| {lang} | {count} | N/A% |\n")
                     f.write("\n")
             
             # Average quality scores
             if non_empty_repos:
                 f.write("## 📈 Average Quality Scores\n\n")
-                avg_code_quality = sum(stats.code_quality_score for stats in non_empty_repos) / non_empty_count
-                avg_docs_quality = sum(stats.documentation_score for stats in non_empty_repos) / non_empty_count
-                avg_popularity = sum(stats.popularity_score for stats in non_empty_repos) / non_empty_count
-                
-                f.write(f"- **Average Maintenance Score:** {avg_maintenance_score:.1f}/100\n")
-                f.write(f"- **Average Code Quality Score:** {avg_code_quality:.1f}/100\n")
-                f.write(f"- **Average Documentation Score:** {avg_docs_quality:.1f}/100\n")
-                f.write(f"- **Average Popularity Score:** {avg_popularity:.1f}/100\n")
+                if non_empty_count > 0:
+                    avg_code_quality = sum(stats.code_quality_score for stats in non_empty_repos) / non_empty_count
+                    avg_docs_quality = sum(stats.documentation_score for stats in non_empty_repos) / non_empty_count
+                    avg_popularity = sum(stats.popularity_score for stats in non_empty_repos) / non_empty_count
+                    
+                    f.write(f"- **Average Maintenance Score:** {avg_maintenance_score:.1f}/100\n")
+                    f.write(f"- **Average Code Quality Score:** {avg_code_quality:.1f}/100\n")
+                    f.write(f"- **Average Documentation Score:** {avg_docs_quality:.1f}/100\n")
+                    f.write(f"- **Average Popularity Score:** {avg_popularity:.1f}/100\n")
+                else:
+                    f.write(f"- **Average Maintenance Score:** 0.0/100\n")
+                    f.write(f"- **Average Code Quality Score:** 0.0/100\n")
+                    f.write(f"- **Average Documentation Score:** 0.0/100\n")
+                    f.write(f"- **Average Popularity Score:** 0.0/100\n")
                 f.write("\n")
             
             # Monorepo statistics
             monorepos = [s for s in non_empty_repos if s.is_monorepo]
             if monorepos:
-                monorepo_percentage = (len(monorepos) / non_empty_count * 100)
-                f.write(f"## 📦 Monorepo Analysis\n\n")
-                f.write(f"- **Monorepos Detected:** {len(monorepos)} ({monorepo_percentage:.1f}% of non-empty repos)\n")
+                if non_empty_count > 0:
+                    monorepo_percentage = (len(monorepos) / non_empty_count * 100)
+                    f.write(f"## 📦 Monorepo Analysis\n\n")
+                    f.write(f"- **Monorepos Detected:** {len(monorepos)} ({monorepo_percentage:.1f}% of non-empty repos)\n")
+                else:
+                    f.write(f"## 📦 Monorepo Analysis\n\n")
+                    f.write(f"- **Monorepos Detected:** {len(monorepos)} (N/A% of non-empty repos)\n")
+                    
                 f.write(f"- **Average LOC in Monorepos:** {sum(s.total_loc for s in monorepos) / len(monorepos):,.0f}\n")
                 f.write("\n")
                 
@@ -484,7 +514,10 @@ class GithubReporter:
                 f.write("## 📅 Commit Activity Summary\n\n")
                 f.write(f"- **Total Commits (Last Month):** {total_commits_last_month:,}\n")
                 f.write(f"- **Total Commits (Last Year):** {total_commits_last_year:,}\n")
-                f.write(f"- **Average Monthly Commits per Active Repo:** {total_commits_last_month / active_repos:.1f} (active repos only)\n")
+                if active_repos > 0:
+                    f.write(f"- **Average Monthly Commits per Active Repo:** {total_commits_last_month / active_repos:.1f} (active repos only)\n")
+                else:
+                    f.write(f"- **Average Monthly Commits per Active Repo:** 0.0 (no active repos found)\n")
                 f.write("\n")
         
         logger.info(f"Aggregated report saved to {report_path}")
