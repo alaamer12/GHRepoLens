@@ -340,6 +340,7 @@ class GithubVisualizer:
             <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
             <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
             <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+            <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
             <link rel="icon" type="image/png" href="assets/favicon.png">
             <script>
@@ -519,6 +520,150 @@ class GithubVisualizer:
                 .animate-chart-enter {{
                     animation: chartEnter 0.8s ease-out forwards;
                 }}
+                
+                /* Creator section animation */
+                @keyframes glowPulse {{
+                    0% {{ box-shadow: 0 0 5px 0 rgba(79, 70, 229, 0.5); }}
+                    50% {{ box-shadow: 0 0 20px 5px rgba(79, 70, 229, 0.5); }}
+                    100% {{ box-shadow: 0 0 5px 0 rgba(79, 70, 229, 0.5); }}
+                }}
+                
+                .animate-glow {{
+                    animation: glowPulse 3s infinite;
+                }}
+                
+                .social-link {{
+                    transition: all 0.3s ease;
+                }}
+                
+                .social-link:hover {{
+                    transform: translateY(-3px);
+                    filter: brightness(1.2);
+                }}
+                
+                /* New creator card styles */
+                .creator-card {{
+                    position: relative;
+                    overflow: hidden;
+                    border-radius: 16px;
+                    transition: all 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+                }}
+                
+                .creator-card::before {{
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    background: linear-gradient(225deg, rgba(79, 70, 229, 0.4) 0%, rgba(124, 58, 237, 0.4) 50%, rgba(249, 115, 22, 0.4) 100%);
+                    opacity: 0;
+                    z-index: 0;
+                    transition: opacity 0.5s ease;
+                }}
+                
+                .creator-card:hover::before {{
+                    opacity: 1;
+                }}
+                
+                .creator-profile-img {{
+                    position: relative;
+                    transition: all 0.5s ease;
+                }}
+                
+                .creator-card:hover .creator-profile-img {{
+                    transform: scale(1.05);
+                }}
+                
+                .creator-info {{
+                    position: relative;
+                    z-index: 1;
+                }}
+                
+                .social-icon {{
+                    transition: all 0.3s ease;
+                    position: relative;
+                    overflow: hidden;
+                }}
+                
+                .social-icon::after {{
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.2) 100%);
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                }}
+                
+                .social-icon:hover {{
+                    transform: translateY(-5px) scale(1.1);
+                }}
+                
+                .social-icon:hover::after {{
+                    opacity: 1;
+                }}
+                
+                .stack-badge {{
+                    position: relative;
+                    overflow: hidden;
+                }}
+                
+                .stack-badge::before {{
+                    content: "";
+                    position: absolute;
+                    top: -50%;
+                    left: -50%;
+                    width: 200%;
+                    height: 200%;
+                    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+                    transform: rotate(45deg);
+                    animation: shine 3s infinite;
+                }}
+                
+                @keyframes shine {{
+                    0% {{ transform: translateX(-100%) rotate(45deg); }}
+                    100% {{ transform: translateX(100%) rotate(45deg); }}
+                }}
+                
+                .animate-typing {{
+                    overflow: hidden;
+                    border-right: 2.5px solid;
+                    white-space: nowrap;
+                    animation: typing 2.5s steps(40, end) forwards, 
+                               blink-caret 0.65s step-end infinite;
+                    width: 0;
+                    display: inline-block;
+                    max-width: calc(20ch + 10px);
+                }}
+                
+                @keyframes typing {{
+                    from {{ width: 0 }}
+                    to {{ width: calc(20ch + 10px) }}
+                }}
+                
+                @keyframes blink-caret {{
+                    from, to {{ border-color: transparent }}
+                    50% {{ border-color: currentColor }}
+                }}
+                
+                .tech-badge {{
+                    background: rgba(79, 70, 229, 0.1);
+                    backdrop-filter: blur(8px);
+                    border: 1px solid rgba(79, 70, 229, 0.2);
+                    transition: all 0.3s ease;
+                }}
+                
+                .tech-badge:hover {{
+                    background: rgba(79, 70, 229, 0.2);
+                    transform: translateY(-2px);
+                }}
+                
+                .floating {{
+                    animation: floating 3s ease-in-out infinite;
+                }}
+                
+                @keyframes floating {{
+                    0% {{ transform: translateY(0px); }}
+                    50% {{ transform: translateY(-10px); }}
+                    100% {{ transform: translateY(0px); }}
+                }}
             </style>
         </head>"""
         
@@ -534,18 +679,132 @@ class GithubVisualizer:
             </button>
             
             <div class="container mx-auto px-4 py-8 max-w-7xl">
-                <!-- Header section with enhanced animations -->
-                <div data-aos="fade-down" data-aos-duration="800" class="bg-gradient-primary animated-bg rounded-lg shadow-xl mb-8 overflow-hidden transform transition-all hover:shadow-2xl">
-                    <div class="p-6 md:p-10 text-center">
-                        <div class="flex justify-center mb-4">
-                            <img src="assets/logo.png" alt="GHRepoLens Logo" class="h-24 w-auto animate-float" />
-                        </div>
+                <!-- Header section with enhanced animations and banner as background -->
+                <div data-aos="fade-down" data-aos-duration="800" class="relative bg-gradient-primary animated-bg rounded-lg shadow-xl mb-8 overflow-hidden transform transition-all hover:shadow-2xl">
+                    <!-- Semi-transparent background banner image -->
+                    <div class="absolute inset-0 w-full h-full opacity-20 dark:hidden">
+                        <img src="assets/light_banner.png" alt="" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="absolute inset-0 w-full h-full opacity-20 hidden dark:block">
+                        <img src="assets/dark_banner.png" alt="" class="w-full h-full object-cover" />
+                    </div>
+                    
+                    <div class="relative p-6 md:p-10 text-center z-10">
                         <h1 class="text-3xl md:text-5xl font-light text-white mb-4 animate-bounce-in">📊 GitHub Repository Analysis</h1>
                         <p class="text-lg text-white/90 animate-fade-in">
                             User: <span class="font-semibold">{self.username}</span> | Generated: {timestamp}
                         </p>
                     </div>
                 </div>"""
+        
+        # Add creator section right after the header section
+        creator_section = """
+                <!-- Creator Section - Modern & Compact -->
+                <div id="creator-section" class="relative overflow-hidden bg-white/10 dark:bg-gray-800/20 backdrop-blur-sm rounded-xl shadow-lg mb-6 transition-all duration-500 group">
+                    <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-secondary/5 to-accent/5 dark:from-primary/10 dark:via-secondary/10 dark:to-accent/10 opacity-80"></div>
+                    
+                    <div class="relative z-10 flex items-center p-4 gap-4">
+                        <!-- Creator Image & Name -->
+                        <div class="relative w-16 h-16 rounded-full overflow-hidden shadow-lg border-2 border-primary/30 creator-profile-img" data-aos="zoom-in" data-aos-delay="100">
+                            <img src="assets/alaamer.jpg" alt="Amr Muhamed" class="w-full h-full object-cover" />
+                            <div class="absolute inset-0 bg-gradient-to-tr from-primary/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        </div>
+                        
+                        <div class="flex-1">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <!-- Name & Role -->
+                                <div>
+                                    <h3 class="text-xl font-bold text-gray-800 dark:text-white flex items-center" data-aos="fade-right" data-aos-delay="150">
+                                        <span class="mr-2">Amr Muhamed</span>
+                                        <span class="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary dark:bg-primary/20 stack-badge">
+                                            Full Stack Dev
+                                        </span>
+                                    </h3>
+                                    <p class="text-sm text-gray-600 dark:text-gray-300" data-aos="fade-right" data-aos-delay="200">
+                                        <span class="animate-typing">Creator of GHRepoLens 😄  </span>
+                                    </p>
+                                </div>
+                                
+                                <!-- Social Links -->
+                                <div class="flex gap-2" data-aos="fade-left" data-aos-delay="250">
+                                    <a href="https://github.com/alaamer12" target="_blank" class="social-icon p-2 rounded-full bg-gray-800 text-white hover:bg-primary shadow-md">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                                        </svg>
+                                    </a>
+                                    <a href="https://www.linkedin.com/in/amr-muhamed-0b0709265/" target="_blank" class="social-icon p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                                        </svg>
+                                    </a>
+                                    <a href="https://portfolio-qiw8.vercel.app/" target="_blank" class="social-icon p-2 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 shadow-md">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm1 16.057v-3.057h2.994c-.059 1.143-.212 2.24-.456 3.279-.823-.12-1.674-.188-2.538-.222zm1.957 2.162c-.499 1.33-1.159 2.497-1.957 3.456v-3.62c.666.028 1.319.081 1.957.164zm-1.957-7.219v-3.015c.868-.034 1.721-.103 2.548-.224.238 1.027.389 2.111.446 3.239h-2.994zm0-5.014v-3.661c.806.969 1.471 2.15 1.971 3.496-.642.084-1.3.137-1.971.165zm2.703-3.267c1.237.496 2.354 1.228 3.29 2.146-.642.234-1.311.442-2.019.607-.344-.992-.775-1.91-1.271-2.753zm-7.241 13.56c-.244-1.039-.398-2.136-.456-3.279h2.994v3.057c-.865.034-1.714.102-2.538.222zm2.538 1.776v3.62c-.798-.959-1.458-2.126-1.957-3.456.638-.083 1.291-.136 1.957-.164zm-2.994-7.055c.057-1.128.207-2.212.446-3.239.827.121 1.68.19 2.548.224v3.015h-2.994zm1.024-5.179c.5-1.346 1.165-2.527 1.97-3.496v3.661c-.671-.028-1.329-.081-1.97-.165zm-2.005-.35c-.708-.165-1.377-.373-2.018-.607.937-.918 2.053-1.65 3.29-2.146-.496.844-.927 1.762-1.272 2.753zm-.549 1.918c-.264 1.151-.434 2.36-.492 3.611h-3.933c.165-1.658.739-3.197 1.617-4.518.88.361 1.816.67 2.808.907zm.009 9.262c-.988.236-1.92.542-2.797.9-.89-1.328-1.471-2.879-1.637-4.551h3.934c.058 1.265.231 2.488.5 3.651zm.553 1.917c.342.976.768 1.881 1.257 2.712-1.223-.49-2.326-1.211-3.256-2.115.636-.229 1.299-.435 1.999-.597zm9.924 0c.7.163 1.362.367 1.999.597-.931.903-2.034 1.625-3.257 2.116.489-.832.915-1.737 1.258-2.713zm.553-1.917c.27-1.163.442-2.386.501-3.651h3.934c-.167 1.672-.748 3.223-1.638 4.551-.877-.358-1.81-.664-2.797-.9zm.501-5.651c-.058-1.251-.229-2.46-.492-3.611.992-.237 1.929-.546 2.809-.907.877 1.321 1.451 2.86 1.616 4.518h-3.933z"/>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            
+                            <!-- Technologies Row -->
+                            <div class="mt-2 flex flex-wrap gap-2" data-aos="fade-up" data-aos-delay="300">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Python</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">JavaScript</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">React</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Data Analysis</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">ML</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">GitHub API</span>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+                
+                <script>
+                // Initialize GSAP animations for the creator section
+                document.addEventListener('DOMContentLoaded', function() {
+                    if (typeof gsap !== 'undefined') {
+                        const creatorSection = document.getElementById('creator-section');
+                        if (creatorSection) {
+                            // Create hover effect
+                            creatorSection.addEventListener('mouseenter', function() {
+                                gsap.to(this, {
+                                    scale: 1.02,
+                                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                                    duration: 0.3,
+                                    ease: 'power2.out'
+                                });
+                                
+                                // Animate technology badges
+                                gsap.to(this.querySelectorAll('.tech-badge'), {
+                                    stagger: 0.05,
+                                    y: -4,
+                                    scale: 1.1,
+                                    duration: 0.2,
+                                    ease: 'back.out(1.7)'
+                                });
+                            });
+                            
+                            creatorSection.addEventListener('mouseleave', function() {
+                                gsap.to(this, {
+                                    scale: 1,
+                                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                                    duration: 0.3,
+                                    ease: 'power2.out'
+                                });
+                                
+                                // Reset technology badges
+                                gsap.to(this.querySelectorAll('.tech-badge'), {
+                                    stagger: 0.05,
+                                    y: 0,
+                                    scale: 1,
+                                    duration: 0.2,
+                                    ease: 'back.out(1.7)'
+                                });
+                            });
+                        }
+                    }
+                });
+                </script>"""
         
         stats_section = f"""<!-- Stats overview with enhanced animations -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
@@ -1246,6 +1505,7 @@ class GithubVisualizer:
         html_content = "\n".join([
             head_section,
             body_start,
+            creator_section,
             stats_section,
             charts_section,
             additional_charts_section,
