@@ -6,7 +6,7 @@ from models import RepoStats
 from utilities import ensure_utc
 from pathlib import Path
 from datetime import datetime, timezone
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import List, Dict, Optional, Literal, TypedDict
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -1415,6 +1415,122 @@ class GithubVisualizer:
                 plt.tight_layout()
                 plt.savefig(self.reports_dir / 'repo_creation_timeline.png', dpi=300, bbox_inches='tight')
                 plt.close()
+        
+        # 13. NEW: Documentation and README Quality Distribution
+        if non_empty_repos:
+            _, axs = plt.subplots(1, 2, figsize=(16, 7))
+            
+            # Documentation Size Distribution
+            docs_categories = Counter(r.docs_size_category for r in non_empty_repos)
+            # Sort categories in logical order
+            category_order = ["None", "Small", "Intermediate", "Big"]
+            docs_data = [docs_categories.get(cat, 0) for cat in category_order]
+            
+            axs[0].bar(category_order, docs_data, color=chart_colors[:len(category_order)])
+            axs[0].set_title('Documentation Size Distribution')
+            axs[0].set_ylabel('Number of Repositories')
+            
+            # Add count labels above bars
+            for i, count in enumerate(docs_data):
+                if count > 0:
+                    axs[0].text(i, count + 0.5, str(count), ha='center')
+            
+            # README Comprehensiveness Distribution
+            readme_categories = Counter(r.readme_comprehensiveness for r in non_empty_repos)
+            # Sort categories in logical order
+            readme_order = ["None", "Small", "Good", "Comprehensive"]
+            readme_data = [readme_categories.get(cat, 0) for cat in readme_order]
+            
+            axs[1].bar(readme_order, readme_data, color=chart_colors[3:3+len(readme_order)])
+            axs[1].set_title('README Comprehensiveness Distribution')
+            axs[1].set_ylabel('Number of Repositories')
+            
+            # Add count labels above bars
+            for i, count in enumerate(readme_data):
+                if count > 0:
+                    axs[1].text(i, count + 0.5, str(count), ha='center')
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'documentation_quality.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+        # 14. NEW: Infrastructure Quality Metrics (Packages, Deployments, Releases)
+        if non_empty_repos:
+            _, ax = plt.subplots(figsize=(12, 8))
+            
+            # Calculate percentages for each metric
+            total = len(non_empty_repos)
+            with_packages = sum(1 for r in non_empty_repos if r.has_packages)
+            with_deployments = sum(1 for r in non_empty_repos if r.has_deployments)
+            with_releases = sum(1 for r in non_empty_repos if r.has_releases)
+            with_cicd = sum(1 for r in non_empty_repos if r.has_cicd)
+            
+            # Create data for grouped bar chart
+            categories = ['Package Management', 'Deployment Config', 'Releases', 'CI/CD']
+            yes_counts = [with_packages, with_deployments, with_releases, with_cicd]
+            no_counts = [total - count for count in yes_counts]
+            
+            # Plot the data
+            x = np.arange(len(categories))
+            width = 0.35
+            
+            # Plot "Yes" bars
+            yes_bars = ax.bar(x - width/2, yes_counts, width, label='Yes', color=chart_colors[0])
+            # Plot "No" bars
+            no_bars = ax.bar(x + width/2, no_counts, width, label='No', color=chart_colors[1])
+            
+            # Add counts and percentages
+            for i, bars in enumerate([yes_bars, no_bars]):
+                label = "Yes" if i == 0 else "No"
+                for j, bar in enumerate(bars):
+                    height = bar.get_height()
+                    percentage = (height / total) * 100
+                    ax.text(bar.get_x() + bar.get_width()/2, height + 0.5,
+                           f"{int(height)}\n({percentage:.1f}%)",
+                           ha='center', va='bottom', fontsize=9)
+            
+            # Add labels and title
+            ax.set_ylabel('Number of Repositories')
+            ax.set_title('Infrastructure Quality Metrics')
+            ax.set_xticks(x)
+            ax.set_xticklabels(categories)
+            ax.legend()
+            
+            # Set y-axis to start at 0
+            ax.set_ylim(0, max(yes_counts + no_counts) * 1.15)  # Add 15% padding
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'infrastructure_metrics.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+        # 15. NEW: Release Counts (for repos with releases)
+        repos_with_releases = [r for r in non_empty_repos if r.has_releases and r.release_count > 0]
+        if len(repos_with_releases) >= 3:  # Only create if we have at least 3 repos with releases
+            # Sort by release count
+            top_by_releases = sorted(repos_with_releases, key=lambda x: x.release_count, reverse=True)[:15]
+            
+            # Create horizontal bar chart
+            _, ax = plt.subplots(figsize=(12, max(6, len(top_by_releases) * 0.4)))
+            
+            names = [r.name for r in top_by_releases]
+            release_counts = [r.release_count for r in top_by_releases]
+            
+            # Create horizontal bar chart
+            bars = ax.barh(names, release_counts, color=chart_colors[2])
+            
+            # Add count labels
+            for bar in bars:
+                width = bar.get_width()
+                ax.text(width + 0.5, bar.get_y() + bar.get_height()/2,
+                       f"{int(width)}", ha='left', va='center')
+            
+            ax.set_xlabel('Number of Releases')
+            ax.set_title('Repositories with Most Releases')
+            
+            # Adjust layout to fit all repo names
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'release_counts.png', dpi=300, bbox_inches='tight')
+            plt.close()
         
         logger.info("Detailed charts saved to reports directory")
 

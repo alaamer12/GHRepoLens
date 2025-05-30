@@ -1,7 +1,7 @@
 from asyncio.log import logger
 from zipfile import Path
 
-from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES,  EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, SPECIAL_FILENAMES, Configuration
+from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
 from utilities import ensure_utc
 import time
@@ -377,6 +377,60 @@ class GithubAnalyzer:
             
         return False
         
+    def is_package_file(self, file_path: str) -> bool:
+        """Check if file is related to package management"""
+        filename = Path(file_path).name.lower()
+        
+        # Check against PACKAGE_FILES set
+        if filename in PACKAGE_FILES or any(pattern in file_path.lower() for pattern in PACKAGE_FILES):
+            return True
+            
+        # Check if it's in the special filenames dictionary and is a package file
+        base_filename = Path(file_path).name
+        if base_filename in SPECIAL_FILENAMES:
+            file_type = SPECIAL_FILENAMES[base_filename]
+            if any(pkg_type in file_type for pkg_type in 
+                  ['TOML', 'JSON', 'Package', 'Requirements', 'Gemfile', 'Cargo']):
+                return True
+                
+        return False
+        
+    def is_deployment_file(self, file_path: str) -> bool:
+        """Check if file is related to deployment"""
+        filename = Path(file_path).name.lower()
+        
+        # Check against DEPLOYMENT_FILES set
+        if filename in DEPLOYMENT_FILES or any(pattern in file_path.lower() for pattern in DEPLOYMENT_FILES):
+            return True
+            
+        # Check if it's in the special filenames dictionary and is a deployment file
+        base_filename = Path(file_path).name
+        if base_filename in SPECIAL_FILENAMES:
+            file_type = SPECIAL_FILENAMES[base_filename]
+            if any(deploy_type in file_type for deploy_type in 
+                  ['Docker', 'Kubernetes', 'Deploy', 'Terraform']):
+                return True
+                
+        return False
+        
+    def is_release_file(self, file_path: str) -> bool:
+        """Check if file is related to releases"""
+        filename = Path(file_path).name.lower()
+        
+        # Check against RELEASE_FILES set
+        if filename in RELEASE_FILES or any(pattern in file_path.lower() for pattern in RELEASE_FILES):
+            return True
+            
+        # Check for specific release patterns
+        release_patterns = [
+            'changelog', 'changes', 'releases', 'version', 'semver',
+            'semantic-release', '.github/releases'
+        ]
+        if any(pattern in file_path.lower() for pattern in release_patterns):
+            return True
+            
+        return False
+        
     def is_test_file(self, file_path: str) -> bool:
         """Check if file is a test file"""
         file_path_lower = file_path.lower()
@@ -471,7 +525,19 @@ class GithubAnalyzer:
             'project_structure': defaultdict(int),
             'is_empty': False,  # New flag to track empty repositories
             'skipped_directories': set(),  # Track which directories were skipped
-            'excluded_file_count': 0  # Count of excluded files
+            'excluded_file_count': 0,  # Count of excluded files
+            
+            # Additional tracking for new metrics
+            'has_packages': False,
+            'package_files': [],
+            'has_deployments': False,
+            'deployment_files': [],
+            'has_releases': False,
+            'release_files': [],
+            'docs_files': [],
+            'readme_file': None,
+            'readme_content': None,
+            'readme_line_count': 0
         }
         
         try:
@@ -524,15 +590,28 @@ class GithubAnalyzer:
                     stats['total_files'] += 1
                     
                     # Check for documentation
+                    is_doc = False
                     if ('readme' in file_path.lower() or 
                         file_path.lower().startswith('docs/') or
                         '/docs/' in file_path.lower() or
                         file_path.lower().endswith('.md')):
                         stats['has_docs'] = True
+                        is_doc = True
+                        stats['docs_files'].append(file_path)
                         
                     # Specific check for README
                     if 'readme' in file_path.lower():
                         stats['has_readme'] = True
+                        stats['readme_file'] = file_path
+                        
+                        # Get README content for comprehensiveness analysis
+                        try:
+                            if file_content.size < 1024 * 1024:  # Skip files larger than 1MB
+                                readme_content = file_content.decoded_content.decode('utf-8', errors='ignore')
+                                stats['readme_content'] = readme_content
+                                stats['readme_line_count'] = len(readme_content.splitlines())
+                        except Exception as e:
+                            logger.debug(f"Could not decode README {file_path}: {e}")
                     
                     # Check for tests
                     if self.is_test_file(file_path):
@@ -547,6 +626,21 @@ class GithubAnalyzer:
                     # Check for dependency files
                     if self.is_config_file(file_path):
                         stats['dependency_files'].append(file_path)
+                    
+                    # Check for package files
+                    if self.is_package_file(file_path):
+                        stats['has_packages'] = True
+                        stats['package_files'].append(file_path)
+                        
+                    # Check for deployment files
+                    if self.is_deployment_file(file_path):
+                        stats['has_deployments'] = True
+                        stats['deployment_files'].append(file_path)
+                        
+                    # Check for release files
+                    if self.is_release_file(file_path):
+                        stats['has_releases'] = True
+                        stats['release_files'].append(file_path)
                     
                     # Skip binary files for LOC counting
                     if self.is_binary_file(file_path):
@@ -587,6 +681,44 @@ class GithubAnalyzer:
                 except Exception as e:
                     logger.warning(f"Error processing file {file_content.path}: {e}")
                     continue
+            
+            # Process additional metadata
+            
+            # Check for GitHub releases
+            try:
+                releases = list(repo.get_releases())
+                if releases:
+                    stats['has_releases'] = True
+                    stats['release_count'] = len(releases)
+            except Exception as e:
+                logger.debug(f"Could not get releases for {repo.name}: {e}")
+            
+            # Categorize documentation size
+            docs_files_count = len(stats['docs_files'])
+            stats['docs_files_count'] = docs_files_count
+            
+            if docs_files_count == 0:
+                stats['docs_size_category'] = "None"
+            elif docs_files_count <= 2:
+                stats['docs_size_category'] = "Small"
+            elif docs_files_count <= 10:
+                stats['docs_size_category'] = "Intermediate"
+            else:
+                stats['docs_size_category'] = "Big"
+                
+            # Categorize README comprehensiveness
+            readme_lines = stats['readme_line_count']
+            if readme_lines == 0:
+                stats['readme_comprehensiveness'] = "None"
+            elif readme_lines < 20:
+                stats['readme_comprehensiveness'] = "Small"
+            elif readme_lines < 100:
+                stats['readme_comprehensiveness'] = "Good"
+            else:
+                stats['readme_comprehensiveness'] = "Comprehensive"
+                
+            # Clean up large content we don't need to keep
+            stats.pop('readme_content', None)
         
         except GithubException as e:
             # Handle empty repository specifically
@@ -625,55 +757,87 @@ class GithubAnalyzer:
         # Maintenance score (0-100)
         maintenance_score = 0.0
         
-        # Documentation (20 points)
+        # Documentation (15 points)
         if repo_stats.get('has_docs', False):
-            maintenance_score += 15
-        if repo_stats.get('has_readme', False):
-            maintenance_score += 5
+            # Add points based on documentation size
+            docs_size = repo_stats.get('docs_size_category', "None")
+            if docs_size == "Big":
+                maintenance_score += 15
+            elif docs_size == "Intermediate":
+                maintenance_score += 10
+            elif docs_size == "Small":
+                maintenance_score += 5
         
-        # Tests (20 points)
+        # README quality (10 points)
+        if repo_stats.get('has_readme', False):
+            # Add points based on README comprehensiveness
+            readme_quality = repo_stats.get('readme_comprehensiveness', "None")
+            if readme_quality == "Comprehensive":
+                maintenance_score += 10
+            elif readme_quality == "Good":
+                maintenance_score += 7
+            elif readme_quality == "Small":
+                maintenance_score += 3
+        
+        # Tests (15 points)
         if repo_stats.get('has_tests', False):
             test_count = repo_stats.get('test_files_count', 0)
             if test_count > 10:
-                maintenance_score += 20
-            elif test_count > 5:
                 maintenance_score += 15
-            elif test_count > 0:
+            elif test_count > 5:
                 maintenance_score += 10
+            elif test_count > 0:
+                maintenance_score += 5
         
         # CI/CD (10 points)
         if repo_stats.get('has_cicd', False):
             maintenance_score += 10
         
-        # Recent activity (20 points)
+        # Package management (5 points)
+        if repo_stats.get('has_packages', False):
+            maintenance_score += 5
+            
+        # Deployment configuration (5 points)
+        if repo_stats.get('has_deployments', False):
+            maintenance_score += 5
+            
+        # Releases (5 points)
+        if repo_stats.get('has_releases', False):
+            release_count = repo_stats.get('release_count', 0)
+            if release_count > 5:
+                maintenance_score += 5
+            else:
+                maintenance_score += min(release_count, 5)
+        
+        # Recent activity (15 points)
         if repo_stats.get('is_active', False):
             maintenance_score += 10
             
             # More points for higher activity
             commits_last_month = repo_stats.get('commits_last_month', 0)
             if commits_last_month > 10:
-                maintenance_score += 10
+                maintenance_score += 5
             elif commits_last_month > 0:
-                maintenance_score += commits_last_month
+                maintenance_score += commits_last_month / 2  # Up to 5 points
         
-        # License (10 points)
+        # License (5 points)
         if repo.license:
-            maintenance_score += 10
+            maintenance_score += 5
         
-        # Issues management (10 points)
+        # Issues management (5 points)
         try:
             if repo.open_issues_count < 10:
-                maintenance_score += 10
-            elif repo.open_issues_count < 50:
                 maintenance_score += 5
+            elif repo.open_issues_count < 50:
+                maintenance_score += 3
         except:
             pass
         
-        # Repository size and structure (10 points)
+        # Repository size and structure (5 points)
         if repo_stats.get('total_files', 0) > 5:
-            maintenance_score += 5
+            maintenance_score += 3
         if len(repo_stats.get('dependency_files', [])) > 0:
-            maintenance_score += 5
+            maintenance_score += 2
         
         scores['maintenance_score'] = min(maintenance_score, 100.0)
         
@@ -715,15 +879,30 @@ class GithubAnalyzer:
         # Code quality score (0-100)
         code_quality_score = 0.0
         
-        # Test coverage
+        # Test coverage (up to 30 points)
         if repo_stats.get('has_tests', False):
-            code_quality_score += 30
+            test_count = repo_stats.get('test_files_count', 0)
+            total_files = repo_stats.get('total_files', 0)
+            if total_files > 0:
+                test_ratio = min(test_count / max(1, total_files - test_count), 1.0)
+                # Up to 30 points based on test ratio
+                code_quality_score += min(30, 30 * test_ratio)
+            else:
+                code_quality_score += 10  # Some tests are better than none
         
-        # CI/CD
+        # CI/CD (up to 20 points)
         if repo_stats.get('has_cicd', False):
-            code_quality_score += 30
+            code_quality_score += 20
         
-        # Code size and complexity
+        # Package management (up to 10 points)
+        if repo_stats.get('has_packages', False):
+            package_files_count = len(repo_stats.get('package_files', []))
+            if package_files_count > 3:
+                code_quality_score += 10
+            else:
+                code_quality_score += package_files_count * 3
+        
+        # Code size and complexity (up to 20 points)
         if repo_stats.get('total_loc', 0) > 0:
             avg_loc = repo_stats.get('avg_loc_per_file', 0)
             if avg_loc > 0 and avg_loc < 300:  # Reasonable file size
@@ -731,24 +910,42 @@ class GithubAnalyzer:
             elif avg_loc > 0:
                 code_quality_score += 10
         
-        # Documentation
+        # Documentation (up to 20 points)
         if repo_stats.get('has_docs', False):
-            code_quality_score += 20
+            docs_category = repo_stats.get('docs_size_category', "None")
+            if docs_category == "Big":
+                code_quality_score += 20
+            elif docs_category == "Intermediate":
+                code_quality_score += 15
+            elif docs_category == "Small":
+                code_quality_score += 10
         
         scores['code_quality_score'] = min(code_quality_score, 100.0)
         
         # Documentation score (0-100)
         documentation_score = 0.0
         
-        # README
+        # README quality (up to 40 points)
         if repo_stats.get('has_readme', False):
-            documentation_score += 40
+            readme_quality = repo_stats.get('readme_comprehensiveness', "None")
+            if readme_quality == "Comprehensive":
+                documentation_score += 40
+            elif readme_quality == "Good":
+                documentation_score += 30
+            elif readme_quality == "Small":
+                documentation_score += 15
         
-        # Additional documentation
+        # Additional documentation (up to 40 points)
         if repo_stats.get('has_docs', False):
-            documentation_score += 40
+            docs_category = repo_stats.get('docs_size_category', "None")
+            if docs_category == "Big":
+                documentation_score += 40
+            elif docs_category == "Intermediate":
+                documentation_score += 30
+            elif docs_category == "Small":
+                documentation_score += 15
         
-        # Wiki presence
+        # Wiki presence (up to 20 points)
         try:
             if repo.has_wiki:
                 documentation_score += 20
@@ -930,7 +1127,18 @@ class GithubAnalyzer:
                 test_coverage_percentage=test_coverage_percentage,
                 has_cicd=file_stats.get('has_cicd', False),
                 cicd_files=file_stats.get('cicd_files', []),
-                dependency_files=file_stats['dependency_files']
+                dependency_files=file_stats['dependency_files'],
+                # New metrics
+                has_packages=file_stats.get('has_packages', False),
+                package_files=file_stats.get('package_files', []),
+                has_deployments=file_stats.get('has_deployments', False),
+                deployment_files=file_stats.get('deployment_files', []),
+                has_releases=file_stats.get('has_releases', False),
+                release_count=file_stats.get('release_count', 0),
+                docs_size_category=file_stats.get('docs_size_category', "None"),
+                docs_files_count=file_stats.get('docs_files_count', 0),
+                readme_comprehensiveness=file_stats.get('readme_comprehensiveness', "None"),
+                readme_line_count=file_stats.get('readme_line_count', 0)
             )
             
             # Create activity metrics
@@ -1017,6 +1225,10 @@ class GithubAnalyzer:
         # Popular repo without docs
         if repo_stats.community.stars > 10 and not repo_stats.quality.has_docs:
             repo_stats.add_anomaly("Popular repository without documentation")
+        
+        # Small/inadequate README for larger codebases
+        if repo_stats.code_stats.total_loc > 1000 and repo_stats.quality.readme_comprehensiveness in ["None", "Small"]:
+            repo_stats.add_anomaly("Large codebase with inadequate README")
             
         # Many open issues
         if repo_stats.community.open_issues > 20 and not repo_stats.activity.is_active:
@@ -1025,6 +1237,14 @@ class GithubAnalyzer:
         # Stale repository with stars
         if not repo_stats.activity.is_active and repo_stats.community.stars > 10:
             repo_stats.add_anomaly("Popular repository appears to be abandoned")
+            
+        # Active project without package management
+        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_packages:
+            repo_stats.add_anomaly("Active project without package management")
+            
+        # Missing releases in mature project
+        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_releases:
+            repo_stats.add_anomaly("Mature project without releases")
             
         # Project with code but no license
         if repo_stats.code_stats.total_loc > 1000 and not repo_stats.community.license_name:

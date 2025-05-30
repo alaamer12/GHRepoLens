@@ -120,6 +120,24 @@ class QualityIndicators:
     has_cicd: bool = False
     cicd_files: List[str] = field(default_factory=list)
     dependency_files: List[str] = field(default_factory=list)
+    
+    # Package management
+    has_packages: bool = False
+    package_files: List[str] = field(default_factory=list)
+    
+    # Deployment and release info
+    has_deployments: bool = False
+    deployment_files: List[str] = field(default_factory=list)
+    has_releases: bool = False
+    release_count: int = 0
+    
+    # Documentation quality indicators
+    docs_size_category: str = "None"  # None, Small, Intermediate, Big
+    docs_files_count: int = 0
+    
+    # README quality
+    readme_comprehensiveness: str = "None"  # None, Small, Good, Comprehensive
+    readme_line_count: int = 0
 
 @dataclass
 class ActivityMetrics:
@@ -427,6 +445,56 @@ class RepoStats:
     def project_structure(self) -> Dict[str, int]:
         """Dictionary representing the project directory structure."""
         return self.code_stats.project_structure
+    
+    @property
+    def has_packages(self) -> bool:
+        """Whether the repository has package management."""
+        return self.quality.has_packages
+    
+    @property
+    def package_files(self) -> List[str]:
+        """List of package management files."""
+        return self.quality.package_files
+    
+    @property
+    def has_deployments(self) -> bool:
+        """Whether the repository has deployment configuration."""
+        return self.quality.has_deployments
+    
+    @property
+    def deployment_files(self) -> List[str]:
+        """List of deployment configuration files."""
+        return self.quality.deployment_files
+    
+    @property
+    def has_releases(self) -> bool:
+        """Whether the repository has releases."""
+        return self.quality.has_releases
+    
+    @property
+    def release_count(self) -> int:
+        """Number of releases in the repository."""
+        return self.quality.release_count
+    
+    @property
+    def docs_size_category(self) -> str:
+        """Size category of documentation (None, Small, Intermediate, Big)."""
+        return self.quality.docs_size_category
+    
+    @property
+    def docs_files_count(self) -> int:
+        """Number of documentation files."""
+        return self.quality.docs_files_count
+    
+    @property
+    def readme_comprehensiveness(self) -> str:
+        """Comprehensiveness of README (None, Small, Good, Comprehensive)."""
+        return self.quality.readme_comprehensiveness
+    
+    @property
+    def readme_line_count(self) -> int:
+        """Line count of README file."""
+        return self.quality.readme_line_count
     
     def add_anomaly(self, anomaly: str) -> None:
         """

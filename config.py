@@ -374,6 +374,77 @@ EXCLUDED_DIRECTORIES: Set[str] = {
     'Dependencies', 'dependencies', 'deps',
 }
 
+# Package management files to detect
+PACKAGE_FILES: Set[str] = {
+    # Python
+    'setup.py', 'pyproject.toml', 'setup.cfg', 'requirements.txt',
+    'Pipfile', 'Pipfile.lock', 'poetry.lock', 'conda-env.yml',
+    'environment.yml',
+    
+    # JavaScript/Node.js
+    'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'bun.lockb', 'npm-shrinkwrap.json', 'lerna.json',
+    
+    # Ruby
+    'Gemfile', 'Gemfile.lock',
+    
+    # PHP
+    'composer.json', 'composer.lock',
+    
+    # .NET
+    'packages.config', '.csproj', '.vbproj', '.fsproj', '.nupkg',
+    
+    # Java
+    'pom.xml', 'build.gradle', 'gradle.properties', 'build.sbt',
+    'maven-wrapper.properties',
+    
+    # Go
+    'go.mod', 'go.sum',
+    
+    # Rust
+    'Cargo.toml', 'Cargo.lock'
+}
+
+# Deployment configuration files to detect
+DEPLOYMENT_FILES: Set[str] = {
+    # Docker and containers
+    'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+    'containerfile', 'docker-compose.override.yml',
+    
+    # Kubernetes
+    'kubernetes.yaml', 'kubernetes.yml', 'kustomization.yaml',
+    'helm.yaml', 'chart.yaml', 'values.yaml',
+    
+    # Cloud providers
+    'appveyor.yml', 'azure-pipelines.yml', '.travis.yml',
+    '.circleci/config.yml', 'cloudbuild.yaml', 'buildspec.yml',
+    'serverless.yml', 'cloudformation.yaml', 'cloudformation.json',
+    
+    # Platform specific
+    'Procfile', 'app.yaml', 'app.json', '.platform.app.yaml',
+    'fly.toml', 'railway.json', 'heroku.yml',
+    'vercel.json', 'netlify.toml', 'now.json',
+    
+    # Infrastructure as code
+    'terraform.tfstate', 'terraform.tfvars', 'terragrunt.hcl',
+    'main.tf', 'variables.tf', 'outputs.tf',
+    
+    # Deployment scripts
+    'deploy.sh', 'deploy.py', 'deploy.js', 'deploy.ps1',
+    'deploy-production.sh', 'deploy-staging.sh'
+}
+
+# Release files and directories to detect
+RELEASE_FILES: Set[str] = {
+    # Release management
+    '.github/releases', 'releases/',
+    '.releaserc', '.releaserc.json', '.releaserc.js', '.releaserc.yaml',
+    'release.config.js', '.goreleaser.yml', '.goreleaser.yaml',
+    'CHANGELOG.md', 'CHANGELOG', 'CHANGES.md', 'CHANGES',
+    'RELEASES.md', 'RELEASES', 'VERSION', 'version.txt',
+    'semver.txt', 'semantic-release.config.js'
+}
+
 # Configure logging with more detailed setup
 LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 LOG_LEVEL = logging.INFO

@@ -171,12 +171,25 @@ class GithubReporter:
                 # Quality indicators
                 f.write("### ✅ Quality Indicators\n")
                 f.write(f"- **Has Documentation:** {'✅ Yes' if stats.has_docs else '❌ No'}\n")
+                if stats.has_docs:
+                    f.write(f"  - **Documentation Size:** {stats.docs_size_category} ({stats.docs_files_count} files)\n")
+                f.write(f"- **Has README:** {'✅ Yes' if stats.has_readme else '❌ No'}\n")
+                if stats.has_readme:
+                    f.write(f"  - **README Quality:** {stats.readme_comprehensiveness} ({stats.readme_line_count} lines)\n")
                 f.write(f"- **Has Tests:** {'✅ Yes' if stats.has_tests else '❌ No'}\n")
                 if stats.has_tests:
                     f.write(f"  - **Test Files:** {stats.test_files_count} files\n")
                     if stats.quality.test_coverage_percentage is not None:
                         coverage_emoji = "🟢" if stats.quality.test_coverage_percentage > 70 else "🟡" if stats.quality.test_coverage_percentage > 30 else "🔴"
                         f.write(f"  - **Estimated Test Coverage:** {coverage_emoji} {stats.quality.test_coverage_percentage:.1f}% (estimated from file count)\n")
+                f.write(f"- **Has CI/CD:** {'✅ Yes' if stats.has_cicd else '❌ No'}\n")
+                f.write(f"- **Has Package Management:** {'✅ Yes' if stats.has_packages else '❌ No'}\n")
+                f.write(f"- **Has Deployment Config:** {'✅ Yes' if stats.has_deployments else '❌ No'}\n")
+                f.write(f"- **Has Releases:** {'✅ Yes' if stats.has_releases else '❌ No'}")
+                if stats.has_releases:
+                    f.write(f" ({stats.release_count} releases)\n")
+                else:
+                    f.write("\n")
                 f.write(f"- **Is Active:** {'✅ Yes' if stats.is_active else '❌ No'} (commits in last 6 months)\n")
                 f.write(f"- **License:** {stats.license_name or '❌ No License'}\n")
                 f.write(f"- **Maintenance Score:** {stats.maintenance_score:.1f}/100\n")
@@ -361,10 +374,49 @@ class GithubReporter:
             f.write(f"- **Non-Empty Repositories:** {non_empty_count} ({non_empty_percent:.1f}%)\n")
             if non_empty_count > 0:
                 f.write(f"- **Repositories with Documentation:** {repos_with_docs} ({repos_with_docs/non_empty_count*100:.1f}% of non-empty)\n")
+                # Add documentation quality breakdown
+                docs_size_categories = Counter(s.docs_size_category for s in non_empty_repos if s.has_docs)
+                if docs_size_categories:
+                    f.write("  - **Documentation Size Categories:**\n")
+                    for category, count in sorted(docs_size_categories.items(), key=lambda x: ["None", "Small", "Intermediate", "Big"].index(x[0])):
+                        percentage = count / repos_with_docs * 100 if repos_with_docs > 0 else 0
+                        f.write(f"    - {category}: {count} repos ({percentage:.1f}% of documented repos)\n")
+                
+                # Add README quality breakdown
+                repos_with_readme = sum(1 for s in non_empty_repos if s.has_readme)
+                f.write(f"- **Repositories with README:** {repos_with_readme} ({repos_with_readme/non_empty_count*100:.1f}% of non-empty)\n")
+                readme_categories = Counter(s.readme_comprehensiveness for s in non_empty_repos if s.has_readme)
+                if readme_categories:
+                    f.write("  - **README Quality Categories:**\n")
+                    for category, count in sorted(readme_categories.items(), key=lambda x: ["None", "Small", "Good", "Comprehensive"].index(x[0])):
+                        percentage = count / repos_with_readme * 100 if repos_with_readme > 0 else 0
+                        f.write(f"    - {category}: {count} repos ({percentage:.1f}% of repos with README)\n")
+                
                 f.write(f"- **Repositories with Tests:** {repos_with_tests} ({repos_with_tests/non_empty_count*100:.1f}% of non-empty)\n")
+                
+                # Package management stats
+                repos_with_packages = sum(1 for s in non_empty_repos if s.has_packages)
+                f.write(f"- **Repositories with Package Management:** {repos_with_packages} ({repos_with_packages/non_empty_count*100:.1f}% of non-empty)\n")
+                
+                # Deployment configuration stats
+                repos_with_deployments = sum(1 for s in non_empty_repos if s.has_deployments)
+                f.write(f"- **Repositories with Deployment Configuration:** {repos_with_deployments} ({repos_with_deployments/non_empty_count*100:.1f}% of non-empty)\n")
+                
+                # Release stats
+                repos_with_releases = sum(1 for s in non_empty_repos if s.has_releases)
+                f.write(f"- **Repositories with Releases:** {repos_with_releases} ({repos_with_releases/non_empty_count*100:.1f}% of non-empty)\n")
+                if repos_with_releases > 0:
+                    total_releases = sum(s.release_count for s in non_empty_repos if s.has_releases)
+                    avg_releases = total_releases / repos_with_releases
+                    f.write(f"  - **Total Releases:** {total_releases}\n")
+                    f.write(f"  - **Average Releases per Repository:** {avg_releases:.1f} (repos with releases only)\n")
             else:
                 f.write(f"- **Repositories with Documentation:** 0 (0.0% of non-empty)\n")
+                f.write(f"- **Repositories with README:** 0 (0.0% of non-empty)\n")
                 f.write(f"- **Repositories with Tests:** 0 (0.0% of non-empty)\n")
+                f.write(f"- **Repositories with Package Management:** 0 (0.0% of non-empty)\n")
+                f.write(f"- **Repositories with Deployment Configuration:** 0 (0.0% of non-empty)\n")
+                f.write(f"- **Repositories with Releases:** 0 (0.0% of non-empty)\n")
             
             # Test coverage information
             repos_with_coverage = [s for s in non_empty_repos if s.quality.test_coverage_percentage is not None]
