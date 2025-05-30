@@ -1,0 +1,9 @@
+PyGithub
+matplotlib
+seaborn
+plotly
+tqdm
+pandas
+wordcloud
+requests
+scipy
