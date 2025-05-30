@@ -3,7 +3,7 @@ Configuration Module for GitHub Repository Analyzer
 
 This module provides configuration settings, logging setup, and constants used
 throughout the GitHub Repository Analyzer. It handles loading configuration from
-files, setting up logging, and defines constants for file type categorization.
+files, setting up logging, and defines constants for file categorization.
 
 Key components:
 - Configuration: TypedDict for strongly typed configuration
@@ -166,6 +166,71 @@ BINARY_EXTENSIONS: Set[str] = {
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
 }
 
+# Special filenames without extensions that should be properly categorized
+SPECIAL_FILENAMES: Dict[str, str] = {
+    # Documentation files
+    'README': 'Markdown',
+    'LICENSE': 'Text',
+    'COPYING': 'Text',
+    'CONTRIBUTORS': 'Text',
+    'AUTHORS': 'Text',
+    'CHANGELOG': 'Markdown',
+    'CHANGES': 'Text',
+    'HISTORY': 'Text',
+    'NEWS': 'Text',
+    'NOTICE': 'Text',
+    'PATENTS': 'Text',
+    'VERSION': 'Text',
+    'INSTALL': 'Text',
+    
+    # Configuration files
+    'Dockerfile': 'Docker',
+    'Makefile': 'Makefile',
+    'Jenkinsfile': 'Jenkinsfile',
+    'Vagrantfile': 'Ruby',
+    '.gitignore': 'GitIgnore',
+    '.gitattributes': 'GitConfig',
+    '.gitmodules': 'GitConfig',
+    '.babelrc': 'JSON',
+    '.eslintrc': 'JSON',
+    '.prettierrc': 'JSON',
+    '.stylelintrc': 'JSON',
+    '.eslintignore': 'GitIgnore',
+    '.prettierignore': 'GitIgnore',
+    '.npmrc': 'INI',
+    '.yarnrc': 'YAML',
+    '.editorconfig': 'INI',
+    '.browserslistrc': 'Text',
+    
+    # Go files
+    'go.mod': 'Go',
+    'go.sum': 'Go',
+    
+    # Python files
+    'Pipfile': 'TOML',
+    'pyproject.toml': 'TOML',
+    'requirements': 'Text',
+    
+    # JavaScript/Node files
+    'package.json': 'JSON',
+    'package-lock.json': 'JSON',
+    'yarn.lock': 'YAML',
+    'tsconfig.json': 'JSON',
+    
+    # Ruby files
+    'Gemfile': 'Ruby',
+    'Rakefile': 'Ruby',
+    
+    # Shell scripts
+    'configure': 'Shell',
+    
+    # Other
+    'CODEOWNERS': 'Text',
+    '.mailmap': 'Text',
+    '.htaccess': 'Apache',
+    'Procfile': 'YAML'
+}
+
 CONFIG_FILES: Set[str] = {
     # Python
     'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt',
@@ -307,6 +372,77 @@ EXCLUDED_DIRECTORIES: Set[str] = {
 
     # Custom
     'Dependencies', 'dependencies', 'deps',
+}
+
+# Package management files to detect
+PACKAGE_FILES: Set[str] = {
+    # Python
+    'setup.py', 'pyproject.toml', 'setup.cfg', 'requirements.txt',
+    'Pipfile', 'Pipfile.lock', 'poetry.lock', 'conda-env.yml',
+    'environment.yml',
+    
+    # JavaScript/Node.js
+    'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'bun.lockb', 'npm-shrinkwrap.json', 'lerna.json',
+    
+    # Ruby
+    'Gemfile', 'Gemfile.lock',
+    
+    # PHP
+    'composer.json', 'composer.lock',
+    
+    # .NET
+    'packages.config', '.csproj', '.vbproj', '.fsproj', '.nupkg',
+    
+    # Java
+    'pom.xml', 'build.gradle', 'gradle.properties', 'build.sbt',
+    'maven-wrapper.properties',
+    
+    # Go
+    'go.mod', 'go.sum',
+    
+    # Rust
+    'Cargo.toml', 'Cargo.lock'
+}
+
+# Deployment configuration files to detect
+DEPLOYMENT_FILES: Set[str] = {
+    # Docker and containers
+    'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+    'containerfile', 'docker-compose.override.yml',
+    
+    # Kubernetes
+    'kubernetes.yaml', 'kubernetes.yml', 'kustomization.yaml',
+    'helm.yaml', 'chart.yaml', 'values.yaml',
+    
+    # Cloud providers
+    'appveyor.yml', 'azure-pipelines.yml', '.travis.yml',
+    '.circleci/config.yml', 'cloudbuild.yaml', 'buildspec.yml',
+    'serverless.yml', 'cloudformation.yaml', 'cloudformation.json',
+    
+    # Platform specific
+    'Procfile', 'app.yaml', 'app.json', '.platform.app.yaml',
+    'fly.toml', 'railway.json', 'heroku.yml',
+    'vercel.json', 'netlify.toml', 'now.json',
+    
+    # Infrastructure as code
+    'terraform.tfstate', 'terraform.tfvars', 'terragrunt.hcl',
+    'main.tf', 'variables.tf', 'outputs.tf',
+    
+    # Deployment scripts
+    'deploy.sh', 'deploy.py', 'deploy.js', 'deploy.ps1',
+    'deploy-production.sh', 'deploy-staging.sh'
+}
+
+# Release files and directories to detect
+RELEASE_FILES: Set[str] = {
+    # Release management
+    '.github/releases', 'releases/',
+    '.releaserc', '.releaserc.json', '.releaserc.js', '.releaserc.yaml',
+    'release.config.js', '.goreleaser.yml', '.goreleaser.yaml',
+    'CHANGELOG.md', 'CHANGELOG', 'CHANGES.md', 'CHANGES',
+    'RELEASES.md', 'RELEASES', 'VERSION', 'version.txt',
+    'semver.txt', 'semantic-release.config.js'
 }
 
 # Configure logging with more detailed setup
