@@ -170,5 +170,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
   <p>Made with ❤️ for open-source developers and GitHub power users.</p>
-  <p>© 2024 GHRepoLens Contributors</p>
+  <p>© 2025 GHRepoLens Contributors</p>
 </div>
