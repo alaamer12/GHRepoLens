@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """
-GitHub Repository Analyzer - Main entry point
+GitHub Repository Analyzer - Main Entry Point
 
 This module provides the main entry point for the GitHub Repository Analyzer tool.
-It handles configuration loading, user input validation, and executes the analysis.
-"""
+It handles configuration loading, user input validation, and executes the analysis
+of GitHub repositories. The analyzer provides detailed insights about repositories
+including code quality, activity metrics, and community engagement.
 
-import os
-#!/usr/bin/env python3
-"""
-GitHub Repository Analyzer - Main entry point
-
-This module provides the main entry point for the GitHub Repository Analyzer tool.
-It handles configuration loading, user input validation, and executes the analysis.
+Main features:
+- Analysis of all repositories for a GitHub user
+- Generation of detailed and aggregated reports
+- Creation of visualizations for repository metrics
+- Support for demo mode to analyze a limited set of repositories
+- Checkpoint functionality to resume interrupted analysis
 """
 
 import os
 from pathlib import Path
+from typing import List, Optional
 
 from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
@@ -24,11 +25,11 @@ from tqdm.auto import tqdm
 
 from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, setup_logging
 from lens import GithubLens
+from models import RepoStats
 
 # Initialize logger
 logger = setup_logging()
 
-from typing import Optional
 
 def run_analysis(
     token: str,
@@ -38,10 +39,13 @@ def run_analysis(
 ) -> None:
     """
     Run GitHub repository analysis for the specified user.
+    
+    Performs comprehensive analysis of GitHub repositories, generates reports,
+    and handles exceptions gracefully.
 
     Args:
-        token: GitHub personal access token
-        username: GitHub username to analyze
+        token: GitHub personal access token for API authentication
+        username: GitHub username whose repositories will be analyzed
         demo_mode: If True, only analyze up to 10 repos (default: False)
         config_file: Path to custom configuration file (default: None)
     """
@@ -89,15 +93,34 @@ def run_analysis(
         _handle_generic_exception(e)
         raise
 
+
 def _handle_checkpoint_message(config: Configuration) -> None:
-    """Display checkpoint resume message if applicable."""
+    """
+    Display checkpoint resume message if applicable.
+    
+    Args:
+        config: Configuration dictionary containing checkpoint settings
+    """
     checkpoint_exists = Path(config["CHECKPOINT_FILE"]).exists()
     if checkpoint_exists and config.get("RESUME_FROM_CHECKPOINT", False):
         print(f"\n📋 Found existing checkpoint file")
         print(f"🔄 Will resume analysis from checkpoint")
 
-def _run_demo_mode(token: str, username: str, analyzer: GithubLens):
-    """Run analysis in demo mode (up to 10 repositories)."""
+
+def _run_demo_mode(token: str, username: str, analyzer: GithubLens) -> List[RepoStats]:
+    """
+    Run analysis in demo mode (up to 10 repositories).
+    
+    Fetches and analyzes up to 10 repositories for demonstration purposes.
+    
+    Args:
+        token: GitHub personal access token
+        username: GitHub username to analyze
+        analyzer: Initialized GithubLens instance
+        
+    Returns:
+        List of RepoStats objects for analyzed repositories
+    """
     github = Github(token)
     user = github.get_user(username)
     all_repos = list(user.get_repos())[:10]
@@ -107,7 +130,7 @@ def _run_demo_mode(token: str, username: str, analyzer: GithubLens):
     analyzer.rate_display.display_once()
     print("-------------------------------")
 
-    demo_stats = []
+    demo_stats: List[RepoStats] = []
     with tqdm(
         total=min(10, len(all_repos)),
         desc="Analyzing repositories",
@@ -129,8 +152,18 @@ def _run_demo_mode(token: str, username: str, analyzer: GithubLens):
                 break
     return demo_stats
 
-def _generate_reports(analyzer: GithubLens, all_stats) -> None:
-    """Generate all reports for the analysis."""
+
+def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) -> None:
+    """
+    Generate all reports for the analysis.
+    
+    Creates detailed reports, aggregated statistics, visualizations, 
+    and JSON data export.
+    
+    Args:
+        analyzer: GithubLens instance to use for report generation
+        all_stats: List of repository statistics to include in reports
+    """
     print("\n📝 Generating reports...")
     with tqdm(total=4, desc="Generating reports", colour='blue') as pbar:
         analyzer.generate_detailed_report(all_stats)
@@ -142,8 +175,19 @@ def _generate_reports(analyzer: GithubLens, all_stats) -> None:
         analyzer.save_json_report(all_stats)
         pbar.update(1)
 
-def _print_summary(analyzer: GithubLens, all_stats, demo_mode: bool) -> None:
-    """Print summary and report locations."""
+
+def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], demo_mode: bool) -> None:
+    """
+    Print summary and report locations.
+    
+    Displays a summary of the analysis results and the locations of
+    generated reports.
+    
+    Args:
+        analyzer: GithubLens instance used for the analysis
+        all_stats: List of repository statistics that were analyzed
+        demo_mode: Whether the analysis was run in demo mode
+    """
     print(f"\n🎉 Analysis Complete!")
     print(f"📊 Analyzed {len(all_stats)} repositories{' (demo mode)' if demo_mode else ''}")
     print(f"📁 Reports saved to: {analyzer.reports_dir.absolute()}")
@@ -155,30 +199,54 @@ def _print_summary(analyzer: GithubLens, all_stats, demo_mode: bool) -> None:
     print(f"\n📊 GitHub API Usage:")
     print(f"   • Total API requests used: {analyzer.api_requests_made}")
 
+
 def _handle_rate_limit_exceeded() -> None:
-    """Handle GitHub API rate limit exceeded exception."""
+    """
+    Handle GitHub API rate limit exceeded exception.
+    
+    Provides user guidance on how to proceed when the rate limit is exceeded.
+    """
     logger.error("❌ GitHub API rate limit exceeded. Please try again later.")
     print("\n⏰ GitHub API rate limit exceeded. Options:")
     print("1. Wait for the rate limit to reset (usually 1 hour)")
     print("2. Use a different GitHub token")
     print("3. Run again later to resume from checkpoint")
 
-def _handle_github_exception(e: Exception) -> None:
-    """Handle generic GitHub API exceptions."""
+
+def _handle_github_exception(e: GithubException) -> None:
+    """
+    Handle generic GitHub API exceptions.
+    
+    Logs the error and informs the user about checkpoint functionality.
+    
+    Args:
+        e: The GitHub exception that was raised
+    """
     logger.error(f"❌ GitHub API error: {e}")
     print(f"\n❌ GitHub API error: {e}")
     print(f"💾 Your progress has been saved to checkpoint - run again later to resume")
 
+
 def _handle_generic_exception(e: Exception) -> None:
-    """Handle all other exceptions."""
+    """
+    Handle all other exceptions.
+    
+    Logs the error and informs the user about checkpoint functionality.
+    
+    Args:
+        e: The exception that was raised
+    """
     logger.error(f"❌ Error during analysis: {e}")
     print(f"\n❌ Error during analysis: {e}")
     print(f"💾 Your progress has been saved to checkpoint - run again later to resume")
 
-def main():
+
+def main() -> None:
     """
     Main entry point for the GitHub Repository Analyzer.
-    Prompts the user for GitHub token and username if not provided.
+    
+    Prompts the user for GitHub token and username if not provided as
+    environment variables, and allows selection of demo or full analysis.
     """
     print("🔮 GitHub Repository Analyzer")
     print("-----------------------------")
@@ -214,6 +282,7 @@ def main():
     
     # Run the analysis
     run_analysis(token, username, demo_mode)
+
 
 if __name__ == "__main__":
     main()

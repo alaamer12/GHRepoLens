@@ -1,32 +1,45 @@
-from asyncio.log import logger
-from urllib import request
-from zipfile import Path
+"""
+GitHub Repository Lens Module
+
+This module provides the main interface for analyzing GitHub repositories.
+It coordinates between the analyzer, reporter, and visualizer components.
+"""
+
+from pathlib import Path
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Any
 
 import requests
+from github import Github
+from github.Repository import Repository
 
 from analyzer import GithubAnalyzer
-from config import DEFAULT_CONFIG, Configuration
+from config import DEFAULT_CONFIG, Configuration, logger
 from models import RepoStats
 from reporter import GithubReporter
 from utilities import Checkpoint, GitHubRateDisplay
-import json
-import time
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import List, Optional
-
-from github import Github
-from github.Repository import Repository
 from visualizer import GithubVisualizer
 
 
-
-
 class GithubLens:
-    """Main analyzer class for GitHub repositories with comprehensive analysis capabilities"""
+    """
+    Main analyzer class for GitHub repositories with comprehensive analysis capabilities.
     
-    def __init__(self, token: str, username: str, config: Optional[Configuration] = None):
-        """Initialize the analyzer with GitHub token and configuration"""
+    Coordinates between different components to analyze repositories, generate reports,
+    and create visualizations.
+    """
+    
+    def __init__(self, token: str, username: str, config: Optional[Configuration] = None) -> None:
+        """
+        Initialize the analyzer with GitHub token and configuration.
+        
+        Args:
+            token: GitHub personal access token for API authentication
+            username: GitHub username to analyze
+            config: Optional configuration dictionary to override defaults
+        """
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self.config.update(config)
@@ -54,7 +67,7 @@ class GithubLens:
         # Checkpoint tracking
         self.checkpoint = Checkpoint(self.config, username)
         self.api_requests_made = 0
-        self.analyzed_repos = []
+        self.analyzed_repos: List[str] = []
         
         # Initialize rate display for interactive display
         self.rate_display = GitHubRateDisplay()
@@ -67,7 +80,7 @@ class GithubLens:
         
         logger.info(f"Initialized analyzer for user: {username}")
         
-    def start_monitoring(self, update_interval=30):
+    def start_monitoring(self, update_interval: int = 30) -> bool:
         """
         Start continuous rate monitoring in a background thread.
         
@@ -91,8 +104,13 @@ class GithubLens:
             logger.error(f"Error starting continuous rate monitoring: {e}")
             return False
             
-    def stop_monitoring(self):
-        """Stop continuous rate monitoring"""
+    def stop_monitoring(self) -> bool:
+        """
+        Stop continuous rate monitoring.
+        
+        Returns:
+            True if monitoring was successfully stopped, False otherwise
+        """
         try:
             self.rate_display.stop()
             logger.info("Stopped continuous rate monitoring")
@@ -101,8 +119,16 @@ class GithubLens:
             logger.error(f"Error stopping continuous rate monitoring: {e}")
             return False
 
-    def setup_github_client(self, token: str):
-        """Set up GitHub client with custom backoff handling to show progress bars"""
+    def setup_github_client(self, token: str) -> None:
+        """
+        Set up GitHub client with custom backoff handling to show progress bars.
+        
+        Args:
+            token: GitHub personal access token
+            
+        Raises:
+            Exception: If GitHub client initialization fails
+        """
         try:
             self.github = Github(token)
         except Exception as e:
@@ -110,47 +136,98 @@ class GithubLens:
             raise
 
     def analyze_single_repository(self, repo: Repository) -> RepoStats:
-        """Analyze a single repository using the GithubAnalyzer"""
+        """
+        Analyze a single repository using the GithubAnalyzer.
+        
+        Args:
+            repo: GitHub repository object to analyze
+            
+        Returns:
+            RepoStats object containing analysis results
+        """
         # Pass to the analyzer instance
         return self.analyzer.analyze_single_repository(repo)
 
     def analyze_all_repositories(self) -> List[RepoStats]:
-        """Analyze all repositories for the user"""
+        """
+        Analyze all repositories for the user.
+        
+        Returns:
+            List of RepoStats objects, one for each repository
+        """
         # Delegate to the analyzer instance
         return self.analyzer.analyze_all_repositories()
 
     def generate_detailed_report(self, all_stats: List[RepoStats]) -> None:
-        """Generate detailed per-repository report"""
+        """
+        Generate detailed per-repository report.
+        
+        Args:
+            all_stats: List of RepoStats objects to include in the report
+        """
         reporter = GithubReporter(self.username, self.reports_dir)
         reporter.generate_detailed_report(all_stats)
 
     def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
-        """Generate aggregated statistics report"""
+        """
+        Generate aggregated statistics report.
+        
+        Args:
+            all_stats: List of RepoStats objects to include in the report
+        """
         reporter = GithubReporter(self.username, self.reports_dir)
         reporter.generate_aggregated_report(all_stats)
         
     def create_visualizations(self, all_stats: List[RepoStats]) -> None:
-        """Generate visual reports with charts and graphs"""
+        """
+        Generate visual reports with charts and graphs.
+        
+        Args:
+            all_stats: List of RepoStats objects to visualize
+        """
         logger.info("Generating visual report")
         visualizer = GithubVisualizer(self.username, self.reports_dir)
         visualizer.create_visualizations(all_stats)
 
     def save_json_report(self, all_stats: List[RepoStats]) -> None:
-        """Save data as JSON for programmatic consumption"""
+        """
+        Save data as JSON for programmatic consumption.
+        
+        Args:
+            all_stats: List of RepoStats objects to export
+        """
         exporter = GithubExporter(self.username, self.reports_dir)
         exporter.save_json_report(all_stats)
 
 
 class GithubExporter:
-    """Class responsible for exporting GitHub repository data to various formats"""
+    """
+    Class responsible for exporting GitHub repository data to various formats.
     
-    def __init__(self, username: str, reports_dir: Path):
-        """Initialize the exporter with username and reports directory"""
+    Handles the conversion of repository statistics into serializable formats
+    and writes them to files.
+    """
+    
+    def __init__(self, username: str, reports_dir: Path) -> None:
+        """
+        Initialize the exporter with username and reports directory.
+        
+        Args:
+            username: GitHub username being analyzed
+            reports_dir: Directory path where reports will be saved
+        """
         self.username = username
         self.reports_dir = reports_dir
     
     def save_json_report(self, all_stats: List[RepoStats]) -> None:
-        """Save data as JSON for programmatic consumption"""
+        """
+        Save data as JSON for programmatic consumption.
+        
+        Handles datetime serialization and error recovery for individual repositories.
+        
+        Args:
+            all_stats: List of RepoStats objects to export as JSON
+        """
         logger.info("Saving JSON report")
         
         # Count empty repositories
@@ -159,7 +236,7 @@ class GithubExporter:
         
         # Custom JSON encoder for datetime objects
         class DateTimeEncoder(json.JSONEncoder):
-            def default(self, obj):
+            def default(self, obj: Any) -> Any:
                 if isinstance(obj, datetime):
                     # Ensure the datetime has timezone info before serialization
                     if obj.tzinfo is None:
@@ -168,11 +245,11 @@ class GithubExporter:
                 return super().default(obj)
         
         # Convert RepoStats to dictionaries with field-by-field error handling
-        repo_dicts = []
+        repo_dicts: List[Dict[str, Any]] = []
         for stats in all_stats:
             try:
                 # Manual conversion instead of using asdict to avoid serialization issues
-                repo_dict = {}
+                repo_dict: Dict[str, Any] = {}
                 
                 # Basic repository information
                 repo_dict["name"] = stats.name

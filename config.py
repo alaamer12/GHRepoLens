@@ -1,6 +1,15 @@
-#!/usr/bin/env python3
 """
-Configuration and logging setup for GitHub Repository Analyzer.
+Configuration Module for GitHub Repository Analyzer
+
+This module provides configuration settings, logging setup, and constants used
+throughout the GitHub Repository Analyzer. It handles loading configuration from
+files, setting up logging, and defines constants for file type categorization.
+
+Key components:
+- Configuration: TypedDict for strongly typed configuration
+- Constants and mappings for file categorization
+- Logging setup functions
+- Configuration loading and sample creation functions
 """
 
 import os
@@ -8,10 +17,14 @@ import logging
 import configparser
 from pathlib import Path
 from datetime import datetime
-from typing import TypedDict, Dict, Any, Optional, List, Union
+from typing import TypedDict, Dict, Any, Optional, List, Union, Set, cast
 
 class Configuration(TypedDict):
-    """TypedDict defining the structure and types of configuration parameters."""
+    """
+    TypedDict defining the structure and types of configuration parameters.
+    
+    Provides strong typing for configuration settings throughout the application.
+    """
     GITHUB_TOKEN: str
     USERNAME: str
     REPORTS_DIR: str
@@ -48,7 +61,7 @@ DEFAULT_CONFIG: Configuration = {
 }
 
 # File type mappings for better categorization
-LANGUAGE_EXTENSIONS = {
+LANGUAGE_EXTENSIONS: Dict[str, str] = {
     # Python and related
     '.py': 'Python', '.pyx': 'Cython', '.pyd': 'Python', '.pyi': 'Python', '.ipynb': 'Jupyter',
     
@@ -116,7 +129,7 @@ LANGUAGE_EXTENSIONS = {
     '.wasm': 'WebAssembly', '.wat': 'WebAssembly Text'
 }
 
-BINARY_EXTENSIONS = {
+BINARY_EXTENSIONS: Set[str] = {
     # Images
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp', '.tiff', '.tif',
     '.psd', '.ai', '.eps', '.indd', '.raw', '.cr2', '.nef', '.heif', '.heic',
@@ -153,7 +166,7 @@ BINARY_EXTENSIONS = {
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
 }
 
-CONFIG_FILES = {
+CONFIG_FILES: Set[str] = {
     # Python
     'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt',
     'Pipfile', 'Pipfile.lock', 'pyproject.toml', 'setup.py', 'setup.cfg',
@@ -221,7 +234,7 @@ CONFIG_FILES = {
 }
 
 # CI/CD configuration files to detect project quality
-CICD_FILES = {
+CICD_FILES: Set[str] = {
     # GitHub
     '.github/workflows', '.github/actions', '.github/CODEOWNERS',
     '.github/dependabot.yml', '.github/dependabot.yaml',
@@ -258,7 +271,7 @@ CICD_FILES = {
 }
 
 # Directories to exclude from analysis (build artifacts, generated code, etc.)
-EXCLUDED_DIRECTORIES = {
+EXCLUDED_DIRECTORIES: Set[str] = {
     # Build artifacts and compiled outputs
     'bin', 'obj', 'build', 'dist', 'target', 'out',
     'Debug', 'Release', 'x64', 'x86', 'Win32', 'ARM',
@@ -300,8 +313,19 @@ EXCLUDED_DIRECTORIES = {
 LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 LOG_LEVEL = logging.INFO
 
-def setup_logging(log_dir="logs"):
-    """Set up logging to both file and console with proper formatting."""
+def setup_logging(log_dir: str = "logs") -> logging.Logger:
+    """
+    Set up logging to both file and console with proper formatting.
+    
+    Creates a logger that writes to both a timestamped log file and the console,
+    with appropriate formatting for debugging and tracking.
+    
+    Args:
+        log_dir: Directory where log files will be stored (default: "logs")
+        
+    Returns:
+        Configured logger instance
+    """
     # Create logs directory if it doesn't exist
     log_dir_path = Path(log_dir)
     log_dir_path.mkdir(exist_ok=True)
@@ -324,7 +348,18 @@ def setup_logging(log_dir="logs"):
     return logger
 
 def load_config_from_file(config_file: str) -> Configuration:
-    """Load configuration from a file"""
+    """
+    Load configuration from a file.
+    
+    Reads configuration settings from an INI file and updates the default
+    configuration with values from the file.
+    
+    Args:
+        config_file: Path to the configuration file to load
+        
+    Returns:
+        Updated configuration dictionary
+    """
     config = DEFAULT_CONFIG.copy()
     
     if not os.path.exists(config_file):
@@ -385,7 +420,12 @@ def load_config_from_file(config_file: str) -> Configuration:
         return config
 
 def create_sample_config() -> None:
-    """Create a sample configuration file if it doesn't exist"""
+    """
+    Create a sample configuration file if it doesn't exist.
+    
+    Generates a sample INI configuration file with default settings
+    as a template for users to customize.
+    """
     config_file = 'config.ini.sample'
     
     if os.path.exists(config_file):
