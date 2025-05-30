@@ -1,7 +1,9 @@
-seaborn
+PyGithub
 matplotlib
+seaborn
 plotly
 tqdm
+pandas
+wordcloud
 requests
-pygithub
-
+scipy
