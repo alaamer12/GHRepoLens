@@ -12,6 +12,8 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
+import numpy as np
+from wordcloud import WordCloud
 
 
 class ThemeConfig(TypedDict, total=False):
@@ -323,6 +325,7 @@ class GithubVisualizer:
             <script src="https://cdn.tailwindcss.com"></script>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+            <link rel="icon" type="image/png" href="assets/logo.png">
             <script>
                 tailwind.config = {{
                     darkMode: 'class',
@@ -426,6 +429,9 @@ class GithubVisualizer:
                 <!-- Header section -->
                 <div class="bg-gradient-primary rounded-lg shadow-xl mb-8 overflow-hidden">
                     <div class="p-6 md:p-10 text-center">
+                        <div class="flex justify-center mb-4">
+                            <img src="logo.png" alt="GHRepoLens Logo" class="h-24 w-auto" />
+                        </div>
                         <h1 class="text-3xl md:text-5xl font-light text-white mb-4">📊 GitHub Repository Analysis</h1>
                         <p class="text-lg text-white/90">
                             User: <span class="font-semibold">{self.username}</span> | Generated: {timestamp}
@@ -563,6 +569,104 @@ class GithubVisualizer:
                             <button id="next-page" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600">
                                 Next
                             </button>
+                        </div>
+                    </div>
+                </div>"""
+                
+        # NEW: Add links to additional static charts
+        additional_charts_section = """<!-- Additional Charts Section -->
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme mb-10">
+                    <h2 class="text-2xl font-semibold mb-6 dark:text-white">Additional Analysis Charts</h2>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <!-- Timeline Chart -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Repository Timeline</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Chronological view of repository creation and last commit dates</p>
+                            <a href="repository_timeline.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="repository_timeline.png" alt="Repository Timeline" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Language Evolution -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Language Evolution</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">How language usage has changed over time</p>
+                            <a href="language_evolution.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="language_evolution.png" alt="Language Evolution" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Quality Heatmap -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Maintenance Quality Matrix</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Quality factors across top repositories</p>
+                            <a href="quality_heatmap.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="quality_heatmap.png" alt="Quality Heatmap" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Repository Types -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Repository Types</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Distribution of different repository types</p>
+                            <a href="repo_types_distribution.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="repo_types_distribution.png" alt="Repository Types" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Commit Activity -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Commit Activity</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Heatmap of commit activity by month and year</p>
+                            <a href="commit_activity_heatmap.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="commit_activity_heatmap.png" alt="Commit Activity" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Top Repositories -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Top Repositories</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Top repositories by various metrics</p>
+                            <a href="top_repos_metrics.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="top_repos_metrics.png" alt="Top Repositories" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Metrics Correlation -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Metrics Correlation</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Correlation between different repository metrics</p>
+                            <a href="metrics_correlation.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="metrics_correlation.png" alt="Metrics Correlation" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Topics Word Cloud -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Topics Word Cloud</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Visual representation of repository topics</p>
+                            <a href="topics_wordcloud.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="topics_wordcloud.png" alt="Topics Word Cloud" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Active vs Inactive Age -->
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-lg transition-all">
+                            <h3 class="text-lg font-medium mb-2 dark:text-white">Active vs Inactive Repos</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Age distribution of active vs inactive repositories</p>
+                            <a href="active_inactive_age.png" target="_blank" class="text-primary hover:underline block">
+                                <img src="active_inactive_age.png" alt="Active vs Inactive Age" class="w-full h-40 object-cover rounded-lg" />
+                                <span class="mt-2 inline-block">View Full Size</span>
+                            </a>
                         </div>
                     </div>
                 </div>"""
@@ -822,6 +926,7 @@ class GithubVisualizer:
             body_start,
             stats_section,
             charts_section,
+            additional_charts_section,
             footer_section,
             js_part1,
             js_part2,
@@ -838,8 +943,11 @@ class GithubVisualizer:
         empty_repos = [s for s in all_stats if "Empty repository with no files" in s.anomalies]
         non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
         
+        # Use theme colors for consistency
+        chart_colors = self.theme["chart_palette"]
+        
         # 1. Repository Timeline Chart
-        fig, ax = plt.subplots(figsize=(15, 8))
+        _, ax = plt.subplots(figsize=(15, 8))
         
         # Prepare data for timeline
         repo_data = []
@@ -900,7 +1008,7 @@ class GithubVisualizer:
         
         # 2. Language Evolution Chart
         if len(non_empty_repos) > 1:
-            fig, ax = plt.subplots(figsize=(12, 8))
+            _, ax = plt.subplots(figsize=(12, 8))
             
             # Group repositories by creation year and analyze language usage
             yearly_languages = defaultdict(lambda: defaultdict(int))
@@ -947,43 +1055,44 @@ class GithubVisualizer:
             plt.close()
         
         # 3. Maintenance Quality Heatmap (only for non-empty repos)
-        fig, ax = plt.subplots(figsize=(14, 10))
-        
-        # Create matrix for heatmap
-        quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
-        
-        # Select top repos by maintenance score (non-empty only)
-        top_repos = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
-        repo_names = [stats.name[:20] for stats in top_repos]  # Top 20 repos
-        
-        quality_matrix = []
-        for stats in top_repos:
-            row = [
-                1 if stats.has_docs else 0,
-                1 if stats.has_tests else 0,
-                1 if stats.is_active else 0,
-                1 if stats.license_name else 0,
-                1 if stats.open_issues < 5 else 0
-            ]
-            quality_matrix.append(row)
-        
-        if quality_matrix:  # Only create heatmap if we have non-empty repos
-            # Create heatmap
-            sns.heatmap(quality_matrix, 
-                      xticklabels=quality_factors,
-                      yticklabels=repo_names,
-                      cmap='RdYlGn',
-                      annot=True,
-                      fmt='d',
-                      cbar_kws={'label': 'Quality Score'})
+        if non_empty_repos:
+            fig, ax = plt.subplots(figsize=(14, 10))
             
-            ax.set_title('Repository Maintenance Quality Matrix')
-            ax.set_xlabel('Quality Factors')
-            ax.set_ylabel('Repositories')
+            # Create matrix for heatmap
+            quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
             
-            plt.tight_layout()
-            plt.savefig(self.reports_dir / 'quality_heatmap.png', dpi=300, bbox_inches='tight')
-            plt.close()
+            # Select top repos by maintenance score (non-empty only)
+            top_repos = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
+            repo_names = [stats.name[:20] for stats in top_repos]  # Top 20 repos
+            
+            quality_matrix = []
+            for stats in top_repos:
+                row = [
+                    1 if stats.has_docs else 0,
+                    1 if stats.has_tests else 0,
+                    1 if stats.is_active else 0,
+                    1 if stats.license_name else 0,
+                    1 if stats.open_issues < 5 else 0
+                ]
+                quality_matrix.append(row)
+            
+            if quality_matrix:  # Only create heatmap if we have non-empty repos
+                # Create heatmap
+                sns.heatmap(quality_matrix, 
+                          xticklabels=quality_factors,
+                          yticklabels=repo_names,
+                          cmap='RdYlGn',
+                          annot=True,
+                          fmt='d',
+                          cbar_kws={'label': 'Quality Score'})
+                
+                ax.set_title('Repository Maintenance Quality Matrix')
+                ax.set_xlabel('Quality Factors')
+                ax.set_ylabel('Repositories')
+                
+                plt.tight_layout()
+                plt.savefig(self.reports_dir / 'quality_heatmap.png', dpi=300, bbox_inches='tight')
+                plt.close()
         
         # 4. Empty vs Non-Empty Repository Pie Chart
         if len(empty_repos) > 0:
@@ -999,6 +1108,299 @@ class GithubVisualizer:
             plt.title('Empty vs Non-Empty Repositories')
             plt.savefig(self.reports_dir / 'empty_repos_chart.png', dpi=300, bbox_inches='tight')
             plt.close()
+        
+        # 5. NEW: Repository Types Distribution
+        _, ax = plt.subplots(figsize=(12, 8))
+        
+        # Count different repository types
+        repo_types = {
+            'Regular': sum(1 for s in all_stats if not (s.is_fork or s.is_archived or s.is_template)),
+            'Forks': sum(1 for s in all_stats if s.is_fork),
+            'Archived': sum(1 for s in all_stats if s.is_archived),
+            'Templates': sum(1 for s in all_stats if s.is_template),
+            'Private': sum(1 for s in all_stats if s.is_private),
+            'Public': sum(1 for s in all_stats if not s.is_private)
+        }
+        
+        # Create bar chart
+        bars = ax.bar(repo_types.keys(), repo_types.values(), color=chart_colors[:len(repo_types)])
+        
+        # Add count labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{height}',
+                      xy=(bar.get_x() + bar.get_width() / 2, height),
+                      xytext=(0, 3),  # 3 points vertical offset
+                      textcoords="offset points",
+                      ha='center', va='bottom')
+        
+        ax.set_title('Repository Types Distribution')
+        ax.set_ylabel('Count')
+        ax.grid(axis='y', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(self.reports_dir / 'repo_types_distribution.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 6. NEW: Commit Activity Heatmap
+        if non_empty_repos:
+            # Extract monthly commit data from non-empty repos
+            # Group by month and year
+            commit_data = defaultdict(int)
+            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            
+            for stats in non_empty_repos:
+                if stats.last_commit_date:
+                    month = stats.last_commit_date.month - 1  # 0-indexed
+                    year = stats.last_commit_date.year
+                    commit_data[(year, month)] += 1
+            
+            if commit_data:
+                # Create data for heatmap
+                years = sorted(set(year for year, _ in commit_data.keys()))
+                
+                if len(years) > 0:
+                    activity_matrix = []
+                    for year in years:
+                        row = [commit_data.get((year, month), 0) for month in range(12)]
+                        activity_matrix.append(row)
+                    
+                    fig, ax = plt.subplots(figsize=(12, len(years) * 0.8 + 2))
+                    
+                    # Create heatmap
+                    sns.heatmap(activity_matrix, 
+                              xticklabels=month_names,
+                              yticklabels=years,
+                              cmap='YlGnBu',
+                              annot=True,
+                              fmt='d',
+                              cbar_kws={'label': 'Commit Count'})
+                    
+                    ax.set_title('Repository Commit Activity by Month')
+                    ax.set_xlabel('Month')
+                    ax.set_ylabel('Year')
+                    
+                    plt.tight_layout()
+                    plt.savefig(self.reports_dir / 'commit_activity_heatmap.png', dpi=300, bbox_inches='tight')
+                    plt.close()
+        
+        # 7. NEW: Top 10 Repositories by Metrics
+        if len(non_empty_repos) > 0:
+            _, axs = plt.subplots(2, 2, figsize=(16, 12))
+            axs = axs.flatten()
+            
+            # Top 10 by Size (LOC)
+            top_by_loc = sorted(non_empty_repos, key=lambda x: x.total_loc, reverse=True)[:10]
+            names_loc = [r.name for r in top_by_loc]
+            locs = [r.total_loc for r in top_by_loc]
+            
+            axs[0].barh(names_loc, locs, color=chart_colors[0])
+            axs[0].set_title('Top 10 Repositories by Size (LOC)')
+            axs[0].set_xlabel('Lines of Code')
+            # Format x-axis labels with commas for thousands
+            axs[0].xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x):,}'))
+            
+            # Top 10 by Stars
+            top_by_stars = sorted(non_empty_repos, key=lambda x: x.stars, reverse=True)[:10]
+            names_stars = [r.name for r in top_by_stars]
+            stars = [r.stars for r in top_by_stars]
+            
+            axs[1].barh(names_stars, stars, color=chart_colors[1])
+            axs[1].set_title('Top 10 Repositories by Stars')
+            axs[1].set_xlabel('Stars')
+            
+            # Top 10 by Maintenance Score
+            top_by_maint = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:10]
+            names_maint = [r.name for r in top_by_maint]
+            maint_scores = [r.maintenance_score for r in top_by_maint]
+            
+            axs[2].barh(names_maint, maint_scores, color=chart_colors[2])
+            axs[2].set_title('Top 10 Repositories by Maintenance Score')
+            axs[2].set_xlabel('Maintenance Score')
+            
+            # Top 10 by Contributors
+            top_by_contrib = sorted(non_empty_repos, key=lambda x: x.contributors_count, reverse=True)[:10]
+            names_contrib = [r.name for r in top_by_contrib]
+            contribs = [r.contributors_count for r in top_by_contrib]
+            
+            axs[3].barh(names_contrib, contribs, color=chart_colors[3])
+            axs[3].set_title('Top 10 Repositories by Contributors')
+            axs[3].set_xlabel('Contributors Count')
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'top_repos_metrics.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # 8. NEW: Score Correlation Matrix
+        if len(non_empty_repos) > 5:  # Only do this if we have enough repos for meaningful correlations
+            # Extract scores
+            maintenance_scores = [r.maintenance_score for r in non_empty_repos]
+            code_quality_scores = [r.code_quality_score for r in non_empty_repos]
+            popularity_scores = [r.popularity_score for r in non_empty_repos]
+            documentation_scores = [r.documentation_score for r in non_empty_repos]
+            contributor_counts = [r.contributors_count for r in non_empty_repos]
+            stars_counts = [r.stars for r in non_empty_repos]
+            issues_counts = [r.open_issues for r in non_empty_repos]
+            
+            # Create correlation dataframe
+            import pandas as pd
+            corr_data = pd.DataFrame({
+                'Maintenance': maintenance_scores,
+                'Code Quality': code_quality_scores,
+                'Popularity': popularity_scores,
+                'Documentation': documentation_scores,
+                'Contributors': contributor_counts,
+                'Stars': stars_counts,
+                'Open Issues': issues_counts
+            })
+            
+            # Calculate correlation
+            corr_matrix = corr_data.corr()
+            
+            # Plot correlation heatmap
+            fig, ax = plt.subplots(figsize=(10, 8))
+            mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+            
+            sns.heatmap(corr_matrix, mask=mask, cmap='coolwarm', annot=True, 
+                      vmin=-1, vmax=1, center=0, square=True, linewidths=.5)
+            
+            ax.set_title('Correlation Between Repository Metrics')
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'metrics_correlation.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # 9. NEW: Repository Topics WordCloud
+        if non_empty_repos:
+            # Collect all topics
+            all_topics = []
+            for repo in non_empty_repos:
+                all_topics.extend(repo.topics)
+            
+            if all_topics:
+                # Create word cloud
+                wordcloud = WordCloud(
+                    width=800, 
+                    height=400, 
+                    background_color='white',
+                    colormap='viridis',
+                    max_words=100,
+                    min_font_size=10
+                ).generate(' '.join(all_topics))
+                
+                _, ax = plt.subplots(figsize=(12, 6))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis('off')
+                ax.set_title('Repository Topics WordCloud')
+                
+                plt.tight_layout()
+                plt.savefig(self.reports_dir / 'topics_wordcloud.png', dpi=300, bbox_inches='tight')
+                plt.close()
+        
+        # 10. NEW: Active vs Inactive Repositories Age Distribution
+        if non_empty_repos:
+            _, ax = plt.subplots(figsize=(12, 7))
+            
+            # Separate active and inactive repos
+            active_repos = [r for r in non_empty_repos if r.is_active]
+            inactive_repos = [r for r in non_empty_repos if not r.is_active]
+            
+            # Calculate ages in years
+            active_ages = [(datetime.now().replace(tzinfo=timezone.utc) - r.created_at).days / 365.25 for r in active_repos]
+            inactive_ages = [(datetime.now().replace(tzinfo=timezone.utc) - r.created_at).days / 365.25 for r in inactive_repos]
+            
+            # Create histogram
+            if active_ages:
+                ax.hist(active_ages, bins=15, alpha=0.7, label='Active', color=chart_colors[0])
+            if inactive_ages:
+                ax.hist(inactive_ages, bins=15, alpha=0.7, label='Inactive', color=chart_colors[1])
+            
+            ax.set_xlabel('Repository Age (Years)')
+            ax.set_ylabel('Count')
+            ax.set_title('Age Distribution: Active vs Inactive Repositories')
+            ax.legend()
+            ax.grid(alpha=0.3)
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'active_inactive_age.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # 11. NEW: Open Issues vs Stars Scatter Plot
+        if non_empty_repos:
+            _, ax = plt.subplots(figsize=(12, 8))
+            
+            # Extract data
+            stars = [r.stars for r in non_empty_repos]
+            issues = [r.open_issues for r in non_empty_repos]
+            names = [r.name for r in non_empty_repos]
+            
+            # Create scatter plot
+            scatter = ax.scatter(stars, issues, 
+                       c=[chart_colors[0] if r.is_active else chart_colors[1] for r in non_empty_repos],
+                       alpha=0.7, s=100)
+            
+            # Add annotations for repos with many stars or issues
+            threshold_stars = np.percentile(stars, 90) if len(stars) > 10 else 0
+            threshold_issues = np.percentile(issues, 90) if len(issues) > 10 else 0
+            
+            for i, (name, s, iss) in enumerate(zip(names, stars, issues)):
+                if s > threshold_stars or iss > threshold_issues:
+                    ax.annotate(name, (s, iss), fontsize=8,
+                              xytext=(5, 5), textcoords='offset points')
+            
+            ax.set_xlabel('Stars')
+            ax.set_ylabel('Open Issues')
+            ax.set_title('Repository Popularity vs. Maintenance Burden')
+            ax.grid(alpha=0.3)
+            
+            # Add logarithmic scales if the data spans multiple orders of magnitude
+            if max(stars) > 100 * min([s for s in stars if s > 0] or [1]):
+                ax.set_xscale('log')
+            if max(issues) > 100 * min([i for i in issues if i > 0] or [1]):
+                ax.set_yscale('log')
+            
+            plt.tight_layout()
+            plt.savefig(self.reports_dir / 'stars_vs_issues.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+        # 12. NEW: Repository Creation Timeline
+        if all_stats:
+            fig, ax = plt.subplots(figsize=(15, 6))
+            
+            # Extract creation dates
+            creation_dates = [ensure_utc(r.created_at) for r in all_stats]
+            
+            # Create histogram by year and month
+            years_months = [(d.year, d.month) for d in creation_dates]
+            unique_years_months = sorted(set(years_months))
+            
+            if unique_years_months:
+                # Convert to datetime for better plotting
+                plot_dates = [datetime(year=ym[0], month=ym[1], day=15) for ym in unique_years_months]
+                counts = [years_months.count(ym) for ym in unique_years_months]
+                
+                # Plot
+                ax.bar(plot_dates, counts, width=25, color=chart_colors[0], alpha=0.8)
+                
+                ax.set_xlabel('Date')
+                ax.set_ylabel('New Repositories')
+                ax.set_title('Repository Creation Timeline')
+                
+                # Format x-axis as dates
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                ax.xaxis.set_major_locator(mdates.YearLocator())
+                plt.xticks(rotation=45)
+                
+                # Add trend line (moving average)
+                if len(counts) > 3:
+                    from scipy.ndimage import gaussian_filter1d
+                    smoothed = gaussian_filter1d(counts, sigma=1.5)
+                    ax.plot(plot_dates, smoothed, 'r-', linewidth=2, alpha=0.7)
+                
+                ax.grid(alpha=0.3)
+                plt.tight_layout()
+                plt.savefig(self.reports_dir / 'repo_creation_timeline.png', dpi=300, bbox_inches='tight')
+                plt.close()
         
         logger.info("Detailed charts saved to reports directory")
 
