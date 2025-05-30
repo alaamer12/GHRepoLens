@@ -17,7 +17,7 @@ import sys
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Union, Set, Tuple
+from typing import Dict, Any, List, Optional
 
 from tqdm.auto import tqdm
 from config import logger, Configuration

@@ -35,7 +35,8 @@ def run_analysis(
     token: str,
     username: str,
     demo_mode: bool = False,
-    config_file: Optional[str] = None
+    config_file: Optional[str] = None,
+    test_mode: bool = False
 ) -> None:
     """
     Run GitHub repository analysis for the specified user.
@@ -72,7 +73,7 @@ def run_analysis(
         _handle_checkpoint_message(config)
 
         if demo_mode:
-            all_stats = _run_demo_mode(token, username, analyzer)
+            all_stats = _run_demo_mode(token, username, analyzer, test_mode=test_mode)
             if not all_stats:
                 logger.error("❌ No repositories analyzed in demo mode")
                 return
@@ -107,7 +108,7 @@ def _handle_checkpoint_message(config: Configuration) -> None:
         print(f"🔄 Will resume analysis from checkpoint")
 
 
-def _run_demo_mode(token: str, username: str, analyzer: GithubLens) -> List[RepoStats]:
+def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_mode: bool = False) -> List[RepoStats]:
     """
     Run analysis in demo mode (up to 10 repositories).
     
@@ -123,16 +124,17 @@ def _run_demo_mode(token: str, username: str, analyzer: GithubLens) -> List[Repo
     """
     github = Github(token)
     user = github.get_user(username)
-    all_repos = list(user.get_repos())[:10]
+    demo_size = 10 if not test_mode else 1
+    all_repos = list(user.get_repos())[:demo_size]
 
-    print(f"\n🔬 Running demo analysis on up to 10 repositories")
+    print(f"\n🔬 Running demo analysis on up to {demo_size} repositories")
     print("\n--- Initial API Rate Status ---")
     analyzer.rate_display.display_once()
     print("-------------------------------")
 
     demo_stats: List[RepoStats] = []
     with tqdm(
-        total=min(10, len(all_repos)),
+        total=min(demo_size, len(all_repos)),
         desc="Analyzing repositories",
         leave=True,
         colour='green'
@@ -281,7 +283,7 @@ def main() -> None:
     demo_mode = choice == "1" or choice.lower() == "yes" or choice.lower() == "y"
     
     # Run the analysis
-    run_analysis(token, username, demo_mode)
+    run_analysis(token, username, demo_mode, test_mode=True)
 
 
 if __name__ == "__main__":
