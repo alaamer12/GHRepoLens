@@ -1,7 +1,7 @@
 from asyncio.log import logger
 from zipfile import Path
 
-from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES,  EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, Configuration
+from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES,  EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, SPECIAL_FILENAMES, Configuration
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
 from utilities import ensure_utc
 import time
@@ -309,9 +309,25 @@ class GithubAnalyzer:
         return self.checkpoint.load()
 
     def get_file_language(self, file_path: str) -> str:
-        """Determine language from file extension"""
-        ext = Path(file_path).suffix.lower()
-        return LANGUAGE_EXTENSIONS.get(ext, 'Other')
+        """Determine language from file extension or special filename"""
+        path_obj = Path(file_path)
+        ext = path_obj.suffix.lower()
+        
+        # If file has an extension, check language mappings
+        if ext:
+            return LANGUAGE_EXTENSIONS.get(ext, 'Other')
+        
+        # No extension, check if it's a known special filename
+        filename = path_obj.name
+        if filename in SPECIAL_FILENAMES:
+            return SPECIAL_FILENAMES[filename]
+            
+        # Check if it's a special dot file (like .gitignore)
+        if filename.startswith('.') and filename in SPECIAL_FILENAMES:
+            return SPECIAL_FILENAMES[filename]
+            
+        # For truly unknown files
+        return 'Other'
 
     def is_binary_file(self, file_path: str) -> bool:
         """Check if file is binary"""
@@ -321,13 +337,44 @@ class GithubAnalyzer:
     def is_config_file(self, file_path: str) -> bool:
         """Check if file is a configuration file"""
         filename = Path(file_path).name.lower()
-        return filename in CONFIG_FILES
+        
+        # First check against the CONFIG_FILES set
+        if filename in CONFIG_FILES:
+            return True
+            
+        # Then check if it's in the special filenames dictionary and is a config file
+        base_filename = Path(file_path).name
+        if base_filename in SPECIAL_FILENAMES:
+            # Check if the file type indicates it's a configuration file
+            file_type = SPECIAL_FILENAMES[base_filename]
+            if any(config_type in file_type for config_type in 
+                ['JSON', 'YAML', 'TOML', 'INI', 'XML', 'Config']):
+                return True
+        
+        return False
         
     def is_cicd_file(self, file_path: str) -> bool:
         """Check if file is related to CI/CD configuration"""
+        file_path_lower = file_path.lower()
+        
+        # Check against CICD_FILES patterns
         for pattern in CICD_FILES:
-            if pattern in file_path.lower():
+            if pattern in file_path_lower:
                 return True
+                
+        # Check special filenames for CI/CD related files
+        base_filename = Path(file_path).name
+        if base_filename in SPECIAL_FILENAMES:
+            file_type = SPECIAL_FILENAMES[base_filename]
+            if any(ci_type in file_type for ci_type in 
+                ['Docker', 'Jenkinsfile', 'YAML', 'CI', 'CD']):
+                return True
+                
+        # Check for common CI/CD file names without extensions
+        ci_cd_filenames = {'dockerfile', 'jenkinsfile', 'vagrantfile', 'procfile'}
+        if base_filename.lower() in ci_cd_filenames:
+            return True
+            
         return False
         
     def is_test_file(self, file_path: str) -> bool:
@@ -508,8 +555,24 @@ class GithubAnalyzer:
                     
                     # Determine language and file type
                     language = self.get_file_language(file_path)
-                    ext = Path(file_path).suffix.lower() or 'no_extension'
-                    stats['file_types'][ext] += 1
+                    
+                    # Get file extension or special category for file type
+                    path_obj = Path(file_path)
+                    filename = path_obj.name
+                    ext = path_obj.suffix.lower()
+                    
+                    # Record file type - either by extension or special filename
+                    if ext:
+                        stats['file_types'][ext] += 1
+                    elif filename in SPECIAL_FILENAMES:
+                        # Use filename as file type for files without extensions
+                        stats['file_types'][f"no_ext_{filename}"] += 1
+                    elif filename.startswith('.') and filename in SPECIAL_FILENAMES:
+                        # Handle dot files like .gitignore
+                        stats['file_types'][filename] += 1
+                    else:
+                        # Truly unknown files
+                        stats['file_types']['no_extension'] += 1
                     
                     # Get file content for LOC counting
                     if file_content.size < 1024 * 1024:  # Skip files larger than 1MB

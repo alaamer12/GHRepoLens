@@ -69,8 +69,20 @@ class CodeStats:
             self.primary_language = "Unknown"
             return
             
-        primary_lang = max(self.languages.items(), key=lambda x: x[1])
-        self.primary_language = primary_lang[0]
+        # Filter out non-programming languages if there are actual programming languages
+        programming_languages = {
+            lang: loc for lang, loc in self.languages.items() 
+            if lang not in ('Other', 'Text', 'Markdown', 'JSON', 'YAML', 'TOML', 'INI')
+        }
+        
+        # If we have programming languages, use those for determining primary language
+        if programming_languages:
+            primary_lang = max(programming_languages.items(), key=lambda x: x[1])
+            self.primary_language = primary_lang[0]
+        else:
+            # Otherwise fall back to using all languages including documentation/config
+            primary_lang = max(self.languages.items(), key=lambda x: x[1])
+            self.primary_language = primary_lang[0]
     
     def detect_monorepo(self) -> None:
         """

@@ -3,7 +3,7 @@ Configuration Module for GitHub Repository Analyzer
 
 This module provides configuration settings, logging setup, and constants used
 throughout the GitHub Repository Analyzer. It handles loading configuration from
-files, setting up logging, and defines constants for file type categorization.
+files, setting up logging, and defines constants for file categorization.
 
 Key components:
 - Configuration: TypedDict for strongly typed configuration
@@ -164,6 +164,71 @@ BINARY_EXTENSIONS: Set[str] = {
     # Other binary formats
     '.blend', '.fbx', '.3ds', '.obj', '.stl', '.glb', '.gltf',
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
+}
+
+# Special filenames without extensions that should be properly categorized
+SPECIAL_FILENAMES: Dict[str, str] = {
+    # Documentation files
+    'README': 'Markdown',
+    'LICENSE': 'Text',
+    'COPYING': 'Text',
+    'CONTRIBUTORS': 'Text',
+    'AUTHORS': 'Text',
+    'CHANGELOG': 'Markdown',
+    'CHANGES': 'Text',
+    'HISTORY': 'Text',
+    'NEWS': 'Text',
+    'NOTICE': 'Text',
+    'PATENTS': 'Text',
+    'VERSION': 'Text',
+    'INSTALL': 'Text',
+    
+    # Configuration files
+    'Dockerfile': 'Docker',
+    'Makefile': 'Makefile',
+    'Jenkinsfile': 'Jenkinsfile',
+    'Vagrantfile': 'Ruby',
+    '.gitignore': 'GitIgnore',
+    '.gitattributes': 'GitConfig',
+    '.gitmodules': 'GitConfig',
+    '.babelrc': 'JSON',
+    '.eslintrc': 'JSON',
+    '.prettierrc': 'JSON',
+    '.stylelintrc': 'JSON',
+    '.eslintignore': 'GitIgnore',
+    '.prettierignore': 'GitIgnore',
+    '.npmrc': 'INI',
+    '.yarnrc': 'YAML',
+    '.editorconfig': 'INI',
+    '.browserslistrc': 'Text',
+    
+    # Go files
+    'go.mod': 'Go',
+    'go.sum': 'Go',
+    
+    # Python files
+    'Pipfile': 'TOML',
+    'pyproject.toml': 'TOML',
+    'requirements': 'Text',
+    
+    # JavaScript/Node files
+    'package.json': 'JSON',
+    'package-lock.json': 'JSON',
+    'yarn.lock': 'YAML',
+    'tsconfig.json': 'JSON',
+    
+    # Ruby files
+    'Gemfile': 'Ruby',
+    'Rakefile': 'Ruby',
+    
+    # Shell scripts
+    'configure': 'Shell',
+    
+    # Other
+    'CODEOWNERS': 'Text',
+    '.mailmap': 'Text',
+    '.htaccess': 'Apache',
+    'Procfile': 'YAML'
 }
 
 CONFIG_FILES: Set[str] = {
