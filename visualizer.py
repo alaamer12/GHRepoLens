@@ -32,14 +32,22 @@ class GithubVisualizer:
     def copy_assets(self, reports_dir: Path) -> None:
         """Copy assets to the reports directory"""
         assets_dir = Path(__file__).parent / "assets"
+        static_dir = Path("reports/static/assets")
+        os.makedirs(static_dir, exist_ok=True)
+        
         for asset in assets_dir.glob("*"):
-            dest_dir = reports_dir / "assets"
-            os.makedirs(dest_dir, exist_ok=True)
-            shutil.copy(asset, dest_dir / asset.name)
+            try:
+                shutil.copy(asset, static_dir / asset.name)
+                logger.info(f"Copied asset {asset.name} to {static_dir}")
+            except Exception as e:
+                logger.error(f"Failed to copy asset {asset.name}: {str(e)}")
     
     def create_visualizations(self, all_stats: List[RepoStats]) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
+        
+        # Store all_stats as an instance attribute for later use
+        self.all_stats = all_stats
         
         # Filter out empty repositories for most visualizations
         non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
@@ -218,6 +226,10 @@ class GithubVisualizer:
             f.write(html_content)
         
         logger.info(f"Visual report saved to {report_path}")
+        
+        # Ensure the static directory exists
+        static_dir = Path("reports/static")
+        os.makedirs(static_dir, exist_ok=True)
         
         # Also create individual static charts for detailed analysis
         detailed_charts = CreateDetailedCharts(self.all_stats, self.theme)
