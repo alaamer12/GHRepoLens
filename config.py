@@ -56,7 +56,7 @@ DEFAULT_CONFIG: Configuration = {
     "ANALYZE_CLONES": False,  # Whether to clone repos for deeper analysis
     "ENABLE_CHECKPOINTING": True,  # Whether to enable checkpoint feature
     "CHECKPOINT_FILE": "github_analyzer_checkpoint.pkl",  # Checkpoint file location
-    "CHECKPOINT_THRESHOLD": 4280,  # Create checkpoint when remaining API requests falls below this
+    "CHECKPOINT_THRESHOLD": 100,  # Create checkpoint when remaining API requests falls below this
     "RESUME_FROM_CHECKPOINT": True,  # Whether to resume from checkpoint if it exists
 }
 

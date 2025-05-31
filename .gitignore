@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 .cursor/*
+*.psd
 
 # Distribution / packaging
 .Python
