@@ -84,7 +84,16 @@ class GithubAnalyzer:
             
             # Initialize GitHub user with rate limit check
             self.check_rate_limit()
-            self.user = self.github.get_user(self.username)
+            
+            # Check if we're analyzing the authenticated user (to access private repos)
+            auth_user = self.github.get_user()
+            if self.username == auth_user.login:
+                # If analyzing ourselves, use the authenticated user to get all repos including private
+                logger.info(f"Analyzing authenticated user {self.username}, will include private repositories")
+                self.user = auth_user
+            else:
+                # Otherwise get the specified user (which will only return public repos)
+                self.user = self.github.get_user(self.username)
             
             # Get all repositories
             all_repos = list(self.user.get_repos())
