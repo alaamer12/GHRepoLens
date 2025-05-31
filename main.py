@@ -123,7 +123,17 @@ def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_mode: b
         List of RepoStats objects for analyzed repositories
     """
     github = Github(token)
-    user = github.get_user(username)
+    
+    # Check if we're analyzing the authenticated user (to access private repos)
+    auth_user = github.get_user()
+    if username == auth_user.login:
+        # If analyzing ourselves, use the authenticated user to get all repos including private
+        print(f"\n👤 Analyzing authenticated user {username}, will include private repositories")
+        user = auth_user
+    else:
+        # Otherwise get the specified user (which will only return public repos)
+        user = github.get_user(username)
+    
     demo_size = 10 if not test_mode else 1
     all_repos = list(user.get_repos())[:demo_size]
 
