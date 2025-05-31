@@ -17,7 +17,7 @@ import logging
 import configparser
 from pathlib import Path
 from datetime import datetime
-from typing import TypedDict, Dict, Any, Optional, List, Union, Set, cast
+from typing import List, TypedDict, Dict, Set
 
 class Configuration(TypedDict):
     """
@@ -603,3 +603,82 @@ def create_sample_config() -> None:
 
 # Initialize logger
 logger = setup_logging() 
+
+
+class ThemeConfig(TypedDict, total=False):
+    """Theme configuration for the visualization dashboard"""
+    # Color schemes
+    primary_color: str       # Main brand color
+    secondary_color: str     # Secondary brand color
+    accent_color: str        # Accent color for highlights
+    
+    # Light mode colors
+    light_bg_color: str      # Light mode background
+    light_text_color: str    # Light mode text color
+    light_card_bg: str       # Light mode card background
+    light_chart_bg: str       # Light mode chart background
+    
+    # Dark mode colors
+    dark_bg_color: str       # Dark mode background
+    dark_text_color: str     # Dark mode text color
+    dark_card_bg: str        # Dark mode card background
+    dark_chart_bg: str       # Dark mode chart background
+    
+    # Typography
+    font_family: str         # Main font family
+    heading_font: str        # Font for headings
+    code_font: str           # Font for code sections
+    
+    # UI Elements
+    border_radius: str       # Border radius for cards/buttons
+    shadow_style: str        # Shadow style for elements
+    
+    # Chart colors
+    chart_palette: List[str] # Colors for charts
+    
+    # Header gradient
+    header_gradient: str     # CSS gradient for header
+
+
+class DefaultTheme:
+    """Default theme settings for the visualization dashboard"""
+    
+    @staticmethod
+    def get_default_theme() -> ThemeConfig:
+        """Return the default theme configuration"""
+        return {
+            # Color schemes
+            "primary_color": "#4f46e5",      # Indigo-600
+            "secondary_color": "#7c3aed",    # Violet-600
+            "accent_color": "#f97316",       # Orange-500
+            
+            # Light mode colors
+            "light_bg_color": "#ffffff",
+            "light_text_color": "#111827",   # Gray-900
+            "light_card_bg": "#f3f4f6",      # Gray-100
+            "light_chart_bg": "#f9fafb",     # Gray-50
+            
+            # Dark mode colors
+            "dark_bg_color": "#1f2937",      # Gray-800
+            "dark_text_color": "#f9fafb",    # Gray-50
+            "dark_card_bg": "#374151",       # Gray-700
+            "dark_chart_bg": "#111827",      # Gray-900
+            
+            # Typography
+            "font_family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            "heading_font": "'Inter', sans-serif",
+            "code_font": "'Fira Code', 'Courier New', monospace",
+            
+            # UI Elements
+            "border_radius": "0.75rem",
+            "shadow_style": "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            
+            # Chart colors
+            "chart_palette": [
+                "#4f46e5", "#7c3aed", "#f97316", "#10b981", "#f59e0b",
+                "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#14b8a6"
+            ],
+            
+            # Header gradient
+            "header_gradient": "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)"
+        }
