@@ -81,10 +81,30 @@ class GithubVisualizer:
         chart_colors = self.theme["chart_palette"]
         
         # 1. Top 10 Languages by LOC
+        # Verify total LOC for sanity check
+        total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
+        logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
+        
+        # Collect language data more carefully
         all_languages = defaultdict(int)
         for stats in non_empty_repos:
+            # Skip repositories with anomalous language data
+            if sum(stats.languages.values()) > stats.total_loc * 1.1:  # Allow 10% margin for rounding
+                logger.warning(f"Repository {stats.name} has inconsistent language data. Skipping for language chart.")
+                continue
+                
             for lang, loc in stats.languages.items():
                 all_languages[lang] += loc
+        
+        # Verify and log the total sum of language-specific LOC
+        lang_loc_sum = sum(all_languages.values())
+        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
+        
+        # If there's still a significant discrepancy, scale the language values
+        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
+            scaling_factor = total_loc_sum / lang_loc_sum
+            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
+            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
         
         if all_languages:
             top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]

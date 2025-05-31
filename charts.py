@@ -4,7 +4,7 @@ from utilities import ensure_utc
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import defaultdict, Counter
-from typing import List, Optional
+from typing import List, Optional, Dict
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -727,17 +727,20 @@ class CreateDetailedCharts:
         self.reports_dir = Path("reports/static")  # Updated path
 
     def create(self) -> None:
-        """Create additional detailed charts"""
-        logger.info("Creating detailed charts")
-        
-        # Filter out empty repositories for most charts
+        """Create all detailed charts"""
+        # Filter out empty repositories for most visualizations
         empty_repos = [s for s in self.all_stats if "Empty repository with no files" in s.anomalies]
         non_empty_repos = [s for s in self.all_stats if "Empty repository with no files" not in s.anomalies]
         
-        # Use theme colors for consistency
+        # Set colors from theme
         chart_colors = self.theme["chart_palette"]
         
-        # Create all charts
+        # Skip visualizations if not enough data
+        if len(non_empty_repos) == 0:
+            logger.warning("No non-empty repositories to visualize")
+            return
+        
+        # Create all detailed visualizations
         self._create_repository_timeline()
         self._create_language_evolution(non_empty_repos)
         self._create_maintenance_quality_heatmap(non_empty_repos)
@@ -879,14 +882,40 @@ class CreateDetailedCharts:
         
         # Group repositories by creation year and analyze language usage
         yearly_languages = defaultdict(lambda: defaultdict(int))
+        yearly_total_loc = defaultdict(int)
         
+        # First pass: gather total LOC by year for verification
         for stats in non_empty_repos:
             # Ensure date is timezone-aware
             created_at = ensure_utc(stats.created_at)
-                
             year = created_at.year
+            yearly_total_loc[year] += stats.total_loc
+        
+        # Second pass: gather language data and check for consistency
+        for stats in non_empty_repos:
+            created_at = ensure_utc(stats.created_at)
+            year = created_at.year
+            
+            # Skip repositories with anomalous language data
+            lang_sum = sum(stats.languages.values())
+            if lang_sum > stats.total_loc * 1.1:  # Allow 10% margin for rounding
+                logger.warning(f"Repository {stats.name} has inconsistent language data. Skipping for language chart.")
+                continue
+                
             for lang, loc in stats.languages.items():
                 yearly_languages[year][lang] += loc
+        
+        # Verify and scale language data if needed
+        for year in yearly_languages:
+            lang_sum = sum(yearly_languages[year].values())
+            total_loc = yearly_total_loc[year]
+            
+            # If language sum exceeds total LOC significantly, scale it
+            if lang_sum > total_loc * 1.5:
+                scaling_factor = total_loc / lang_sum
+                logger.warning(f"Year {year}: Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
+                for lang in yearly_languages[year]:
+                    yearly_languages[year][lang] = int(yearly_languages[year][lang] * scaling_factor)
         
         # Get top 5 languages overall
         all_lang_totals = defaultdict(int)
@@ -1165,8 +1194,8 @@ class CreateDetailedCharts:
         save_figure(fig, 'commit_activity_heatmap', self.reports_dir)
     
     def _create_top_repositories_by_metrics(self, non_empty_repos: List[RepoStats], chart_colors: List[str]) -> None:
-        """Create charts showing top repositories by various metrics"""
-        if not non_empty_repos:
+        """Create charts showing top 10 repositories by various metrics"""
+        if len(non_empty_repos) < 3:
             return
             
         # Create subplot with 2x2 grid
@@ -1272,30 +1301,38 @@ class CreateDetailedCharts:
         save_figure(fig, 'top_repos_metrics', self.reports_dir)
     
     def _create_score_correlation_matrix(self, non_empty_repos: List[RepoStats]) -> None:
-        """Create correlation matrix showing relationships between repository metrics"""
-        if len(non_empty_repos) <= 5:  # Only do this if we have enough repos for meaningful correlations
+        """Create a correlation matrix of various metrics"""
+        if len(non_empty_repos) < 5:  # Need sufficient data for correlations
             return
+        
+        # Extract relevant metrics for correlation
+        data = {
+            "Total LOC": [repo.total_loc for repo in non_empty_repos],
+            "Stars": [repo.stars for repo in non_empty_repos],
+            "Forks": [repo.forks for repo in non_empty_repos],
+            "Age (Days)": [(datetime.now().replace(tzinfo=timezone.utc) - repo.created_at).days for repo in non_empty_repos],
+            "Maintenance": [repo.maintenance_score for repo in non_empty_repos],
+            "Open Issues": [repo.open_issues for repo in non_empty_repos]
+        }
+        
+        # Add top language percentage if we have language data
+        # This is where we need to update to use our consistent language method
+        all_languages = self._get_consistent_language_data(non_empty_repos)
+        if all_languages:
+            top_language = max(all_languages.items(), key=lambda x: x[1])[0]
+            data[f"{top_language} %"] = []
             
-        # Extract scores
-        maintenance_scores = [r.maintenance_score for r in non_empty_repos]
-        code_quality_scores = [r.code_quality_score for r in non_empty_repos]
-        popularity_scores = [r.popularity_score for r in non_empty_repos]
-        documentation_scores = [r.documentation_score for r in non_empty_repos]
-        contributor_counts = [r.contributors_count for r in non_empty_repos]
-        stars_counts = [r.stars for r in non_empty_repos]
-        issues_counts = [r.open_issues for r in non_empty_repos]
+            for repo in non_empty_repos:
+                # Calculate percentage of top language in this repo
+                if sum(repo.languages.values()) > 0:
+                    percentage = (repo.languages.get(top_language, 0) / sum(repo.languages.values())) * 100
+                else:
+                    percentage = 0
+                data[f"{top_language} %"].append(percentage)
         
         # Create correlation dataframe
         import pandas as pd
-        corr_data = pd.DataFrame({
-            'Maintenance': maintenance_scores,
-            'Code Quality': code_quality_scores,
-            'Popularity': popularity_scores,
-            'Documentation': documentation_scores,
-            'Contributors': contributor_counts,
-            'Stars': stars_counts,
-            'Open Issues': issues_counts
-        })
+        corr_data = pd.DataFrame(data)
         
         # Calculate correlation
         corr_matrix = corr_data.corr()
@@ -1743,5 +1780,40 @@ class CreateDetailedCharts:
             
             # Save the figure using the utility function
             save_figure(fig, 'release_counts', self.reports_dir)
+
+    def _get_consistent_language_data(self, repos: List[RepoStats]) -> Dict[str, int]:
+        """Process language data with consistency checks to avoid inflated LOC counts"""
+        # Calculate total LOC sum for validation
+        total_loc_sum = sum(repo.total_loc for repo in repos)
+        logger.info(f"Total LOC across repositories: {total_loc_sum:,}")
+        
+        # Collect language data with consistency checks
+        all_languages = defaultdict(int)
+        skipped_repos = 0
+        
+        for repo in repos:
+            # Skip repositories with anomalous language data
+            lang_sum = sum(repo.languages.values())
+            if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
+                skipped_repos += 1
+                continue
+                
+            for lang, loc in repo.languages.items():
+                all_languages[lang] += loc
+        
+        if skipped_repos > 0:
+            logger.warning(f"Skipped {skipped_repos} repositories with inconsistent language data")
+        
+        # Verify and log the total sum of language-specific LOC
+        lang_loc_sum = sum(all_languages.values())
+        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
+        
+        # If there's still a significant discrepancy, scale the language values
+        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
+            scaling_factor = total_loc_sum / lang_loc_sum
+            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
+            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
+        
+        return all_languages
                         
         
