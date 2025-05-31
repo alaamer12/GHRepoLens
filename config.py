@@ -641,44 +641,96 @@ class ThemeConfig(TypedDict, total=False):
 
 
 class DefaultTheme:
-    """Default theme settings for the visualization dashboard"""
+    """Default theme configuration for visualization"""
     
     @staticmethod
     def get_default_theme() -> ThemeConfig:
         """Return the default theme configuration"""
         return {
             # Color schemes
-            "primary_color": "#4f46e5",      # Indigo-600
-            "secondary_color": "#7c3aed",    # Violet-600
-            "accent_color": "#f97316",       # Orange-500
+            "primary_color": "#4f46e5",  # Indigo
+            "secondary_color": "#7c3aed",  # Violet
+            "accent_color": "#f97316",  # Orange
             
             # Light mode colors
-            "light_bg_color": "#ffffff",
-            "light_text_color": "#111827",   # Gray-900
-            "light_card_bg": "#f3f4f6",      # Gray-100
-            "light_chart_bg": "#f9fafb",     # Gray-50
+            "light_bg_color": "#f9fafb",
+            "light_text_color": "#111827",
+            "light_card_bg": "#ffffff",
+            "light_chart_bg": "#ffffff",
             
             # Dark mode colors
-            "dark_bg_color": "#1f2937",      # Gray-800
-            "dark_text_color": "#f9fafb",    # Gray-50
-            "dark_card_bg": "#374151",       # Gray-700
-            "dark_chart_bg": "#111827",      # Gray-900
+            "dark_bg_color": "#111827",
+            "dark_text_color": "#f9fafb",
+            "dark_card_bg": "#1f2937",
+            "dark_chart_bg": "#1f2937",
             
             # Typography
-            "font_family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            "font_family": "'Inter', sans-serif",
             "heading_font": "'Inter', sans-serif",
-            "code_font": "'Fira Code', 'Courier New', monospace",
+            "code_font": "'Fira Code', monospace",
             
             # UI Elements
-            "border_radius": "0.75rem",
-            "shadow_style": "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            "border_radius": "0.375rem",
+            "shadow_style": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
             
             # Chart colors
             "chart_palette": [
-                "#4f46e5", "#7c3aed", "#f97316", "#10b981", "#f59e0b",
-                "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#14b8a6"
+                "#4f46e5", "#7c3aed", "#f97316", "#06b6d4", 
+                "#10b981", "#ec4899", "#f59e0b", "#6366f1",
+                "#ef4444", "#64748b"
             ],
             
             # Header gradient
-            "header_gradient": "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)"
+            "header_gradient": "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #f97316 100%)"
         }
+
+def load_theme_config() -> ThemeConfig:
+    """
+    Load theme configuration from config file or return default theme.
+    
+    Returns:
+        ThemeConfig: A dictionary containing theme configuration settings
+    """
+    # TODO: In the future, add functionality to load custom theme from file
+    return DefaultTheme.get_default_theme()
+
+def get_config() -> configparser.ConfigParser:
+    """
+    Get configuration from .env file or environment variables.
+    
+    Returns:
+        configparser.ConfigParser: A ConfigParser object with configuration settings
+    """
+    config = configparser.ConfigParser()
+    
+    # Default configuration
+    config['github'] = {
+        'username': 'your_github_username',
+        'token': 'your_github_token',
+    }
+    
+    # Check for .env file
+    env_file = Path('.env')
+    if env_file.exists():
+        # Parse .env file
+        env_config = {}
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    env_config[key.strip()] = value.strip().strip('"\'')
+        
+        # Update config with values from .env
+        if 'GITHUB_USERNAME' in env_config:
+            config['github']['username'] = env_config['GITHUB_USERNAME']
+        if 'GITHUB_TOKEN' in env_config:
+            config['github']['token'] = env_config['GITHUB_TOKEN']
+    
+    # Environment variables override .env file
+    if 'GITHUB_USERNAME' in os.environ:
+        config['github']['username'] = os.environ['GITHUB_USERNAME']
+    if 'GITHUB_TOKEN' in os.environ:
+        config['github']['token'] = os.environ['GITHUB_TOKEN']
+    
+    return config

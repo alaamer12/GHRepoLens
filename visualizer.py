@@ -293,6 +293,21 @@ class GithubVisualizer:
         # NEW: Add links to additional static charts with enhanced animations
         additional_charts_section = self._create_additional_charts_section()
 
+        # Add Chart Modal Container
+        chart_modal_container = """
+                <!-- Modal for full-screen chart view -->
+                <div class="chart-modal" id="chartModal">
+                    <div class="chart-modal-content">
+                        <button class="chart-modal-close" id="chartModalClose">×</button>
+                        <img class="chart-modal-image" id="chartModalImage" src="" alt="">
+                        <div class="chart-modal-info">
+                            <div class="chart-modal-title" id="chartModalTitle"></div>
+                            <div class="chart-modal-description" id="chartModalDescription"></div>
+                        </div>
+                    </div>
+                </div>
+        """
+
         footer_section = self._create_footer_section(timestamp)
 
         # JavaScript section with complex escaping issues
@@ -311,6 +326,7 @@ class GithubVisualizer:
             stats_section,
             charts_section,
             additional_charts_section,
+            chart_modal_container,
             footer_section,
             js_part1,
             js_part2,
@@ -655,6 +671,109 @@ class GithubVisualizer:
                     50% {{ transform: translateY(-10px); }}
                     100% {{ transform: translateY(0px); }}
                 }}
+                
+                /* Chart Modal Styles */
+                .chart-modal {{
+                    display: none;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.85);
+                    z-index: 1000;
+                    backdrop-filter: blur(5px);
+                    opacity: 0;
+                    transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                }}
+                
+                .chart-modal.active {{
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    opacity: 1;
+                }}
+                
+                .chart-modal-content {{
+                    position: relative;
+                    max-width: 90vw;
+                    max-height: 90vh;
+                    border-radius: 20px;
+                    overflow: hidden;
+                    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+                    transform: scale(0.8) translateY(20px);
+                    opacity: 0;
+                    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                }}
+                
+                .chart-modal.active .chart-modal-content {{
+                    transform: scale(1) translateY(0);
+                    opacity: 1;
+                }}
+                
+                .chart-modal-image {{
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                    display: block;
+                }}
+                
+                .chart-modal-close {{
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    background: rgba(255,255,255,0.2);
+                    border: none;
+                    color: white;
+                    font-size: 1.5rem;
+                    width: 50px;
+                    height: 50px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    backdrop-filter: blur(10px);
+                    border: 1px solid rgba(255,255,255,0.3);
+                    transition: all 0.3s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1010;
+                }}
+                
+                .chart-modal-close:hover {{
+                    background: rgba(255,255,255,0.3);
+                    transform: scale(1.1);
+                }}
+                
+                .chart-modal-info {{
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+                    color: white;
+                    padding: 40px 30px 30px;
+                    text-align: center;
+                    transform: translateY(100%);
+                    opacity: 0;
+                    transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                }}
+                
+                .chart-modal.active .chart-modal-info {{
+                    transform: translateY(0);
+                    opacity: 1;
+                    transition-delay: 0.2s;
+                }}
+                
+                .chart-modal-title {{
+                    font-size: 1.5rem;
+                    font-weight: 300;
+                    margin-bottom: 0.5rem;
+                }}
+                
+                .chart-modal-description {{
+                    opacity: 0.8;
+                    font-size: 0.9rem;
+                }}
             </style>
         </head>"""
         
@@ -987,42 +1106,45 @@ class GithubVisualizer:
         
         if chart_exists:
             return f"""
-            <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                <div class="p-4">
+                        <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
+                            <div class="p-4">
                     <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-{color_class} dark:group-hover:text-{color_class} transition-colors duration-300">{title}</h3>
                     <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">{description}</p>
-                    <a href="{chart_name}.png" target="_blank" class="block relative">
-                        <div class="overflow-hidden rounded-lg">
+                    <div class="chart-item cursor-pointer block relative" 
+                         data-chart-src="{chart_name}.png" 
+                         data-chart-title="{title}" 
+                         data-chart-description="{description}">
+                                    <div class="overflow-hidden rounded-lg">
                             <img src="{chart_name}.png" alt="{title}" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                        </div>
+                                    </div>
                         <div class="absolute inset-0 bg-{color_class}/0 group-hover:bg-{color_class}/10 flex items-center justify-center transition-all duration-300 rounded-lg">
                             <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-{color_class} font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
-                                View Full Size
-                            </span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                            View Full Size
+                                        </span>
+                                    </div>
+                            </div>
                         </div>
-                    </a>
-                </div>
             </div>"""
         else:
             return f"""
             <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group">
-                <div class="p-4">
+                            <div class="p-4">
                     <h3 class="text-lg font-medium mb-2 dark:text-white text-{color_class} dark:text-{color_class}">{title}</h3>
                     <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">{description}</p>
                     <div class="flex items-center justify-center h-48 bg-gray-100 dark:bg-gray-800 rounded-lg">
                         <div class="text-center p-4">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                                            </svg>
                             <p class="text-gray-500 dark:text-gray-400">Chart not available</p>
                             <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Not enough data to generate this visualization</p>
+                                    </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
             </div>"""
 
     def _create_additional_charts_section(self) -> str:
@@ -1034,8 +1156,8 @@ class GithubVisualizer:
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-                            </svg>
-                        </span>
+                                            </svg>
+                                        </span>
                         Additional Analysis Charts
                     </h2>
                     
@@ -1066,7 +1188,7 @@ class GithubVisualizer:
                         
                         <!-- Active vs Inactive Age -->
                         {8}
-                    </div>
+                                    </div>
                 </div>""".format(
                     self._get_chart_html("repository_timeline", "Repository Timeline", "Chronological view of repository creation and last commit dates", "primary"),
                     self._get_chart_html("language_evolution", "Language Evolution", "How language usage has changed over time", "secondary"),
@@ -1405,6 +1527,61 @@ class GithubVisualizer:
                     // Observe elements that need animation
                     document.querySelectorAll('.needs-animation').forEach(el => {{
                         observer.observe(el);
+                    }});
+                    
+                    // Chart Modal Functionality
+                    const chartModal = document.getElementById('chartModal');
+                    const chartModalImage = document.getElementById('chartModalImage');
+                    const chartModalTitle = document.getElementById('chartModalTitle');
+                    const chartModalDescription = document.getElementById('chartModalDescription');
+                    const chartModalClose = document.getElementById('chartModalClose');
+                    
+                    // Set up chart click handlers
+                    document.querySelectorAll('.chart-item').forEach(chart => {{
+                        chart.addEventListener('click', () => {{
+                            openChartModal(chart);
+                        }});
+                    }});
+                    
+                    function openChartModal(chartElement) {{
+                        // Get chart data from dataset
+                        const src = chartElement.dataset.chartSrc;
+                        const title = chartElement.dataset.chartTitle;
+                        const description = chartElement.dataset.chartDescription;
+                        
+                        // Set modal content
+                        chartModalImage.src = src;
+                        chartModalTitle.textContent = title;
+                        chartModalDescription.textContent = description;
+                        
+                        // Show modal with animation
+                        chartModal.classList.add('active');
+                        document.body.style.overflow = 'hidden';
+                    }}
+                    
+                    function closeChartModal() {{
+                        chartModal.classList.remove('active');
+                        document.body.style.overflow = 'auto';
+                        
+                        // Clear image source after animation completes
+                        setTimeout(() => {{
+                            chartModalImage.src = '';
+                        }}, 400);
+                    }}
+                    
+                    // Event listeners for closing modal
+                    chartModalClose.addEventListener('click', closeChartModal);
+                    chartModal.addEventListener('click', (e) => {{
+                        if (e.target === chartModal) {{
+                            closeChartModal();
+                        }}
+                    }});
+                    
+                    // Keyboard navigation for modal
+                    document.addEventListener('keydown', (e) => {{
+                        if (e.key === 'Escape' && chartModal.classList.contains('active')) {{
+                            closeChartModal();
+                        }}
                     }});
                 }});
                 
