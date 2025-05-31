@@ -46,8 +46,11 @@ class InfrastructureQualityMetricsCreator:
                  reports_dir: Path, all_stats: Optional[List[RepoStats]] = None):
         self.non_empty_repos = non_empty_repos
         self.chart_colors = chart_colors
-        self.reports_dir = Path("reports/static")  # Updated path
+        self.reports_dir = reports_dir
         self.all_stats = all_stats
+        
+        # Ensure the reports directory exists
+        os.makedirs(self.reports_dir, exist_ok=True)
     
     def create_infrastructure_quality_chart(self) -> None:
         """Create grouped bar chart showing infrastructure quality metrics"""
@@ -720,11 +723,14 @@ class InfrastructureQualityMetricsCreator:
 class CreateDetailedCharts:
     """Class responsible for creating detailed charts for the visualization dashboard"""
     
-    def __init__(self, all_stats: List[RepoStats], theme: ThemeConfig):
+    def __init__(self, all_stats: List[RepoStats], theme: ThemeConfig, reports_dir: Optional[Path] = None):
         """Initialize the detailed charts with all repository statistics"""
         self.all_stats = all_stats
         self.theme = theme
-        self.reports_dir = Path("reports/static")  # Updated path
+        self.reports_dir = reports_dir if reports_dir is not None else Path("reports/static")
+        
+        # Ensure the reports directory exists
+        os.makedirs(self.reports_dir, exist_ok=True)
 
     def create(self) -> None:
         """Create all detailed charts"""

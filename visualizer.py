@@ -252,7 +252,7 @@ class GithubVisualizer:
         os.makedirs(static_dir, exist_ok=True)
         
         # Also create individual static charts for detailed analysis
-        detailed_charts = CreateDetailedCharts(self.all_stats, self.theme)
+        detailed_charts = CreateDetailedCharts(self.all_stats, self.theme, self.reports_dir)
         detailed_charts.create()
         
     def _generate_dashboard_html(self, fig, non_empty_repos):
@@ -976,6 +976,55 @@ class GithubVisualizer:
                 
         return charts_section
     
+    def _check_chart_exists(self, chart_name: str) -> bool:
+        """Check if a chart file exists in the reports directory"""
+        chart_path = self.reports_dir / f"{chart_name}.png"
+        return chart_path.exists()
+
+    def _get_chart_html(self, chart_name: str, title: str, description: str, color_class: str) -> str:
+        """Generate HTML for a chart, with fallback for missing charts"""
+        chart_exists = self._check_chart_exists(chart_name)
+        
+        if chart_exists:
+            return f"""
+            <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
+                <div class="p-4">
+                    <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-{color_class} dark:group-hover:text-{color_class} transition-colors duration-300">{title}</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">{description}</p>
+                    <a href="{chart_name}.png" target="_blank" class="block relative">
+                        <div class="overflow-hidden rounded-lg">
+                            <img src="{chart_name}.png" alt="{title}" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
+                        </div>
+                        <div class="absolute inset-0 bg-{color_class}/0 group-hover:bg-{color_class}/10 flex items-center justify-center transition-all duration-300 rounded-lg">
+                            <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-{color_class} font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                                View Full Size
+                            </span>
+                        </div>
+                    </a>
+                </div>
+            </div>"""
+        else:
+            return f"""
+            <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group">
+                <div class="p-4">
+                    <h3 class="text-lg font-medium mb-2 dark:text-white text-{color_class} dark:text-{color_class}">{title}</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">{description}</p>
+                    <div class="flex items-center justify-center h-48 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                        <div class="text-center p-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p class="text-gray-500 dark:text-gray-400">Chart not available</p>
+                            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Not enough data to generate this visualization</p>
+                        </div>
+                    </div>
+                </div>
+            </div>"""
+
     def _create_additional_charts_section(self) -> str:
         """Create the additional charts section of the HTML file"""
         additional_charts_section = """<!-- Additional Charts Section with enhanced animations -->
@@ -992,204 +1041,43 @@ class GithubVisualizer:
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <!-- Timeline Chart -->
-                        <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-primary dark:group-hover:text-primary transition-colors duration-300">Repository Timeline</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Chronological view of repository creation and last commit dates</p>
-                                <a href="repository_timeline.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="repository_timeline.png" alt="Repository Timeline" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-primary font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {0}
                         
                         <!-- Language Evolution -->
-                        <div data-aos="zoom-in" data-aos-delay="150" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-secondary dark:group-hover:text-secondary transition-colors duration-300">Language Evolution</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">How language usage has changed over time</p>
-                                <a href="language_evolution.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="language_evolution.png" alt="Language Evolution" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-secondary/0 group-hover:bg-secondary/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-secondary font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {1}
                         
                         <!-- Quality Heatmap -->
-                        <div data-aos="zoom-in" data-aos-delay="200" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-accent dark:group-hover:text-accent transition-colors duration-300">Maintenance Quality Matrix</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Quality factors across top repositories</p>
-                                <a href="quality_heatmap.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="quality_heatmap.png" alt="Quality Heatmap" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-accent/0 group-hover:bg-accent/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-accent font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {2}
                         
                         <!-- Repository Types -->
-                        <div data-aos="zoom-in" data-aos-delay="250" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-green-500 dark:group-hover:text-green-500 transition-colors duration-300">Repository Types</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Distribution of different repository types</p>
-                                <a href="repo_types_distribution.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="repo_types_distribution.png" alt="Repository Types" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-green-500/0 group-hover:bg-green-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-green-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {3}
                         
                         <!-- Commit Activity -->
-                        <div data-aos="zoom-in" data-aos-delay="300" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-blue-500 dark:group-hover:text-blue-500 transition-colors duration-300">Commit Activity</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Heatmap of commit activity by month and year</p>
-                                <a href="commit_activity_heatmap.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="commit_activity_heatmap.png" alt="Commit Activity" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-blue-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {4}
                         
                         <!-- Top Repositories -->
-                        <div data-aos="zoom-in" data-aos-delay="350" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-purple-500 dark:group-hover:text-purple-500 transition-colors duration-300">Top Repositories</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Top repositories by various metrics</p>
-                                <a href="top_repos_metrics.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="top_repos_metrics.png" alt="Top Repositories" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-purple-500/0 group-hover:bg-purple-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-purple-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {5}
                         
                         <!-- Metrics Correlation -->
-                        <div data-aos="zoom-in" data-aos-delay="400" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-pink-500 dark:group-hover:text-pink-500 transition-colors duration-300">Metrics Correlation</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Correlation between different repository metrics</p>
-                                <a href="metrics_correlation.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="metrics_correlation.png" alt="Metrics Correlation" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-pink-500/0 group-hover:bg-pink-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-pink-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {6}
                         
                         <!-- Topics Word Cloud -->
-                        <div data-aos="zoom-in" data-aos-delay="450" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-yellow-500 dark:group-hover:text-yellow-500 transition-colors duration-300">Topics Word Cloud</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Visual representation of repository topics</p>
-                                <a href="topics_wordcloud.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="topics_wordcloud.png" alt="Topics Word Cloud" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-yellow-500/0 group-hover:bg-yellow-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-yellow-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {7}
                         
                         <!-- Active vs Inactive Age -->
-                        <div data-aos="zoom-in" data-aos-delay="500" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group transform transition-all duration-300 hover:scale-105">
-                            <div class="p-4">
-                                <h3 class="text-lg font-medium mb-2 dark:text-white group-hover:text-teal-500 dark:group-hover:text-teal-500 transition-colors duration-300">Active vs Inactive Repos</h3>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">Age distribution of active vs inactive repositories</p>
-                                <a href="active_inactive_age.png" target="_blank" class="block relative">
-                                    <div class="overflow-hidden rounded-lg">
-                                        <img src="active_inactive_age.png" alt="Active vs Inactive Age" class="w-full h-48 object-cover rounded-lg transform transition-transform duration-500 group-hover:scale-110" />
-                                    </div>
-                                    <div class="absolute inset-0 bg-teal-500/0 group-hover:bg-teal-500/10 flex items-center justify-center transition-all duration-300 rounded-lg">
-                                        <span class="opacity-0 group-hover:opacity-100 mt-2 inline-flex items-center bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full text-teal-500 font-medium text-sm transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            View Full Size
-                                        </span>
-                                    </div>
-                                </a>
-                            </div>
-                        </div>
+                        {8}
                     </div>
-                </div>"""
+                </div>""".format(
+                    self._get_chart_html("repository_timeline", "Repository Timeline", "Chronological view of repository creation and last commit dates", "primary"),
+                    self._get_chart_html("language_evolution", "Language Evolution", "How language usage has changed over time", "secondary"),
+                    self._get_chart_html("quality_heatmap", "Maintenance Quality Matrix", "Quality factors across top repositories", "accent"),
+                    self._get_chart_html("repo_types_distribution", "Repository Types", "Distribution of different repository types", "green-500"),
+                    self._get_chart_html("commit_activity_heatmap", "Commit Activity", "Heatmap of commit activity by month and year", "blue-500"),
+                    self._get_chart_html("top_repos_metrics", "Top Repositories", "Top repositories by various metrics", "purple-500"),
+                    self._get_chart_html("metrics_correlation", "Metrics Correlation", "Correlation between different repository metrics", "pink-500"),
+                    self._get_chart_html("topics_wordcloud", "Topics Word Cloud", "Visual representation of repository topics", "yellow-500"),
+                    self._get_chart_html("active_inactive_age", "Active vs Inactive Repos", "Age distribution of active vs inactive repositories", "teal-500")
+                )
         
         return additional_charts_section
     
