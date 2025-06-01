@@ -305,13 +305,13 @@ class GithubVisualizer:
                 <!-- Modal for full-screen chart view with interactive content -->
                 <div class="chart-modal" id="chartModal">
                     <div class="chart-modal-content">
-                        <button class="chart-modal-close" id="chartModalClose">×</button>
+                        <button class="chart-modal-close" id="chartModalClose">&times;</button>
                         <div class="chart-modal-iframe-container">
                             <iframe class="chart-modal-iframe" id="chartModalIframe" src="" frameborder="0" allowfullscreen></iframe>
                         </div>
                         <div class="chart-modal-info">
-                            <div class="chart-modal-title" id="chartModalTitle"></div>
-                            <div class="chart-modal-description" id="chartModalDescription"></div>
+                            <h3 class="chart-modal-title" id="chartModalTitle"></h3>
+                            <p class="chart-modal-description" id="chartModalDescription"></p>
                         </div>
                     </div>
                 </div>
@@ -474,23 +474,23 @@ class GithubVisualizer:
 
                 .chart-modal-iframe-container {{
                     flex: 1;
-                    width: 100%;
                     overflow: hidden;
                 }}
 
                 .chart-modal-iframe {{
-                    width: 100%;
+                     width: 100%;
                     height: 100%;
                     border: none;
+                    transition: opacity 0.3s ease;
                 }}
 
                 .chart-modal-close {{
-                    position: absolute;
-                    top: 10px;
-                    right: 10px;
-                    font-size: 30px;
-                    color: #374151;
-                    background: white;
+                   position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    font-size: 24px;
+                    color: #fff;
+                    background: rgba(255, 255, 255, 0.2);
                     width: 40px;
                     height: 40px;
                     border-radius: 50%;
@@ -499,8 +499,10 @@ class GithubVisualizer:
                     justify-content: center;
                     cursor: pointer;
                     z-index: 10;
-                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-                    transition: all 0.2s ease;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+                    transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
                 }}
 
                 .dark .chart-modal-close {{
@@ -509,8 +511,8 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-close:hover {{
-                    transform: scale(1.1);
-                    background-color: #f3f4f6;
+                   transform: scale(1.1) rotate(90deg);
+                    background-color: rgba(255, 255, 255, 0.3);
                 }}
 
                 .dark .chart-modal-close:hover {{
@@ -518,8 +520,17 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-info {{
-                    padding: 15px;
-                    border-top: 1px solid #e5e7eb;
+                     padding: 20px;
+                    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.3), transparent);
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    transform: translateY(100%);
+                    opacity: 0;
+                    transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1);
+                    transition-delay: 0.1s;
+                    z-index: 5;
                 }}
 
                 .dark .chart-modal-info {{
@@ -632,8 +643,8 @@ class GithubVisualizer:
 
                 /* Icon pulse */
                 @keyframes iconPulse {{
-                    0% {{ transform: scale(1); }},
-                    50% {{ transform: scale(1.1); }},
+                    0% {{ transform: scale(1); }}
+                    50% {{ transform: scale(1.1); }}
                     100% {{ transform: scale(1); }}
                 }}
 
@@ -797,40 +808,45 @@ class GithubVisualizer:
 
                 /* Chart Modal Styles */
                 .chart-modal {{
-                    display: none;
+                    visibility: hidden;
                     position: fixed;
                     top: 0;
+                    right: 0;
+                    bottom: 0;
                     left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.85);
-                    z-index: 1000;
-                    backdrop-filter: blur(5px);
+                    background-color: rgba(0, 0, 0, 0.85);
+                    z-index: 9999;
                     opacity: 0;
-                    transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                    backdrop-filter: blur(5px);
+                    transition: all 0.4s ease-in-out;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
                 }}
 
                 .chart-modal.active {{
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                   visibility: visible;
                     opacity: 1;
                 }}
 
                 .chart-modal-content {{
-                    position: relative;
-                    max-width: 90vw;
-                    max-height: 90vh;
-                    border-radius: 20px;
+                  background-color: white;
+                    width: 90%;
+                    max-width: 1200px;
+                    height: 85vh;
+                    margin: 0 auto;
+                    border-radius: 16px;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
                     overflow: hidden;
-                    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-                    transform: scale(0.8) translateY(20px);
+                    display: flex;
+                    flex-direction: column;
+                    transform: scale(0.95);
                     opacity: 0;
-                    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                    transition: all 0.3s ease-in-out;
                 }}
 
                 .chart-modal.active .chart-modal-content {{
-                    transform: scale(1) translateY(0);
+                     transform: scale(1);
                     opacity: 1;
                 }}
 
@@ -882,20 +898,20 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal.active .chart-modal-info {{
-                    transform: translateY(0);
+                   transform: translateY(0);
                     opacity: 1;
-                    transition-delay: 0.2s;
                 }}
 
                 .chart-modal-title {{
-                    font-size: 1.5rem;
-                    font-weight: 300;
-                    margin-bottom: 0.5rem;
+                     font-size: 1.5rem;
+                    font-weight: 600;
+                    margin-bottom: 8px;
+                    color: white;
                 }}
 
                 .chart-modal-description {{
-                    opacity: 0.8;
-                    font-size: 0.9rem;
+                      font-size: 1rem;
+                    color: rgba(255, 255, 255, 0.8);
                 }}
             </style>
         </head>"""
@@ -1009,7 +1025,7 @@ class GithubVisualizer:
                 if (typeof gsap !== 'undefined') {{
                     const creatorSection = document.getElementById('creator-section');
                     if (creatorSection) {{
-                        creatorSection.addEventListener('mouseenter', function() {{
+                        creatorSection.addEventListener('mouseenter', function() {
                             gsap.to(this, {{
                                 scale: 1.02,
                                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -1356,14 +1372,15 @@ class GithubVisualizer:
 
     def _create_footer_section(self, timestamp: str) -> str:
         """Create the footer section of the HTML file"""
-        footer_section = f"""<!-- Footer with animations -->
+        footer_section = f"""
+        <!-- Footer with animations -->
                 <div data-aos="fade-up" data-aos-duration="600" class="mt-10 text-center">
                     <div class="py-6 px-4 bg-gradient-primary rounded-lg text-white/90 shadow-lg">
                         <p class="flex items-center justify-center">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 animate-pulse-slow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
-                            Generated with GHRepoLens • {timestamp}
+                            Generated with GHRepoLens • 2025-06-01 21:20:17
                         </p>
                     </div>
                 </div>
@@ -1682,7 +1699,7 @@ class GithubVisualizer:
 
                     // Chart Modal Functionality
                     const chartModal = document.getElementById('chartModal');
-                    const chartModalImage = document.getElementById('chartModalImage');
+                    const chartModalIframe = document.getElementById('chartModalIframe');
                     const chartModalTitle = document.getElementById('chartModalTitle');
                     const chartModalDescription = document.getElementById('chartModalDescription');
                     const chartModalClose = document.getElementById('chartModalClose');
@@ -1693,31 +1710,58 @@ class GithubVisualizer:
                             openChartModal(chart);
                         }});
                     }});
+                    
+                     // Handle iframe load events
+                    chartModalIframe.addEventListener('load', function() {{
+                        // Ensure iframe content is properly displayed
+                        try {{
+                            // Allow a moment for the iframe to fully render its contents
+                            setTimeout(() => {{
+                                // Make iframe visible with a smooth fade in
+                                chartModalIframe.style.opacity = '0';
+                                setTimeout(() => {{
+                                    chartModalIframe.style.opacity = '1';
+                                }}, 100);
+                            }}, 300);
+                        }} catch (e) {{
+                            console.error("Error handling iframe load:", e);
+                        }}
+                    }});
 
                     function openChartModal(chartElement) {{
                         // Get chart data from dataset
                         const src = chartElement.dataset.chartSrc;
                         const title = chartElement.dataset.chartTitle;
                         const description = chartElement.dataset.chartDescription;
+                        
+                        console.log(`Opening modal for: ${{title}}, src: ${{src}}`);
 
-                        // Set modal content
-                        chartModalImage.src = src;
+                       // Set modal content
+                        chartModalIframe.src = src;
                         chartModalTitle.textContent = title;
                         chartModalDescription.textContent = description;
 
-                        // Show modal with animation
-                        chartModal.classList.add('active');
+                        // Show modal with animation 
                         document.body.style.overflow = 'hidden';
+                        
+                        // Trigger a reflow to ensure animations work properly
+                        void chartModal.offsetWidth;
+                        
+                        // Add active class to show the modal
+                        chartModal.classList.add('active');
+                        
+                        console.log('Modal should now be visible');
                     }}
 
-                    function closeChartModal() {{
+                     function closeChartModal() {{
+                        // Hide modal and restore scrolling
                         chartModal.classList.remove('active');
                         document.body.style.overflow = 'auto';
-
-                        // Clear image source after animation completes
+                        
+                        // Clear iframe source after animation completes
                         setTimeout(() => {{
-                            chartModalImage.src = '';
-                        }}, 400);
+                            chartModalIframe.src = '';
+                        }}, 500);
                     }}
 
                     // Event listeners for closing modal
