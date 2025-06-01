@@ -27,6 +27,7 @@ class GithubVisualizer:
 
         # Copy assets to the reports directory
         self.copy_assets(reports_dir)
+        self.profile_dir = Path("static") / "assets"
 
     
     def copy_assets(self, reports_dir: Path) -> None:
@@ -352,7 +353,7 @@ class GithubVisualizer:
             <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
             <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-            <link rel="icon" type="image/png" href="assets/favicon.png">
+            <link rel="icon" type="image/png" href="{str(self.profile_dir / 'favicon.png')}">
             <script>
                 tailwind.config = {{
                     darkMode: 'class',
@@ -914,10 +915,10 @@ class GithubVisualizer:
                 <div data-aos="fade-down" data-aos-duration="800" class="relative bg-gradient-primary animated-bg rounded-lg shadow-xl mb-8 overflow-hidden transform transition-all hover:shadow-2xl">
                     <!-- Semi-transparent background banner image -->
                     <div class="absolute inset-0 w-full h-full opacity-20 dark:hidden">
-                        <img src="assets/light_banner.png" alt="" class="w-full h-full object-cover" />
+                        <img src="{str(self.profile_dir / 'light_banner.png')}" alt="" class="w-full h-full object-cover" />
                     </div>
                     <div class="absolute inset-0 w-full h-full opacity-20 hidden dark:block">
-                        <img src="assets/dark_banner.png" alt="" class="w-full h-full object-cover" />
+                        <img src="{str(self.profile_dir / 'dark_banner.png')}" alt="" class="w-full h-full object-cover" />
                     </div>
                     
                     <div class="relative p-6 md:p-10 text-center z-10">
@@ -932,7 +933,7 @@ class GithubVisualizer:
     
     def _create_creator_section(self) -> str:
         """Create the creator section of the HTML file"""
-        creator_section = """
+        creator_section = f"""
                 <!-- Creator Section - Modern & Compact -->
                 <div id="creator-section" class="relative overflow-hidden bg-white/10 dark:bg-gray-800/20 backdrop-blur-sm rounded-xl shadow-lg mb-6 transition-all duration-500 group">
                     <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-secondary/5 to-accent/5 dark:from-primary/10 dark:via-secondary/10 dark:to-accent/10 opacity-80"></div>
@@ -940,11 +941,12 @@ class GithubVisualizer:
                     <div class="relative z-10 flex items-center p-4 gap-4">
                         <!-- Creator Image & Name -->
                         <div class="relative w-16 h-16 rounded-full overflow-hidden shadow-lg border-2 border-primary/30 creator-profile-img" data-aos="zoom-in" data-aos-delay="100">
-                            <img src="assets/alaamer.jpg" alt="Amr Muhamed" class="w-full h-full object-cover" />
+                            <img src="{str(self.profile_dir / 'alaamer.jpg')}" alt="Amr Muhamed" class="w-full h-full object-cover" />
                             <div class="absolute inset-0 bg-gradient-to-tr from-primary/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                         </div>
-                        
-                        <div class="flex-1">
+                        """
+
+        rest = """<div class="flex-1">
                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <!-- Name & Role -->
                                 <div>
@@ -1039,7 +1041,7 @@ class GithubVisualizer:
                     }
                 });
                 </script>"""
-        return creator_section
+        return creator_section + '\n' + rest
     
     def _create_stats_section(self) -> str:
         """Create the stats section of the HTML file"""
@@ -1620,7 +1622,7 @@ class GithubVisualizer:
                 }}
                 """
         return repo_table_js
-    
+
     def _create_js_part3(self, repo_table_js: str) -> str:
         """Create the third part of the JavaScript section of the HTML file"""
         js_part3 = f"""
@@ -1628,10 +1630,10 @@ class GithubVisualizer:
                 document.addEventListener('DOMContentLoaded', function() {{
                     // Start animated counters
                     animateCounters();
-                    
+
                     // Initialize repository table
                     initReposTable();
-                    
+
                     // Add intersection observer for animations not handled by AOS
                     const observer = new IntersectionObserver((entries) => {{
                         entries.forEach(entry => {{
@@ -1641,91 +1643,71 @@ class GithubVisualizer:
                             }}
                         }});
                     }}, {{ threshold: 0.1 }});
-                    
+
                     // Observe elements that need animation
                     document.querySelectorAll('.needs-animation').forEach(el => {{
                         observer.observe(el);
                     }});
-                    
+
                     // Chart Modal Functionality
-                const chartModal = document.getElementById('chartModal');
-                const chartModalIframe = document.getElementById('chartModalIframe');
-                const chartModalTitle = document.getElementById('chartModalTitle');
-                const chartModalDescription = document.getElementById('chartModalDescription');
-                const chartModalClose = document.getElementById('chartModalClose');
-                
-                // Set up chart click handlers
-                document.querySelectorAll('.chart-item').forEach(chart => {{
-                    chart.addEventListener('click', () => {{
-                        openChartModal(chart);
+                    const chartModal = document.getElementById('chartModal');
+                    const chartModalImage = document.getElementById('chartModalImage');
+                    const chartModalTitle = document.getElementById('chartModalTitle');
+                    const chartModalDescription = document.getElementById('chartModalDescription');
+                    const chartModalClose = document.getElementById('chartModalClose');
+
+                    // Set up chart click handlers
+                    document.querySelectorAll('.chart-item').forEach(chart => {{
+                        chart.addEventListener('click', () => {{
+                            openChartModal(chart);
+                        }});
+                    }});
+
+                    function openChartModal(chartElement) {{
+                        // Get chart data from dataset
+                        const src = chartElement.dataset.chartSrc;
+                        const title = chartElement.dataset.chartTitle;
+                        const description = chartElement.dataset.chartDescription;
+
+                        // Set modal content
+                        chartModalImage.src = src;
+                        chartModalTitle.textContent = title;
+                        chartModalDescription.textContent = description;
+
+                        // Show modal with animation
+                        chartModal.classList.add('active');
+                        document.body.style.overflow = 'hidden';
+                    }}
+
+                    function closeChartModal() {{
+                        chartModal.classList.remove('active');
+                        document.body.style.overflow = 'auto';
+
+                        // Clear image source after animation completes
+                        setTimeout(() => {{
+                            chartModalImage.src = '';
+                        }}, 400);
+                    }}
+
+                    // Event listeners for closing modal
+                    chartModalClose.addEventListener('click', closeChartModal);
+                    chartModal.addEventListener('click', (e) => {{
+                        if (e.target === chartModal) {{
+                            closeChartModal();
+                        }}
+                    }});
+
+                    // Keyboard navigation for modal
+                    document.addEventListener('keydown', (e) => {{
+                        if (e.key === 'Escape' && chartModal.classList.contains('active')) {{
+                            closeChartModal();
+                        }}
                     }});
                 }});
-                
-                // Store original scroll position globally
-                let originalScrollPosition = 0;
-                
-                function openChartModal(chartElement) {{
-                    // Get chart data from dataset
-                    const src = chartElement.dataset.chartSrc;
-                    const title = chartElement.dataset.chartTitle;
-                    const description = chartElement.dataset.chartDescription;
-                    
-                    // Store current scroll position globally
-                    originalScrollPosition = window.scrollY || document.documentElement.scrollTop;
-                    
-                    // Reset modal scroll position
-                    chartModal.scrollTop = 0;
-                    
-                    // Set modal content
-                    chartModalIframe.src = src;
-                    chartModalTitle.textContent = title;
-                    chartModalDescription.textContent = description;
-                    
-                    // Force scroll to top before showing modal
-                    window.scrollTo(0, 0);
-                    document.documentElement.scrollTop = 0;
-                    document.body.scrollTop = 0;
-                    
-                    // Show modal with animation
-                    chartModal.style.display = 'flex';
-                    chartModal.classList.add('active');
-                    document.body.style.overflow = 'hidden';
-                }}
-                
-                function closeChartModal() {{
-                    // Remove active class to start animation
-                    chartModal.classList.remove('active');
-                    
-                    // Clear iframe source and restore scroll position after animation completes
-                    setTimeout(() => {{
-                        // Clear the iframe source to prevent ongoing activity
-                        chartModalIframe.src = '';
-                        // Hide the modal completely
-                        chartModal.style.display = 'none';
-                        
-                        // Restore body scrolling and original position
-                        document.body.style.overflow = 'auto';
-                        window.scrollTo(0, originalScrollPosition);
-                    }}, 400);
-                }}
-                
-                // Event listeners for closing modal
-                chartModalClose.addEventListener('click', closeChartModal);
-                chartModal.addEventListener('click', (e) => {{
-                    if (e.target === chartModal) {{
-                        closeChartModal();
-                    }}
-                }});
-                
-                // Keyboard navigation for modal
-                document.addEventListener('keydown', (e) => {{
-                    if (e.key === 'Escape' && chartModal.classList.contains('active')) {{
-                        closeChartModal();
-                    }}
-                }});
-                
+
                 {repo_table_js}
             </script>
+            </div>
         </body>
         </html>"""
         return js_part3
