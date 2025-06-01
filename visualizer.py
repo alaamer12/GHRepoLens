@@ -18,45 +18,44 @@ from charts import CreateDetailedCharts
 
 class GithubVisualizer:
     """Class responsible for creating visualizations from GitHub repository data"""
-    
+
     def __init__(self, username: str, reports_dir: Path, theme: Optional[ThemeConfig] = None):
         """Initialize the visualizer with username and reports directory"""
         self.username = username
         self.reports_dir = reports_dir
+        self.assets_dir = Path("assets")  # Changed from Path("static") / "assets" to just "assets"
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
 
         # Copy assets to the reports directory
         self.copy_assets(reports_dir)
-        self.profile_dir = Path("static") / "assets"
 
-    
     def copy_assets(self, reports_dir: Path) -> None:
         """Copy assets to the reports directory"""
-        assets_dir = Path(__file__).parent / "assets"
-        static_dir = Path("reports/static/assets")
+        assets_dir = self.assets_dir
+        static_dir = reports_dir / "static" / "assets"  # Use reports_dir instead of hardcoded Path("reports/static/assets")
         os.makedirs(static_dir, exist_ok=True)
-        
+
         for asset in assets_dir.glob("*"):
             try:
                 shutil.copy(asset, static_dir / asset.name)
                 logger.info(f"Copied asset {asset.name} to {static_dir}")
             except Exception as e:
                 logger.error(f"Failed to copy asset {asset.name}: {str(e)}")
-    
+
     def create_visualizations(self, all_stats: List[RepoStats]) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
-        
+
         # Store all_stats as an instance attribute for later use
         self.all_stats = all_stats
-        
+
         # Filter out empty repositories for most visualizations
         non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
-        
+
         # Set style for matplotlib
         plt.style.use('seaborn-v0_8')
         sns.set_palette("husl")
-        
+
         # Create subplots for different visualizations
         fig = make_subplots(
             rows=4, cols=2,
@@ -77,15 +76,15 @@ class GithubVisualizer:
                 [{"type": "bar"}, {"type": "bar"}]
             ]
         )
-        
+
         # Use theme colors for plots
         chart_colors = self.theme["chart_palette"]
-        
+
         # 1. Top 10 Languages by LOC
         # Verify total LOC for sanity check
         total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
         logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
-        
+
         # Collect language data more carefully
         all_languages = defaultdict(int)
         for stats in non_empty_repos:
@@ -93,29 +92,29 @@ class GithubVisualizer:
             if sum(stats.languages.values()) > stats.total_loc * 1.1:  # Allow 10% margin for rounding
                 logger.warning(f"Repository {stats.name} has inconsistent language data. Skipping for language chart.")
                 continue
-                
+
             for lang, loc in stats.languages.items():
                 all_languages[lang] += loc
-        
+
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
         logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
-        
+
         # If there's still a significant discrepancy, scale the language values
         if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
             scaling_factor = total_loc_sum / lang_loc_sum
             logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
             all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
-        
+
         if all_languages:
             top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
             langs, locs = zip(*top_languages)
-            
+
             fig.add_trace(
                 go.Bar(x=list(langs), y=list(locs), name="Languages", marker_color=chart_colors[0]),
                 row=1, col=1
             )
-        
+
         # 2. Repository Size Distribution
         repo_sizes = [stats.total_loc for stats in non_empty_repos if stats.total_loc > 0]
         if repo_sizes:
@@ -123,23 +122,23 @@ class GithubVisualizer:
                 go.Histogram(x=repo_sizes, nbinsx=20, name="Repo Sizes", marker_color=chart_colors[1]),
                 row=1, col=2
             )
-        
+
         # 3. File Type Distribution (Top 10)
         all_file_types = defaultdict(int)
         for stats in non_empty_repos:
             for file_type, count in stats.file_types.items():
                 all_file_types[file_type] += count
-        
+
         if all_file_types:
             top_file_types = sorted(all_file_types.items(), key=lambda x: x[1], reverse=True)[:10]
             types, counts = zip(*top_file_types)
-            
+
             fig.add_trace(
-                go.Pie(labels=list(types), values=list(counts), name="File Types", 
-                      marker=dict(colors=chart_colors[:len(top_file_types)])),
+                go.Pie(labels=list(types), values=list(counts), name="File Types",
+                       marker=dict(colors=chart_colors[:len(top_file_types)])),
                 row=2, col=1
             )
-        
+
         # 4. Activity Timeline (commits per month)
         commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
         if commit_dates:
@@ -148,31 +147,31 @@ class GithubVisualizer:
             for date in commit_dates:
                 month_key = date.strftime('%Y-%m')
                 monthly_commits[month_key] += 1
-            
+
             # Get last 12 months
             sorted_months = sorted(monthly_commits.items())[-12:]
             if sorted_months:
                 months, commit_counts = zip(*sorted_months)
-                
+
                 fig.add_trace(
-                    go.Scatter(x=list(months), y=list(commit_counts), 
-                             mode='lines+markers', name="Activity", line=dict(color=chart_colors[2])),
+                    go.Scatter(x=list(months), y=list(commit_counts),
+                               mode='lines+markers', name="Activity", line=dict(color=chart_colors[2])),
                     row=2, col=2
                 )
-        
+
         # 5. Stars vs LOC Correlation
         stars = [stats.stars for stats in non_empty_repos]
         locs = [stats.total_loc for stats in non_empty_repos]
         names = [stats.name for stats in non_empty_repos]
-        
+
         fig.add_trace(
             go.Scatter(x=locs, y=stars, mode='markers',
-                      text=names, name="Repos",
-                      marker=dict(color=chart_colors[3]),
-                      hovertemplate='<b>%{text}</b><br>LOC: %{x}<br>Stars: %{y}'),
+                       text=names, name="Repos",
+                       marker=dict(color=chart_colors[3]),
+                       hovertemplate='<b>%{text}</b><br>LOC: %{x}<br>Stars: %{y}'),
             row=3, col=1
         )
-        
+
         # 6. Maintenance Score Distribution
         maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
         if maintenance_scores:
@@ -180,15 +179,16 @@ class GithubVisualizer:
                 go.Histogram(x=maintenance_scores, nbinsx=20, name="Maintenance Scores", marker_color=chart_colors[4]),
                 row=3, col=2
             )
-        
+
         # 7. Repository Age Distribution
-        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in non_empty_repos]
+        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in
+                non_empty_repos]
         if ages:
             fig.add_trace(
                 go.Histogram(x=ages, nbinsx=15, name="Repository Ages (Years)", marker_color=chart_colors[5]),
                 row=4, col=1
             )
-        
+
         # 8. Quality Metrics Overview
         quality_metrics = {
             'Has Documentation': sum(1 for s in non_empty_repos if s.has_docs),
@@ -196,13 +196,13 @@ class GithubVisualizer:
             'Is Active': sum(1 for s in non_empty_repos if s.is_active),
             'Has License': sum(1 for s in non_empty_repos if s.license_name),
         }
-        
+
         fig.add_trace(
             go.Bar(x=list(quality_metrics.keys()), y=list(quality_metrics.values()),
                    name="Quality Metrics", marker_color=chart_colors[6]),
             row=4, col=2
         )
-        
+
         # Update layout with theme colors
         fig.update_layout(
             height=2000,
@@ -214,60 +214,65 @@ class GithubVisualizer:
             plot_bgcolor=self.theme["light_chart_bg"],
             font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"])
         )
-        
+
         # Update axes labels
         fig.update_xaxes(title_text="Language", row=1, col=1)
         fig.update_yaxes(title_text="Lines of Code", row=1, col=1)
-        
+
         fig.update_xaxes(title_text="Lines of Code", row=1, col=2)
         fig.update_yaxes(title_text="Count", row=1, col=2)
-        
+
         fig.update_xaxes(title_text="Month", row=2, col=2)
         fig.update_yaxes(title_text="Commits", row=2, col=2)
-        
+
         fig.update_xaxes(title_text="Lines of Code", row=3, col=1)
         fig.update_yaxes(title_text="Stars", row=3, col=1)
-        
+
         fig.update_xaxes(title_text="Maintenance Score", row=3, col=2)
         fig.update_yaxes(title_text="Count", row=3, col=2)
-        
+
         fig.update_xaxes(title_text="Age (Years)", row=4, col=1)
         fig.update_yaxes(title_text="Count", row=4, col=1)
-        
+
         fig.update_xaxes(title_text="Quality Metric", row=4, col=2)
         fig.update_yaxes(title_text="Count", row=4, col=2)
-        
+
         # Save as interactive HTML
         report_path = self.reports_dir / "visual_report.html"
-        
-        # Create HTML with Tailwind CSS, custom styling and interactivity
-        html_content = self._generate_dashboard_html(fig, non_empty_repos)
-        
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
-        logger.info(f"Visual report saved to {report_path}")
-        
+
         # Ensure the static directory exists
         static_dir = Path("reports/static")
         os.makedirs(static_dir, exist_ok=True)
-        
-        # Also create individual static charts for detailed analysis
+
+        # First create individual static charts for detailed analysis
+        logger.info("Starting to create detailed charts...")
         detailed_charts = CreateDetailedCharts(self.all_stats, self.theme, self.reports_dir)
         # Generate all the detailed charts
         detailed_charts.create()
         
+        # Verify that charts were created
+        chart_files = list(self.reports_dir.glob("*.png"))
+        logger.info(f"Created {len(chart_files)} chart files: {[f.name for f in chart_files]}")
+
+        # Create HTML with Tailwind CSS, custom styling and interactivity
+        html_content = self._generate_dashboard_html(fig, non_empty_repos)
+
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        logger.info(f"Visual report saved to {report_path}")
+
     def _generate_dashboard_html(self, fig, non_empty_repos):
         """Generate HTML content for the dashboard with Tailwind CSS and theme support"""
         # Get timestamp for the report
         timestamp = datetime.now().replace(tzinfo=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-        
+
         # Create statistics
         total_repos = len(non_empty_repos)
         total_loc = f"{sum(s.total_loc for s in non_empty_repos):,}"
         total_stars = f"{sum(s.stars for s in non_empty_repos):,}"
         active_repos = sum(1 for s in non_empty_repos if s.is_active)
-        
+
         # Prepare repository data for the table
         repos_table_data = []
         for repo in non_empty_repos:
@@ -279,18 +284,18 @@ class GithubVisualizer:
                 "is_active": repo.is_active,
                 "maintenance": f"{repo.maintenance_score:.1f}"
             })
-        
+
         # Convert to JSON for JavaScript
         repos_json = json.dumps(repos_table_data)
-        
+
         # Create parts of HTML separately to avoid f-string nesting issues
         head_section = self._create_head_section()
         body_start = self._create_body_start(timestamp)
         # Add creator section right after the header section
         creator_section = self._create_creator_section()
-        
+
         stats_section = self._create_stats_section()
-        
+
         charts_section = self._create_charts_section()
         # NEW: Add links to additional static charts with enhanced animations
         additional_charts_section = self._create_additional_charts_section()
@@ -319,9 +324,9 @@ class GithubVisualizer:
         js_part2 = self._create_js_part2(fig, total_repos, total_loc, total_stars, active_repos)
         # Add repository table JavaScript with enhanced animations
         repo_table_js = self._create_repo_table_js(repos_json)
-                
+
         js_part3 = self._create_js_part3(repo_table_js)
-        
+
         # Combine all parts
         html_content = "\n".join([
             head_section,
@@ -336,9 +341,9 @@ class GithubVisualizer:
             js_part2,
             js_part3
         ])
-        
+
         return html_content
-    
+
     def _create_head_section(self) -> str:
         """Create the head section of the HTML file"""
         head = f"""<!DOCTYPE html>
@@ -353,7 +358,7 @@ class GithubVisualizer:
             <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
             <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-            <link rel="icon" type="image/png" href="{str(self.profile_dir / 'favicon.png')}">
+            <link rel="icon" type="image/png" href="static/assets/favicon.png">
             <script>
                 tailwind.config = {{
                     darkMode: 'class',
@@ -416,12 +421,12 @@ class GithubVisualizer:
                 .bg-gradient-primary {{
                     background: {self.theme["header_gradient"]};
                 }}
-                
+
                 /* Theme transition */
                 .transition-theme {{
                     transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
                 }}
-                
+
                 /* Chart Modal Styles with iframe support */
                 .chart-modal {{
                     display: none;
@@ -438,12 +443,12 @@ class GithubVisualizer:
                     transition: opacity 0.4s ease;
                     overflow: auto; /* Allow scrolling if content is too large */
                 }}
-                
+
                 .chart-modal.active {{
                     display: flex;
                     opacity: 1;
                 }}
-                
+
                 .chart-modal-content {{
                     position: relative;
                     width: 90%;
@@ -461,24 +466,24 @@ class GithubVisualizer:
                     left: 0;
                     right: 0;
                 }}
-                
+
                 .dark .chart-modal-content {{
                     background-color: #1f2937;
                     color: white;
                 }}
-                
+
                 .chart-modal-iframe-container {{
                     flex: 1;
                     width: 100%;
                     overflow: hidden;
                 }}
-                
+
                 .chart-modal-iframe {{
                     width: 100%;
                     height: 100%;
                     border: none;
                 }}
-                
+
                 .chart-modal-close {{
                     position: absolute;
                     top: 10px;
@@ -497,175 +502,175 @@ class GithubVisualizer:
                     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                     transition: all 0.2s ease;
                 }}
-                
+
                 .dark .chart-modal-close {{
                     color: white;
                     background: #374151;
                 }}
-                
+
                 .chart-modal-close:hover {{
                     transform: scale(1.1);
                     background-color: #f3f4f6;
                 }}
-                
+
                 .dark .chart-modal-close:hover {{
                     background-color: #4b5563;
                 }}
-                
+
                 .chart-modal-info {{
                     padding: 15px;
                     border-top: 1px solid #e5e7eb;
                 }}
-                
+
                 .dark .chart-modal-info {{
                     border-top: 1px solid #374151;
                 }}
-                
+
                 .chart-modal-title {{
                     font-size: 18px;
                     font-weight: 600;
                     margin-bottom: 5px;
                 }}
-                
+
                 .chart-modal-description {{
                     font-size: 14px;
                     color: #6b7280;
                 }}
-                
+
                 .dark .chart-modal-description {{
                     color: #9ca3af;
                 }}
-                
+
                 /* Custom scrollbar */
                 ::-webkit-scrollbar {{
                     width: 8px;
                     height: 8px;
                 }}
-                
+
                 ::-webkit-scrollbar-track {{
                     background: #f1f1f1;
                 }}
-                
+
                 .dark ::-webkit-scrollbar-track {{
                     background: #374151;
                 }}
-                
+
                 ::-webkit-scrollbar-thumb {{
                     background: #888;
                     border-radius: 4px;
                 }}
-                
+
                 ::-webkit-scrollbar-thumb:hover {{
                     background: #555;
                 }}
-                
+
                 .dark ::-webkit-scrollbar-thumb {{
                     background: #555;
                 }}
-                
+
                 .dark ::-webkit-scrollbar-thumb:hover {{
                     background: #777;
                 }}
-                
+
                 /* Stats animation */
                 @keyframes countUp {{
                     from {{ transform: translateY(10px); opacity: 0; }}
                     to {{ transform: translateY(0); opacity: 1; }}
                 }}
-                
+
                 .animate-count-up {{
                     animation: countUp 0.8s ease-out forwards;
                 }}
-                
+
                 /* Card hover effects */
                 .stat-card {{
                     transition: transform 0.3s ease, box-shadow 0.3s ease;
                 }}
-                
+
                 .stat-card:hover {{
                     transform: translateY(-5px);
                     box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.15), 0 10px 15px -5px rgba(0, 0, 0, 0.08);
                 }}
-                
+
                 /* New animation classes */
                 .card-3d-effect {{
                     transform-style: preserve-3d;
                     perspective: 1000px;
                     transition: all 0.3s ease;
                 }}
-                
+
                 .card-3d-effect:hover {{
                     transform: rotateX(5deg) rotateY(5deg);
                 }}
-                
+
                 .card-inner {{
                     transform: translateZ(20px);
                     transition: all 0.3s ease;
                 }}
-                
+
                 /* Animated background */
                 .animated-bg {{
                     background-size: 400% 400%;
                     animation: gradientBG 15s ease infinite;
                 }}
-                
+
                 @keyframes gradientBG {{
                     0% {{ background-position: 0% 50%; }}
                     50% {{ background-position: 100% 50%; }}
                     100% {{ background-position: 0% 50%; }}
                 }}
-                
+
                 /* Progress bar animation */
                 @keyframes progressFill {{
                     from {{ width: 0%; }}
                     to {{ width: var(--progress-width); }}
                 }}
-                
+
                 .animate-progress {{
                     animation: progressFill 1.5s ease-out forwards;
                 }}
-                
+
                 /* Icon pulse */
                 @keyframes iconPulse {{
                     0% {{ transform: scale(1); }},
                     50% {{ transform: scale(1.1); }},
                     100% {{ transform: scale(1); }}
                 }}
-                
+
                 .animate-icon-pulse {{
                     animation: iconPulse 2s ease-in-out infinite;
                 }}
-                
+
                 /* Chart entrance animation */
                 @keyframes chartEnter {{
                     0% {{ opacity: 0; transform: translateY(30px); }}
                     100% {{ opacity: 1; transform: translateY(0); }}
                 }}
-                
+
                 .animate-chart-enter {{
                     animation: chartEnter 0.8s ease-out forwards;
                 }}
-                
+
                 /* Creator section animation */
                 @keyframes glowPulse {{
                     0% {{ box-shadow: 0 0 5px 0 rgba(79, 70, 229, 0.5); }}
                     50% {{ box-shadow: 0 0 20px 5px rgba(79, 70, 229, 0.5); }}
                     100% {{ box-shadow: 0 0 5px 0 rgba(79, 70, 229, 0.5); }}
                 }}
-                
+
                 .animate-glow {{
                     animation: glowPulse 3s infinite;
                 }}
-                
+
                 .social-link {{
                     transition: all 0.3s ease;
                 }}
-                
+
                 .social-link:hover {{
                     transform: translateY(-3px);
                     filter: brightness(1.2);
                 }}
-                
+
                 /* New creator card styles */
                 .creator-card {{
                     position: relative;
@@ -673,7 +678,7 @@ class GithubVisualizer:
                     border-radius: 16px;
                     transition: all 0.5s cubic-bezier(0.22, 1, 0.36, 1);
                 }}
-                
+
                 .creator-card::before {{
                     content: "";
                     position: absolute;
@@ -683,31 +688,31 @@ class GithubVisualizer:
                     z-index: 0;
                     transition: opacity 0.5s ease;
                 }}
-                
+
                 .creator-card:hover::before {{
                     opacity: 1;
                 }}
-                
+
                 .creator-profile-img {{
                     position: relative;
                     transition: all 0.5s ease;
                 }}
-                
+
                 .creator-card:hover .creator-profile-img {{
                     transform: scale(1.05);
                 }}
-                
+
                 .creator-info {{
                     position: relative;
                     z-index: 1;
                 }}
-                
+
                 .social-icon {{
                     transition: all 0.3s ease;
                     position: relative;
                     overflow: hidden;
                 }}
-                
+
                 .social-icon::after {{
                     content: "";
                     position: absolute;
@@ -716,20 +721,20 @@ class GithubVisualizer:
                     opacity: 0;
                     transition: opacity 0.3s ease;
                 }}
-                
+
                 .social-icon:hover {{
                     transform: translateY(-5px) scale(1.1);
                 }}
-                
+
                 .social-icon:hover::after {{
                     opacity: 1;
                 }}
-                
+
                 .stack-badge {{
                     position: relative;
                     overflow: hidden;
                 }}
-                
+
                 .stack-badge::before {{
                     content: "";
                     position: absolute;
@@ -741,12 +746,12 @@ class GithubVisualizer:
                     transform: rotate(45deg);
                     animation: shine 3s infinite;
                 }}
-                
+
                 @keyframes shine {{
                     0% {{ transform: translateX(-100%) rotate(45deg); }}
                     100% {{ transform: translateX(100%) rotate(45deg); }}
                 }}
-                
+
                 .animate-typing {{
                     overflow: hidden;
                     border-right: 2.5px solid;
@@ -757,39 +762,39 @@ class GithubVisualizer:
                     display: inline-block;
                     max-width: calc(20ch + 10px);
                 }}
-                
+
                 @keyframes typing {{
                     from {{ width: 0 }}
                     to {{ width: calc(20ch + 10px) }}
                 }}
-                
+
                 @keyframes blink-caret {{
                     from, to {{ border-color: transparent }}
                     50% {{ border-color: currentColor }}
                 }}
-                
+
                 .tech-badge {{
                     background: rgba(79, 70, 229, 0.1);
                     backdrop-filter: blur(8px);
                     border: 1px solid rgba(79, 70, 229, 0.2);
                     transition: all 0.3s ease;
                 }}
-                
+
                 .tech-badge:hover {{
                     background: rgba(79, 70, 229, 0.2);
                     transform: translateY(-2px);
                 }}
-                
+
                 .floating {{
                     animation: floating 3s ease-in-out infinite;
                 }}
-                
+
                 @keyframes floating {{
                     0% {{ transform: translateY(0px); }}
                     50% {{ transform: translateY(-10px); }}
                     100% {{ transform: translateY(0px); }}
                 }}
-                
+
                 /* Chart Modal Styles */
                 .chart-modal {{
                     display: none;
@@ -804,14 +809,14 @@ class GithubVisualizer:
                     opacity: 0;
                     transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }}
-                
+
                 .chart-modal.active {{
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     opacity: 1;
                 }}
-                
+
                 .chart-modal-content {{
                     position: relative;
                     max-width: 90vw;
@@ -823,19 +828,19 @@ class GithubVisualizer:
                     opacity: 0;
                     transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }}
-                
+
                 .chart-modal.active .chart-modal-content {{
                     transform: scale(1) translateY(0);
                     opacity: 1;
                 }}
-                
+
                 .chart-modal-image {{
                     width: 100%;
                     height: 100%;
                     object-fit: contain;
                     display: block;
                 }}
-                
+
                 .chart-modal-close {{
                     position: absolute;
                     top: 20px;
@@ -856,12 +861,12 @@ class GithubVisualizer:
                     justify-content: center;
                     z-index: 1010;
                 }}
-                
+
                 .chart-modal-close:hover {{
                     background: rgba(255,255,255,0.3);
                     transform: scale(1.1);
                 }}
-                
+
                 .chart-modal-info {{
                     position: absolute;
                     bottom: 0;
@@ -875,26 +880,26 @@ class GithubVisualizer:
                     opacity: 0;
                     transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }}
-                
+
                 .chart-modal.active .chart-modal-info {{
                     transform: translateY(0);
                     opacity: 1;
                     transition-delay: 0.2s;
                 }}
-                
+
                 .chart-modal-title {{
                     font-size: 1.5rem;
                     font-weight: 300;
                     margin-bottom: 0.5rem;
                 }}
-                
+
                 .chart-modal-description {{
                     opacity: 0.8;
                     font-size: 0.9rem;
                 }}
             </style>
         </head>"""
-        
+
         return head
 
     def _create_body_start(self, timestamp: str) -> str:
@@ -909,18 +914,18 @@ class GithubVisualizer:
                     <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
                 </svg>
             </button>
-            
+
             <div class="container mx-auto px-4 py-8 max-w-7xl">
                 <!-- Header section with enhanced animations and banner as background -->
                 <div data-aos="fade-down" data-aos-duration="800" class="relative bg-gradient-primary animated-bg rounded-lg shadow-xl mb-8 overflow-hidden transform transition-all hover:shadow-2xl">
                     <!-- Semi-transparent background banner image -->
                     <div class="absolute inset-0 w-full h-full opacity-20 dark:hidden">
-                        <img src="{str(self.profile_dir / 'light_banner.png')}" alt="" class="w-full h-full object-cover" />
+                        <img src="static/assets/light_banner.png" alt="" class="w-full h-full object-cover" />
                     </div>
                     <div class="absolute inset-0 w-full h-full opacity-20 hidden dark:block">
-                        <img src="{str(self.profile_dir / 'dark_banner.png')}" alt="" class="w-full h-full object-cover" />
+                        <img src="static/assets/dark_banner.png" alt="" class="w-full h-full object-cover" />
                     </div>
-                    
+
                     <div class="relative p-6 md:p-10 text-center z-10">
                         <h1 class="text-3xl md:text-5xl font-light text-white mb-4 animate-bounce-in">📊 GitHub Repository Analysis</h1>
                         <p class="text-lg text-white/90 animate-fade-in">
@@ -928,121 +933,119 @@ class GithubVisualizer:
                         </p>
                     </div>
                 </div>"""
-        
+
         return body_start
-    
+
     def _create_creator_section(self) -> str:
         """Create the creator section of the HTML file"""
-        creator_section = f"""
-                <!-- Creator Section - Modern & Compact -->
-                <div id="creator-section" class="relative overflow-hidden bg-white/10 dark:bg-gray-800/20 backdrop-blur-sm rounded-xl shadow-lg mb-6 transition-all duration-500 group">
-                    <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-secondary/5 to-accent/5 dark:from-primary/10 dark:via-secondary/10 dark:to-accent/10 opacity-80"></div>
-                    
-                    <div class="relative z-10 flex items-center p-4 gap-4">
-                        <!-- Creator Image & Name -->
-                        <div class="relative w-16 h-16 rounded-full overflow-hidden shadow-lg border-2 border-primary/30 creator-profile-img" data-aos="zoom-in" data-aos-delay="100">
-                            <img src="{str(self.profile_dir / 'alaamer.jpg')}" alt="Amr Muhamed" class="w-full h-full object-cover" />
-                            <div class="absolute inset-0 bg-gradient-to-tr from-primary/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                        </div>
-                        """
+        creator_section = """
+            <!-- Creator Section - Modern & Compact -->
+            <div id="creator-section" class="relative overflow-hidden bg-white/10 dark:bg-gray-800/20 backdrop-blur-sm rounded-xl shadow-lg mb-6 transition-all duration-500 group">
+                <div class="absolute inset-0 bg-gradient-to-br from-primary/5 via-secondary/5 to-accent/5 dark:from-primary/10 dark:via-secondary/10 dark:to-accent/10 opacity-80"></div>
 
-        rest = """<div class="flex-1">
-                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                <!-- Name & Role -->
-                                <div>
-                                    <h3 class="text-xl font-bold text-gray-800 dark:text-white flex items-center" data-aos="fade-right" data-aos-delay="150">
-                                        <span class="mr-2">Amr Muhamed</span>
-                                        <span class="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary dark:bg-primary/20 stack-badge">
-                                            Full Stack Dev
-                                        </span>
-                                    </h3>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300" data-aos="fade-right" data-aos-delay="200">
-                                        <span class="animate-typing">Creator of GHRepoLens 😄  </span>
-                                    </p>
-                                </div>
-                                
-                                <!-- Social Links -->
-                                <div class="flex gap-2" data-aos="fade-left" data-aos-delay="250">
-                                    <a href="https://github.com/alaamer12" target="_blank" class="social-icon p-2 rounded-full bg-gray-800 text-white hover:bg-primary shadow-md">
-                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                                        </svg>
-                                    </a>
-                                    <a href="https://www.linkedin.com/in/amr-muhamed-0b0709265/" target="_blank" class="social-icon p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md">
-                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
-                                        </svg>
-                                    </a>
-                                    <a href="https://portfolio-qiw8.vercel.app/" target="_blank" class="social-icon p-2 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 shadow-md">
-                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm1 16.057v-3.057h2.994c-.059 1.143-.212 2.24-.456 3.279-.823-.12-1.674-.188-2.538-.222zm1.957 2.162c-.499 1.33-1.159 2.497-1.957 3.456v-3.62c.666.028 1.319.081 1.957.164zm-1.957-7.219v-3.015c.868-.034 1.721-.103 2.548-.224.238 1.027.389 2.111.446 3.239h-2.994zm0-5.014v-3.661c.806.969 1.471 2.15 1.971 3.496-.642.084-1.3.137-1.971.165zm2.703-3.267c1.237.496 2.354 1.228 3.29 2.146-.642.234-1.311.442-2.019.607-.344-.992-.775-1.91-1.271-2.753zm-7.241 13.56c-.244-1.039-.398-2.136-.456-3.279h2.994v3.057c-.865.034-1.714.102-2.538.222zm2.538 1.776v3.62c-.798-.959-1.458-2.126-1.957-3.456.638-.083 1.291-.136 1.957-.164zm-2.994-7.055c.057-1.128.207-2.212.446-3.239.827.121 1.68.19 2.548.224v3.015h-2.994zm1.024-5.179c.5-1.346 1.165-2.527 1.97-3.496v3.661c-.671-.028-1.329-.081-1.97-.165zm-2.005-.35c-.708-.165-1.377-.373-2.018-.607.937-.918 2.053-1.65 3.29-2.146-.496.844-.927 1.762-1.272 2.753zm-.549 1.918c-.264 1.151-.434 2.36-.492 3.611h-3.933c.165-1.658.739-3.197 1.617-4.518.88.361 1.816.67 2.808.907zm.009 9.262c-.988.236-1.92.542-2.797.9-.89-1.328-1.471-2.879-1.637-4.551h3.934c.058 1.265.231 2.488.5 3.651zm.553 1.917c.342.976.768 1.881 1.257 2.712-1.223-.49-2.326-1.211-3.256-2.115.636-.229 1.299-.435 1.999-.597zm9.924 0c.7.163 1.362.367 1.999.597-.931.903-2.034 1.625-3.257 2.116.489-.832.915-1.737 1.258-2.713zm.553-1.917c.27-1.163.442-2.386.501-3.651h3.934c-.167 1.672-.748 3.223-1.638 4.518h-3.933z"/>
-                                        </svg>
-                                    </a>
-                                </div>
+                <div class="relative z-10 flex items-center p-4 gap-4">
+                    <!-- Creator Image & Name -->
+                    <div class="relative w-16 h-16 rounded-full overflow-hidden shadow-lg border-2 border-primary/30 creator-profile-img" data-aos="zoom-in" data-aos-delay="100">
+                        <img src="static/assets/alaamer.jpg" alt="Amr Muhamed" class="w-full h-full object-cover" />
+                        <div class="absolute inset-0 bg-gradient-to-tr from-primary/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <!-- Name & Role -->
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800 dark:text-white flex items-center" data-aos="fade-right" data-aos-delay="150">
+                                    <span class="mr-2">Amr Muhamed</span>
+                                    <span class="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary dark:bg-primary/20 stack-badge">
+                                        Full Stack Dev
+                                    </span>
+                                </h3>
+                                <p class="text-sm text-gray-600 dark:text-gray-300" data-aos="fade-right" data-aos-delay="200">
+                                    <span class="animate-typing">Creator of GHRepoLens 😄</span>
+                                </p>
                             </div>
-                            
-                            <!-- Technologies Row -->
-                            <div class="mt-2 flex flex-wrap gap-2" data-aos="fade-up" data-aos-delay="300">
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Python</span>
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">JavaScript</span>
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">React</span>
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Data Analysis</span>
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">ML</span>
-                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">GitHub API</span>
+
+                            <!-- Social Links -->
+                            <div class="flex gap-3" data-aos="fade-left" data-aos-delay="250">
+                                <a href="https://github.com/alaamer12" target="_blank"
+                                   class="social-icon p-2 rounded-full bg-gray-800 text-white hover:bg-primary shadow-md transition-all duration-300 hover:scale-110 hover:rotate-6 transform"
+                                   aria-label="GitHub Profile">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                                    </svg>
+                                </a>
+                                <a href="https://www.linkedin.com/in/amr-muhamed-0b0709265/" target="_blank"
+                                   class="social-icon p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md transition-all duration-300 hover:scale-110 hover:-rotate-6 transform"
+                                   aria-label="LinkedIn Profile">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.454C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.225 0z"/>
+                                    </svg>
+                                </a>
+                                <a href="https://portfolio-qiw8.vercel.app/" target="_blank"
+                                   class="social-icon p-2 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 shadow-md transition-all duration-300 hover:scale-110 hover:rotate-6 transform"
+                                   aria-label="Portfolio Website">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm1 16.057v-3.05c2.083.129 4.066-.534 5.18-1.412-1.381 2.070-3.482 3.678-5.18 4.462zm-1 1.05c-4.986 0-9.047-4.061-9.047-9.07 0-4.99 4.061-9.044 9.047-9.044 4.986 0 9.047 4.054 9.047 9.044 0 4.37-3.099 8.008-7.197 8.851v-2.137c1.816-.471 3.857-1.932 3.857-6.001 0-2.186-.5-3.99-1.57-4.814.324-1.045.345-2.717-.42-3.818-.345-.003-1.208.154-2.679 1.135-.768-.22-1.59-.334-2.429-.334-.84 0-1.662.114-2.428.334-1.472-.98-2.343-1.138-2.688-1.135-.765 1.101-.735 2.773-.419 3.818-1.074.825-1.564 2.628-1.564 4.814 0 4.062 2.074 5.53 3.846 6.001v2.137c-4.098-.843-7.197-4.481-7.197-8.851 0-4.99 4.061-9.044 9.047-9.044 4.986 0 9.047 4.054 9.047 9.044 0 5.009-4.061 9.07-9.047 9.07z"/>
+                                    </svg>
+                                </a>
                             </div>
                         </div>
-                        
+
+                        <!-- Technologies Row -->
+                        <div class="mt-2 flex flex-wrap gap-2" data-aos="fade-up" data-aos-delay="300">
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Python</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">JavaScript</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">React</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Data Analysis</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">ML</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">GitHub API</span>
+                        </div>
                     </div>
                 </div>
-                
-                <script>
-                // Initialize GSAP animations for the creator section
-                document.addEventListener('DOMContentLoaded', function() {
-                    if (typeof gsap !== 'undefined') {
-                        const creatorSection = document.getElementById('creator-section');
-                        if (creatorSection) {
-                            // Create hover effect
-                            creatorSection.addEventListener('mouseenter', function() {
-                                gsap.to(this, {
-                                    scale: 1.02,
-                                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                                    duration: 0.3,
-                                    ease: 'power2.out'
-                                });
-                                
-                                // Animate technology badges
-                                gsap.to(this.querySelectorAll('.tech-badge'), {
-                                    stagger: 0.05,
-                                    y: -4,
-                                    scale: 1.1,
-                                    duration: 0.2,
-                                    ease: 'back.out(1.7)'
-                                });
-                            });
-                            
-                            creatorSection.addEventListener('mouseleave', function() {
-                                gsap.to(this, {
-                                    scale: 1,
-                                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                                    duration: 0.3,
-                                    ease: 'power2.out'
-                                });
-                                
-                                // Reset technology badges
-                                gsap.to(this.querySelectorAll('.tech-badge'), {
-                                    stagger: 0.05,
-                                    y: 0,
-                                    scale: 1,
-                                    duration: 0.2,
-                                    ease: 'back.out(1.7)'
-                                });
-                            });
-                        }
-                    }
-                });
-                </script>"""
-        return creator_section + '\n' + rest
-    
+            </div>
+
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {{
+                if (typeof gsap !== 'undefined') {{
+                    const creatorSection = document.getElementById('creator-section');
+                    if (creatorSection) {{
+                        creatorSection.addEventListener('mouseenter', function() {{
+                            gsap.to(this, {{
+                                scale: 1.02,
+                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                                duration: 0.3,
+                                ease: 'power2.out'
+                            }});
+                            gsap.to(this.querySelectorAll('.tech-badge'), {{
+                                stagger: 0.05,
+                                y: -4,
+                                scale: 1.1,
+                                duration: 0.2,
+                                ease: 'back.out(1.7)'
+                            }});
+                        }});
+                        creatorSection.addEventListener('mouseleave', function() {{
+                            gsap.to(this, {{
+                                scale: 1,
+                                boxShadow: 'none',
+                                duration: 0.3,
+                                ease: 'power2.out'
+                            }});
+                            gsap.to(this.querySelectorAll('.tech-badge'), {{
+                                stagger: 0.05,
+                                y: 0,
+                                scale: 1,
+                                duration: 0.2,
+                                ease: 'back.out(1.7)'
+                            }});
+                        }});
+                    }}
+                }}
+            }});
+            </script>
+        """
+        return creator_section
+
     def _create_stats_section(self) -> str:
         """Create the stats section of the HTML file"""
         stats_section = f"""<!-- Stats overview with enhanced animations -->
@@ -1062,7 +1065,7 @@ class GithubVisualizer:
                         </div>
                         <div class="absolute bottom-0 left-0 h-1 bg-primary transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
                     </div>
-                    
+
                     <!-- Total LOC -->
                     <div data-aos="zoom-in" data-aos-delay="200" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-secondary shadow-lg dark:text-white overflow-hidden relative group">
                         <div class="card-inner flex items-center justify-between">
@@ -1078,7 +1081,7 @@ class GithubVisualizer:
                         </div>
                         <div class="absolute bottom-0 left-0 h-1 bg-secondary transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
                     </div>
-                    
+
                     <!-- Total Stars -->
                     <div data-aos="zoom-in" data-aos-delay="300" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-accent shadow-lg dark:text-white overflow-hidden relative group">
                         <div class="card-inner flex items-center justify-between">
@@ -1094,7 +1097,7 @@ class GithubVisualizer:
                         </div>
                         <div class="absolute bottom-0 left-0 h-1 bg-accent transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
                     </div>
-                    
+
                     <!-- Active Repositories -->
                     <div data-aos="zoom-in" data-aos-delay="400" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-green-500 shadow-lg dark:text-white overflow-hidden relative group">
                         <div class="card-inner flex items-center justify-between">
@@ -1112,7 +1115,7 @@ class GithubVisualizer:
                     </div>
                 </div>"""
         return stats_section
-    
+
     def _create_charts_section(self) -> str:
         """Create the charts section of the HTML file"""
         charts_section = """<!-- Charts section with enhanced animations -->
@@ -1127,7 +1130,7 @@ class GithubVisualizer:
                     </h2>
                     <div id="main-dashboard" class="w-full animate-chart-enter" style="height: 2000px;"></div>
                 </div>
-                
+
                 <!-- Repository Details Table with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" data-aos-delay="200" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme transform hover:shadow-2xl transition-all duration-300">
                     <div class="flex flex-col md:flex-row justify-between items-center mb-6">
@@ -1158,7 +1161,7 @@ class GithubVisualizer:
                             </select>
                         </div>
                     </div>
-                    
+
                     <!-- Table Container with enhanced animations -->
                     <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
                         <table id="repos-table" class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -1189,7 +1192,7 @@ class GithubVisualizer:
                             </tbody>
                         </table>
                     </div>
-                    
+
                     <!-- Pagination Controls with enhanced styling -->
                     <div class="flex flex-col sm:flex-row justify-between items-center mt-6 space-y-3 sm:space-y-0">
                         <div class="text-sm text-gray-500 dark:text-gray-400 px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
@@ -1211,18 +1214,26 @@ class GithubVisualizer:
                             </button>
                         </div>
                     </div>"""
-                
+
         return charts_section
-    
+
     def _check_chart_exists(self, chart_name: str) -> bool:
         """Check if a chart file exists in the reports directory"""
         chart_path = self.reports_dir / f"{chart_name}.png"
-        return chart_path.exists()
+        # Add logging to debug the issue
+        logger.info(f"Checking if chart exists at: {chart_path}")
+        exists = chart_path.exists()
+        logger.info(f"Chart {chart_name}.png exists: {exists}")
+        
+        # Always return True to include the section with placeholder images when needed
+        # The _get_chart_html method will handle displaying a placeholder if the file doesn't exist
+        return True
 
     def _get_chart_html(self, chart_name: str, title: str, description: str, color_class: str) -> str:
         """Generate HTML for a chart, with fallback for missing charts"""
-        chart_exists = self._check_chart_exists(chart_name)
-        
+        chart_path = self.reports_dir / f"{chart_name}.png"
+        chart_exists = chart_path.exists()
+
         if chart_exists:
             # Use HTML file for interactive version instead of PNG
             return f"""
@@ -1250,6 +1261,7 @@ class GithubVisualizer:
                 </div>
             </div>"""
         else:
+            logger.warning(f"Chart {chart_name} not found. Using placeholder.")
             return f"""
             <div data-aos="zoom-in" data-aos-delay="100" class="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden group">
                 <div class="p-4">
@@ -1269,6 +1281,16 @@ class GithubVisualizer:
 
     def _create_additional_charts_section(self) -> str:
         """Create the additional charts section of the HTML file"""
+        # Log which charts exist before creating the section
+        chart_names = ["repository_timeline", "repo_creation_timeline", "quality_heatmap", 
+                       "repo_types_distribution", "commit_activity_heatmap", "top_repos_metrics",
+                       "infrastructure_metrics", "documentation_quality", "active_inactive_age"]
+        
+        logger.info("Checking charts for additional section:")
+        for chart_name in chart_names:
+            exists = self._check_chart_exists(chart_name)
+            logger.info(f"- {chart_name}: {'✓' if exists else '✗'}")
+            
         additional_charts_section = """<!-- Additional Charts Section with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" data-aos-delay="300" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme mb-10 transform hover:shadow-2xl transition-all duration-300">
                     <h2 class="text-2xl font-semibold mb-6 dark:text-white flex items-center">
@@ -1280,49 +1302,58 @@ class GithubVisualizer:
                                         </span>
                         Additional Analysis Charts
                     </h2>
-                    
+
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <!-- Timeline Chart -->
                         {0}
-                        
+
                         <!-- Language Evolution -->
                         {1}
-                        
+
                         <!-- Quality Heatmap -->
                         {2}
-                        
+
                         <!-- Repository Types -->
                         {3}
-                        
+
                         <!-- Commit Activity -->
                         {4}
-                        
+
                         <!-- Top Repositories -->
                         {5}
-                        
+
                         <!-- Metrics Correlation -->
                         {6}
-                        
+
                         <!-- Topics Word Cloud -->
                         {7}
-                        
+
                         <!-- Active vs Inactive Age -->
                         {8}
                                     </div>
                 </div>""".format(
-                    self._get_chart_html("repository_timeline", "Repository Timeline", "Chronological view of repository creation and last commit dates", "primary"),
-                    self._get_chart_html("repo_creation_timeline", "Repository Creation Timeline", "When repositories were created over time", "secondary"),
-                    self._get_chart_html("quality_heatmap", "Maintenance Quality Matrix", "Quality factors across top repositories", "accent"),
-                    self._get_chart_html("repo_types_distribution", "Repository Types", "Distribution of different repository types", "green-500"),
-                    self._get_chart_html("commit_activity_heatmap", "Commit Activity", "Heatmap of commit activity by month and year", "blue-500"),
-                    self._get_chart_html("top_repos_metrics", "Top Repositories", "Top repositories by various metrics", "purple-500"),
-                    self._get_chart_html("infrastructure_metrics", "Infrastructure Metrics", "Analysis of repository infrastructure and quality", "pink-500"),
-                    self._get_chart_html("documentation_quality", "Documentation Quality", "Quality of documentation across repositories", "yellow-500"),
-                    self._get_chart_html("active_inactive_age", "Active vs Inactive Repos", "Age distribution of active vs inactive repositories", "teal-500")
-                )
-        
+            self._get_chart_html("repository_timeline", "Repository Timeline",
+                                 "Chronological view of repository creation and last commit dates", "primary"),
+            self._get_chart_html("repo_creation_timeline", "Repository Creation Timeline",
+                                 "When repositories were created over time", "secondary"),
+            self._get_chart_html("quality_heatmap", "Maintenance Quality Matrix",
+                                 "Quality factors across top repositories", "accent"),
+            self._get_chart_html("repo_types_distribution", "Repository Types",
+                                 "Distribution of different repository types", "green-500"),
+            self._get_chart_html("commit_activity_heatmap", "Commit Activity",
+                                 "Heatmap of commit activity by month and year", "blue-500"),
+            self._get_chart_html("top_repos_metrics", "Top Repositories", "Top repositories by various metrics",
+                                 "purple-500"),
+            self._get_chart_html("infrastructure_metrics", "Infrastructure Metrics",
+                                 "Analysis of repository infrastructure and quality", "pink-500"),
+            self._get_chart_html("documentation_quality", "Documentation Quality",
+                                 "Quality of documentation across repositories", "yellow-500"),
+            self._get_chart_html("active_inactive_age", "Active vs Inactive Repos",
+                                 "Age distribution of active vs inactive repositories", "teal-500")
+        )
+
         return additional_charts_section
-    
+
     def _create_footer_section(self, timestamp: str) -> str:
         """Create the footer section of the HTML file"""
         footer_section = f"""<!-- Footer with animations -->
@@ -1339,7 +1370,7 @@ class GithubVisualizer:
             </div>"""
 
         return footer_section
-    
+
     def _create_js_part1(self) -> str:
         """Create the first part of the JavaScript section of the HTML file"""
         js_part1 = """<script>
@@ -1352,7 +1383,7 @@ class GithubVisualizer:
                         mirror: false
                     });
                 });
-                
+
                 // Initialize theme based on user preference
                 if (localStorage.getItem('color-theme') === 'dark' || 
                     (!localStorage.getItem('color-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -1362,22 +1393,22 @@ class GithubVisualizer:
                     document.documentElement.classList.remove('dark');
                     document.getElementById('theme-toggle-dark-icon').classList.remove('hidden');
                 }
-                
+
                 // Theme toggle functionality
                 const themeToggleBtn = document.getElementById('theme-toggle');
                 const themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
                 const themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
-                
+
                 themeToggleBtn.addEventListener('click', function() {
                     // Toggle icons
                     themeToggleDarkIcon.classList.toggle('hidden');
                     themeToggleLightIcon.classList.toggle('hidden');
-                    
+
                     // Toggle dark class
                     document.documentElement.classList.toggle('dark');"""
-        
+
         return js_part1
-    
+
     def _create_js_part2(self, fig, total_repos, total_loc, total_stars, active_repos) -> str:
         """Create the second part of the JavaScript section of the HTML file"""
         js_part2 = f"""
@@ -1400,11 +1431,11 @@ class GithubVisualizer:
                         }});
                     }}
                 }});
-                
+
                 // Plot the main dashboard with animation
                 var plotData = {fig.to_json()};
                 Plotly.newPlot('main-dashboard', plotData.data, plotData.layout, {{responsive: true}});
-                
+
                 // Initialize charts with the correct theme
                 if (document.documentElement.classList.contains('dark')) {{
                     Plotly.relayout('main-dashboard', {{
@@ -1413,7 +1444,7 @@ class GithubVisualizer:
                         'font.color': '{self.theme["dark_text_color"]}'
                     }});
                 }}
-                
+
                 // Animated number counters
                 function animateCounters() {{
                     // Counter animation function
@@ -1423,12 +1454,12 @@ class GithubVisualizer:
                             if (!startTimestamp) startTimestamp = timestamp;
                             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
                             let value = Math.floor(progress * (end - start) + start);
-                            
+
                             // Format with commas if needed
                             if (end > 999) {{
                                 value = value.toLocaleString();
                             }}
-                            
+
                             element.textContent = value;
                             if (progress < 1) {{
                                 window.requestAnimationFrame(step);
@@ -1436,28 +1467,28 @@ class GithubVisualizer:
                         }};
                         window.requestAnimationFrame(step);
                     }}
-                    
+
                     // Animate repo count
                     const repoCountElement = document.getElementById('repo-count');
                     animateValue(repoCountElement, 0, {total_repos}, 1500);
-                    
+
                     // Animate LOC count - parse the string value directly in JavaScript
                     const locCountElement = document.getElementById('loc-count');
                     const locValue = '{total_loc}';
                     animateValue(locCountElement, 0, parseInt(locValue.replace(/,/g, '')), 2000);
-                    
+
                     // Animate stars count - parse the string value directly in JavaScript
                     const starsCountElement = document.getElementById('stars-count');
                     const starsValue = '{total_stars}';
                     animateValue(starsCountElement, 0, parseInt(starsValue.replace(/,/g, '')), 2000);
-                    
+
                     // Animate active count
                     const activeCountElement = document.getElementById('active-count');
                     animateValue(activeCountElement, 0, {active_repos}, 1500);
                 }}"""
-  
+
         return js_part2
-    
+
     def _create_repo_table_js(self, repos_json: str) -> str:
         """Create the JavaScript section for the repository table"""
         repo_table_js = f"""
@@ -1468,7 +1499,7 @@ class GithubVisualizer:
                 let sortField = 'name';
                 let sortDirection = 'asc';
                 let filteredRepos = [...reposData];
-                
+
                 function initReposTable() {{
                     // Set up sorting
                     document.querySelectorAll('th[data-sort]').forEach(th => {{
@@ -1480,24 +1511,24 @@ class GithubVisualizer:
                                 sortField = field;
                                 sortDirection = 'asc';
                             }}
-                            
+
                             // Reset all sort icons
                             document.querySelectorAll('.sort-icon').forEach(icon => {{
                                 icon.textContent = '↕';
                             }});
-                            
+
                             // Update current sort icon
                             const sortIcon = th.querySelector('.sort-icon');
                             sortIcon.textContent = sortDirection === 'asc' ? '↓' : '↑';
-                            
+
                             renderTable();
                         }});
                     }});
-                    
+
                     // Set up search and filter
                     document.getElementById('repo-search').addEventListener('input', filterRepos);
                     document.getElementById('repo-filter').addEventListener('change', filterRepos);
-                    
+
                     // Set up pagination
                     document.getElementById('prev-page').addEventListener('click', () => {{
                         if (currentPage > 1) {{
@@ -1505,7 +1536,7 @@ class GithubVisualizer:
                             renderTable();
                         }}
                     }});
-                    
+
                     document.getElementById('next-page').addEventListener('click', () => {{
                         const totalPages = Math.ceil(filteredRepos.length / reposPerPage);
                         if (currentPage < totalPages) {{
@@ -1513,41 +1544,41 @@ class GithubVisualizer:
                             renderTable();
                         }}
                     }});
-                    
+
                     // Initial render
                     filterRepos();
                 }}
-                
+
                 function filterRepos() {{
                     const searchTerm = document.getElementById('repo-search').value.toLowerCase();
                     const filterValue = document.getElementById('repo-filter').value;
-                    
+
                     filteredRepos = reposData.filter(repo => {{
                         // Apply search filter
                         const matchesSearch = 
                             repo.name.toLowerCase().includes(searchTerm) || 
                             repo.language.toLowerCase().includes(searchTerm);
-                        
+
                         // Apply dropdown filter
                         let matchesDropdown = true;
                         if (filterValue === 'active') matchesDropdown = repo.is_active;
                         else if (filterValue === 'inactive') matchesDropdown = !repo.is_active;
                         else if (filterValue === 'has-docs') matchesDropdown = repo.has_docs === 'Yes';
                         else if (filterValue === 'no-docs') matchesDropdown = repo.has_docs === 'No';
-                        
+
                         return matchesSearch && matchesDropdown;
                     }});
-                    
+
                     // Reset to first page
                     currentPage = 1;
                     renderTable();
                 }}
-                
+
                 function renderTable() {{
                     // Sort repos
                     filteredRepos.sort((a, b) => {{
                         let comparison = 0;
-                        
+
                         if (sortField === 'name' || sortField === 'language') {{
                             comparison = String(a[sortField]).localeCompare(String(b[sortField]));
                         }} else if (sortField === 'stars' || sortField === 'loc') {{
@@ -1557,28 +1588,28 @@ class GithubVisualizer:
                         }} else if (sortField === 'maintenance') {{
                             comparison = parseFloat(a.maintenance) - parseFloat(b.maintenance);
                         }}
-                        
+
                         return sortDirection === 'asc' ? comparison : -comparison;
                     }});
-                    
+
                     // Calculate pagination
                     const totalPages = Math.ceil(filteredRepos.length / reposPerPage);
                     const startIndex = (currentPage - 1) * reposPerPage;
                     const endIndex = Math.min(startIndex + reposPerPage, filteredRepos.length);
                     const currentRepos = filteredRepos.slice(startIndex, endIndex);
-                    
+
                     // Update table body
                     const tableBody = document.getElementById('repos-table-body');
                     tableBody.innerHTML = '';
-                    
+
                     currentRepos.forEach((repo, index) => {{
                         const row = document.createElement('tr');
                         row.className = 'hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150';
                         row.style.animation = `slideUp ${{0.2 + index * 0.05}}s ease-out forwards`;
-                        
+
                         // Animate progress bar
                         const animateProgress = `style="--progress-width: ${{repo.maintenance}}%; animation: progressFill 1s ease-out forwards; animation-delay: ${{0.5 + index * 0.1}}s;"`;
-                        
+
                         row.innerHTML = `
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">
                                 ${{repo.name}}
@@ -1604,18 +1635,18 @@ class GithubVisualizer:
                                 <span class="text-xs text-gray-600 dark:text-gray-400 mt-1 block">${{repo.maintenance}}%</span>
                             </td>
                         `;
-                        
+
                         tableBody.appendChild(row);
                     }});
-                    
+
                     // Update pagination info
                     document.getElementById('total-repos-count').textContent = filteredRepos.length;
                     document.getElementById('page-info').textContent = `Page ${{currentPage}} of ${{totalPages || 1}}`;
-                    
+
                     // Enable/disable pagination buttons
                     document.getElementById('prev-page').disabled = currentPage === 1;
                     document.getElementById('next-page').disabled = currentPage === totalPages || totalPages === 0;
-                    
+
                     // Update button styles based on disabled state
                     document.getElementById('prev-page').classList.toggle('opacity-50', currentPage === 1);
                     document.getElementById('next-page').classList.toggle('opacity-50', currentPage === totalPages || totalPages === 0);
