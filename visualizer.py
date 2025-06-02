@@ -93,6 +93,14 @@ class GithubVisualizer:
 
         # Collect language data more carefully - completely new approach
         all_languages = defaultdict(int)
+        # Keep track of repositories that need their primary language changed to "Unknown"
+        self.repos_with_unknown_language = set()
+        
+        # Debug info: log repositories and their assigned languages before processing
+        logger.info("Repository language data before processing:")
+        for stats in non_empty_repos:
+            logger.info(f"  {stats.name}: primary_language={stats.primary_language}, " +
+                      f"language_data={stats.languages}, total_loc={stats.total_loc}")
         
         for stats in non_empty_repos:
             # Check if repository has any valid language data
@@ -104,10 +112,15 @@ class GithubVisualizer:
                 if stats.total_loc > 0:
                     all_languages["Unknown"] += stats.total_loc
                     logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
+                    # Track this repository for consistency in the table
+                    self.repos_with_unknown_language.add(stats.name)
             else:
                 # Repository has consistent language data
                 for lang, loc in stats.languages.items():
                     all_languages[lang] += loc
+        
+        # Log the repositories marked as having unknown language
+        logger.info(f"Repositories with unknown language: {list(self.repos_with_unknown_language)}")
 
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
@@ -301,17 +314,42 @@ class GithubVisualizer:
         total_stars = f"{sum(s.stars for s in non_empty_repos):,}"
         active_repos = sum(1 for s in non_empty_repos if s.is_active)
 
+        # Log information about repos_with_unknown_language
+        if hasattr(self, 'repos_with_unknown_language'):
+            logger.info(f"In _generate_dashboard_html: Found repos_with_unknown_language with {len(self.repos_with_unknown_language)} entries")
+            logger.info(f"  Content: {sorted(list(self.repos_with_unknown_language))}")
+        else:
+            logger.warning("In _generate_dashboard_html: repos_with_unknown_language attribute not found!")
+
         # Prepare repository data for the table
         repos_table_data = []
+        languages_in_table = {}
+        
         for repo in non_empty_repos:
+            # Check if this repository was marked as having Unknown language
+            # during the language data processing
+            language = "Unknown" if hasattr(self, 'repos_with_unknown_language') and repo.name in self.repos_with_unknown_language else (repo.primary_language or "Unknown")
+            
+            # Log individual language decisions
+            if repo.primary_language != language:
+                logger.info(f"Repository {repo.name}: Overriding primary_language '{repo.primary_language}' with '{language}'")
+            
+            # Track languages for later summary
+            languages_in_table[repo.name] = language
+            
             repos_table_data.append({
                 "name": repo.name,
-                "language": repo.primary_language or "Unknown",
+                "language": language,
                 "stars": repo.stars,
                 "loc": repo.total_loc,
                 "is_active": repo.is_active,
                 "maintenance": f"{repo.maintenance_score:.1f}"
             })
+            
+        # Log summary of languages in table
+        logger.info("Summary of languages in repository table:")
+        for repo_name, language in sorted(languages_in_table.items()):
+            logger.info(f"  {repo_name}: {language}")
 
         # Convert to JSON for JavaScript
         repos_json = json.dumps(repos_table_data)
