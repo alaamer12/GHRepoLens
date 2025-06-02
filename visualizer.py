@@ -429,42 +429,46 @@ class GithubVisualizer:
 
                 /* Chart Modal Styles with iframe support */
                 .chart-modal {{
-                    display: none;
+                    visibility: hidden;
                     position: fixed;
                     top: 0;
+                    right: 0;
+                    bottom: 0;
                     left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background-color: rgba(0, 0, 0, 0.8);
-                    z-index: 1000;
+                    background-color: rgba(0, 0, 0, 0.85);
+                    z-index: 9999;
+                    opacity: 0;
+                    backdrop-filter: blur(5px);
+                    transition: all 0.4s ease-in-out;
+                    display: flex;
                     justify-content: center;
                     align-items: center;
-                    opacity: 0;
-                    transition: opacity 0.4s ease;
-                    overflow: auto; /* Allow scrolling if content is too large */
                 }}
 
                 .chart-modal.active {{
-                    display: flex;
+                     visibility: visible;
                     opacity: 1;
                 }}
 
                 .chart-modal-content {{
-                    position: relative;
+                   background-color: white;
                     width: 90%;
-                    height: 85%;
                     max-width: 1200px;
-                    margin: 20px auto;
-                    background-color: white;
-                    border-radius: 8px;
-                    overflow: hidden;
+                    height: 85vh;
+                    margin: 0 auto;
+                    border-radius: 16px;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+                    overflow-y: auto !important;
                     display: flex;
                     flex-direction: column;
-                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-                    /* Ensure the modal appears in viewport even when scrolled down */
-                    top: 0;
-                    left: 0;
-                    right: 0;
+                    transform: scale(0.95);
+                    opacity: 0;
+                    transition: all 0.3s ease-in-out;
+                }}
+                
+                 .chart-modal.active .chart-modal-content {{
+                    transform: scale(1);
+                    opacity: 1;
                 }}
 
                 .dark .chart-modal-content {{
@@ -473,19 +477,23 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-iframe-container {{
-                    flex: 1;
-                    overflow: hidden;
+                     flex: 1;
+                    overflow-y: auto !important;
+                    overflow-x: auto !important;
+                    scroll-behavior: smooth;
+                    display: block;
                 }}
 
                 .chart-modal-iframe {{
-                     width: 100%;
+                      width: 100%;
                     height: 100%;
                     border: none;
                     transition: opacity 0.3s ease;
+                    display: block;
                 }}
 
                 .chart-modal-close {{
-                   position: absolute;
+                    position: absolute;
                     top: 20px;
                     right: 20px;
                     font-size: 24px;
@@ -511,7 +519,7 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-close:hover {{
-                   transform: scale(1.1) rotate(90deg);
+                     transform: scale(1.1) rotate(90deg);
                     background-color: rgba(255, 255, 255, 0.3);
                 }}
 
@@ -520,7 +528,7 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-info {{
-                     padding: 20px;
+                    padding: 20px;
                     background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.3), transparent);
                     position: absolute;
                     bottom: 0;
@@ -538,14 +546,15 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-title {{
-                    font-size: 18px;
+                     font-size: 1.5rem;
                     font-weight: 600;
-                    margin-bottom: 5px;
+                    margin-bottom: 8px;
+                    color: white;
                 }}
 
                 .chart-modal-description {{
-                    font-size: 14px;
-                    color: #6b7280;
+                    font-size: 1rem;
+                    color: rgba(255, 255, 255, 0.8);
                 }}
 
                 .dark .chart-modal-description {{
@@ -554,12 +563,16 @@ class GithubVisualizer:
 
                 /* Custom scrollbar */
                 ::-webkit-scrollbar {{
-                    width: 8px;
-                    height: 8px;
+                    width: 12px !important;
+                    height: 12px !important;
+                    display: block !important;
                 }}
 
                 ::-webkit-scrollbar-track {{
                     background: #f1f1f1;
+                    border-radius: 4px;
+                    margin: 2px;
+                    display: block !important;
                 }}
 
                 .dark ::-webkit-scrollbar-track {{
@@ -567,20 +580,44 @@ class GithubVisualizer:
                 }}
 
                 ::-webkit-scrollbar-thumb {{
-                    background: #888;
-                    border-radius: 4px;
+                     background: linear-gradient(135deg, rgba(79, 70, 229, 0.9) 0%, rgba(124, 58, 237, 0.9) 50%, rgba(249, 115, 22, 0.9) 100%) !important;
+                    border-radius: 6px;
+                    border: 2px solid transparent;
+                    background-clip: padding-box;
+                    transition: all 0.3s ease;
+                    display: block !important;
+                    min-height: 40px;
                 }}
 
                 ::-webkit-scrollbar-thumb:hover {{
-                    background: #555;
+                    background: linear-gradient(135deg, rgba(79, 70, 229, 1) 0%, rgba(124, 58, 237, 1) 50%, rgba(249, 115, 22, 1) 100%) !important;
                 }}
 
                 .dark ::-webkit-scrollbar-thumb {{
-                    background: #555;
+                     background: linear-gradient(135deg, rgba(79, 70, 229, 0.8) 0%, rgba(124, 58, 237, 0.8) 50%, rgba(249, 115, 22, 0.8) 100%) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
                 }}
 
                 .dark ::-webkit-scrollbar-thumb:hover {{
-                    background: #777;
+                    background: linear-gradient(135deg, rgba(79, 70, 229, 1) 0%, rgba(124, 58, 237, 1) 50%, rgba(249, 115, 22, 1) 100%) !important;
+                }}
+                
+                /* Smooth scrolling for the entire page */
+                html {{
+                    scroll-behavior: smooth;
+                    overflow-y: auto !important;
+                }}
+                
+                 /* Styles for scrollable tables and sections */
+                .scrollable-table-container {{
+                    max-height: 500px;
+                    overflow-y: auto !important;
+                    overflow-x: hidden;
+                    border-radius: 0.5rem;
+                    position: relative;
+                    scrollbar-width: thin;
+                    scrollbar-color: var(--primary) var(--scrollbar-track);
+                    padding-right: 0.25rem;
                 }}
 
                 /* Stats animation */
@@ -808,45 +845,40 @@ class GithubVisualizer:
 
                 /* Chart Modal Styles */
                 .chart-modal {{
-                    visibility: hidden;
+                    display: none;
                     position: fixed;
                     top: 0;
-                    right: 0;
-                    bottom: 0;
                     left: 0;
-                    background-color: rgba(0, 0, 0, 0.85);
-                    z-index: 9999;
-                    opacity: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.85);
+                    z-index: 1000;
                     backdrop-filter: blur(5px);
-                    transition: all 0.4s ease-in-out;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
+                    opacity: 0;
+                    transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }}
 
                 .chart-modal.active {{
-                   visibility: visible;
+                   display: flex;
+                    align-items: center;
+                    justify-content: center;
                     opacity: 1;
                 }}
 
                 .chart-modal-content {{
-                  background-color: white;
-                    width: 90%;
-                    max-width: 1200px;
-                    height: 85vh;
-                    margin: 0 auto;
-                    border-radius: 16px;
-                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+                  position: relative;
+                    max-width: 90vw;
+                    max-height: 90vh;
+                    border-radius: 20px;
                     overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                    transform: scale(0.95);
+                    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+                    transform: scale(0.8) translateY(20px);
                     opacity: 0;
-                    transition: all 0.3s ease-in-out;
+                    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
                 }}
 
                 .chart-modal.active .chart-modal-content {{
-                     transform: scale(1);
+                    transform: scale(1) translateY(0);
                     opacity: 1;
                 }}
 
@@ -898,20 +930,45 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal.active .chart-modal-info {{
-                   transform: translateY(0);
+                  transform: translateY(0);
                     opacity: 1;
                 }}
 
                 .chart-modal-title {{
-                     font-size: 1.5rem;
-                    font-weight: 600;
-                    margin-bottom: 8px;
-                    color: white;
+                    font-size: 1.5rem;
+                    font-weight: 300;
+                    margin-bottom: 0.5rem;
                 }}
 
                 .chart-modal-description {{
-                      font-size: 1rem;
-                    color: rgba(255, 255, 255, 0.8);
+                      opacity: 0.8;
+                    font-size: 0.9rem;
+                }}
+                
+                /* Force scrollbar display for Firefox */
+                * {{
+                    scrollbar-width: thin;
+                    scrollbar-color: var(--primary) var(--scrollbar-track);
+                }}
+
+                /* Additional scrollbar styling for modal in dark mode */
+                .chart-modal.active .chart-modal-content::-webkit-scrollbar,
+                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar {{
+                    width: 14px !important;
+                    display: block !important;
+                }}
+
+                .chart-modal.active .chart-modal-content::-webkit-scrollbar-thumb,
+                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar-thumb {{
+                    background: linear-gradient(135deg, rgba(124, 58, 237, 0.9) 0%, rgba(249, 115, 22, 0.9) 100%) !important;
+                    border: 2px solid #1f2937;
+                    min-height: 50px;
+                }}
+
+                /* Make iframe container take full height */
+                .chart-modal.active .chart-modal-iframe-container {{
+                    min-height: 400px;
+                    height: 75vh;
                 }}
             </style>
         </head>"""
@@ -1009,12 +1066,24 @@ class GithubVisualizer:
 
                         <!-- Technologies Row -->
                         <div class="mt-2 flex flex-wrap gap-2" data-aos="fade-up" data-aos-delay="300">
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Python</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">JavaScript</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">React</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Data Analysis</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">ML</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">GitHub API</span>
+                            <a href="https://www.python.org" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Python</span>
+                            </a>
+                            <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">JavaScript</span>
+                            </a>
+                            <a href="https://reactjs.org" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">React</span>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Data_analysis" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">Data Analysis</span>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Machine_learning" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">ML</span>
+                            </a>
+                            <a href="https://docs.github.com/en/rest" target="_blank" rel="noopener noreferrer">
+                                <span class="text-xs px-2 py-0.5 rounded-full tech-badge text-primary dark:text-indigo-300">GitHub API</span>
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -1025,7 +1094,7 @@ class GithubVisualizer:
                 if (typeof gsap !== 'undefined') {{
                     const creatorSection = document.getElementById('creator-section');
                     if (creatorSection) {{
-                        creatorSection.addEventListener('mouseenter', function() {
+                        creatorSection.addEventListener('mouseenter', function() {{
                             gsap.to(this, {{
                                 scale: 1.02,
                                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -1066,68 +1135,107 @@ class GithubVisualizer:
         """Create the stats section of the HTML file"""
         stats_section = f"""<!-- Stats overview with enhanced animations -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                    <!-- Repositories count -->
-                    <div data-aos="zoom-in" data-aos-delay="100" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-primary shadow-lg dark:text-white overflow-hidden relative group">
+                    <!-- Repositories count - Represents collection/organization -->
+                    <div data-aos="zoom-in" data-aos-delay="100" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-primary shadow-lg dark:text-white overflow-hidden relative group transform transition-all duration-500 hover:scale-105 hover:shadow-2xl">
                         <div class="card-inner flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Total Repositories</p>
-                                <p id="repo-count" class="text-3xl font-bold">0</p>
+                            <div class="transform transition-all duration-700 group-hover:translate-x-2">
+                                <p class="text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300 group-hover:text-primary">Total Repositories</p>
+                                <p id="repo-count" class="text-3xl font-bold transition-all duration-700 group-hover:scale-110 group-hover:text-primary transform group-hover:animate-pulse">0</p>
                             </div>
-                            <div class="bg-primary/10 rounded-full p-3 group-hover:animate-icon-pulse">
-                                <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                            <!-- Stack of folders animation - representing organized collection -->
+                            <div class="relative bg-primary/10 rounded-full p-3 transition-all duration-500 group-hover:bg-primary/20">
+                                <svg class="w-8 h-8 text-primary transition-all duration-700 group-hover:scale-125" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" class="group-hover:animate-pulse"></path>
                                 </svg>
+                                <!-- Floating mini boxes to represent multiple repos -->
+                                <div class="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-all duration-500 group-hover:animate-bounce" style="animation-delay: 0.1s;"></div>
+                                <div class="absolute -top-2 right-1 w-1.5 h-1.5 bg-primary/70 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-500 group-hover:animate-bounce" style="animation-delay: 0.2s;"></div>
+                                <div class="absolute top-0 -right-2 w-1 h-1 bg-primary/50 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-500 group-hover:animate-bounce" style="animation-delay: 0.3s;"></div>
                             </div>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-1 bg-primary transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                        <div class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-primary/50 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-1000"></div>
+                        <div class="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-lg"></div>
                     </div>
 
-                    <!-- Total LOC -->
-                    <div data-aos="zoom-in" data-aos-delay="200" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-secondary shadow-lg dark:text-white overflow-hidden relative group">
+                    <!-- Total LOC - Represents typing/code flowing -->
+                    <div data-aos="zoom-in" data-aos-delay="200" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-secondary shadow-lg dark:text-white overflow-hidden relative group transform transition-all duration-500 hover:scale-105 hover:shadow-2xl">
                         <div class="card-inner flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Total Lines of Code</p>
-                                <p id="loc-count" class="text-3xl font-bold">0</p>
+                            <div class="transform transition-all duration-700 group-hover:translate-x-2">
+                                <p class="text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300 group-hover:text-secondary">Total Lines of Code</p>
+                                <!-- Counter animation simulating incrementing lines -->
+                                <p id="loc-count" class="text-3xl font-bold transition-all duration-700 group-hover:scale-110 group-hover:text-secondary relative overflow-hidden">
+                                    <span class="inline-block transform transition-transform duration-700 group-hover:translate-y-[-100%]">0</span>
+                                </p>
                             </div>
-                            <div class="bg-secondary/10 rounded-full p-3 group-hover:animate-icon-pulse">
-                                <svg class="w-8 h-8 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                            <!-- Typing animation - code brackets moving -->
+                            <div class="relative bg-secondary/10 rounded-full p-3 transition-all duration-500 group-hover:bg-secondary/20">
+                                <svg class="w-8 h-8 text-secondary transition-all duration-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" class="group-hover:animate-pulse"></path>
                                 </svg>
+                                <!-- Flowing code dots animation -->
+                                <div class="absolute top-2 left-1 w-1 h-1 bg-secondary rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0s;"></div>
+                                <div class="absolute top-4 left-2 w-1 h-1 bg-secondary/70 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0.2s;"></div>
+                                <div class="absolute top-6 left-3 w-1 h-1 bg-secondary/50 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0.4s;"></div>
                             </div>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-1 bg-secondary transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                        <!-- Progressive filling bar like code compilation -->
+                        <div class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-secondary via-secondary/70 to-secondary/50 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-1500 ease-out"></div>
+                        <div class="absolute inset-0 bg-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-lg"></div>
                     </div>
 
-                    <!-- Total Stars -->
-                    <div data-aos="zoom-in" data-aos-delay="300" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-accent shadow-lg dark:text-white overflow-hidden relative group">
+                    <!-- Total Stars - Represents appreciation/twinkling -->
+                    <div data-aos="zoom-in" data-aos-delay="300" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-accent shadow-lg dark:text-white overflow-hidden relative group transform transition-all duration-500 hover:scale-105 hover:shadow-2xl">
                         <div class="card-inner flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Total Stars</p>
-                                <p id="stars-count" class="text-3xl font-bold">0</p>
+                            <div class="transform transition-all duration-700 group-hover:translate-x-2">
+                                <p class="text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300 group-hover:text-accent">Total Stars</p>
+                                <!-- Glowing number effect for stars -->
+                                <p id="stars-count" class="text-3xl font-bold transition-all duration-700 group-hover:scale-110 group-hover:text-accent group-hover:drop-shadow-lg group-hover:filter group-hover:brightness-125">0</p>
                             </div>
-                            <div class="bg-accent/10 rounded-full p-3 group-hover:animate-icon-pulse">
-                                <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                            <!-- Twinkling star animation -->
+                            <div class="relative bg-accent/10 rounded-full p-3 transition-all duration-500 group-hover:bg-accent/20">
+                                <svg class="w-8 h-8 text-accent transition-all duration-1000 group-hover:scale-125 group-hover:rotate-180 group-hover:drop-shadow-lg" fill="currentColor" stroke="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                                 </svg>
+                                <!-- Sparkle effects around the star -->
+                                <div class="absolute -top-1 -left-1 w-1 h-1 bg-accent rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0s;"></div>
+                                <div class="absolute -top-2 -right-1 w-1.5 h-1.5 bg-accent/80 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0.3s;"></div>
+                                <div class="absolute -bottom-1 -left-2 w-1 h-1 bg-accent/60 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0.6s;"></div>
+                                <div class="absolute -bottom-2 -right-2 w-2 h-2 bg-accent/40 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-300" style="animation-delay: 0.9s;"></div>
                             </div>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-1 bg-accent transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                        <!-- Shimmering progress bar like starlight -->
+                        <div class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-accent via-yellow-300 to-accent transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-1200 ease-out"></div>
+                        <div class="absolute inset-0 bg-accent/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-lg group-hover:animate-pulse"></div>
                     </div>
 
-                    <!-- Active Repositories -->
-                    <div data-aos="zoom-in" data-aos-delay="400" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-green-500 shadow-lg dark:text-white overflow-hidden relative group">
+                    <!-- Active Repositories - Represents life/activity/heartbeat -->
+                    <div data-aos="zoom-in" data-aos-delay="400" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-green-500 shadow-lg dark:text-white overflow-hidden relative group transform transition-all duration-500 hover:scale-105 hover:shadow-2xl">
                         <div class="card-inner flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Active Repositories</p>
-                                <p id="active-count" class="text-3xl font-bold">0</p>
+                            <div class="transform transition-all duration-700 group-hover:translate-x-2">
+                                <p class="text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300 group-hover:text-green-500">Active Repositories</p>
+                                <!-- Heartbeat-like pulsing number -->
+                                <p id="active-count" class="text-3xl font-bold transition-all duration-700 group-hover:scale-110 group-hover:text-green-500 group-hover:animate-pulse">0</p>
                             </div>
-                            <div class="bg-green-500/10 rounded-full p-3 group-hover:animate-icon-pulse">
-                                <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            <!-- Heartbeat/pulse animation for activity -->
+                            <div class="relative bg-green-500/10 rounded-full p-3 transition-all duration-500 group-hover:bg-green-500/20">
+                                <svg class="w-8 h-8 text-green-500 transition-all duration-700 group-hover:scale-125" fill="currentColor" stroke="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clip-rule="evenodd" class="group-hover:animate-pulse"></path>
                                 </svg>
+                                <!-- Ripple effects for activity -->
+                                <div class="absolute inset-0 rounded-full bg-green-500/20 opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-700"></div>
+                                <div class="absolute inset-1 rounded-full bg-green-500/15 opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-700" style="animation-delay: 0.3s;"></div>
+                                <div class="absolute inset-2 rounded-full bg-green-500/10 opacity-0 group-hover:opacity-100 group-hover:animate-ping transition-all duration-700" style="animation-delay: 0.6s;"></div>
                             </div>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-1 bg-green-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                        <!-- Rhythmic progress bar like activity monitor -->
+                        <div class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-green-500 via-green-400 to-green-300 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-1000 ease-in-out"></div>
+                        <div class="absolute inset-0 bg-green-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-lg"></div>
+                        <!-- Subtle heartbeat lines -->
+                        <div class="absolute top-4 right-4 opacity-0 group-hover:opacity-30 transition-opacity duration-500">
+                            <div class="w-8 h-0.5 bg-green-500/50 group-hover:animate-pulse"></div>
+                            <div class="w-6 h-0.5 bg-green-500/30 mt-1 group-hover:animate-pulse" style="animation-delay: 0.2s;"></div>
+                            <div class="w-4 h-0.5 bg-green-500/20 mt-1 group-hover:animate-pulse" style="animation-delay: 0.4s;"></div>
+                        </div>
                     </div>
                 </div>"""
         return stats_section
@@ -1179,9 +1287,9 @@ class GithubVisualizer:
                     </div>
 
                     <!-- Table Container with enhanced animations -->
-                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div class="scrollable-table-container border border-gray-200 dark:border-gray-700 rounded-lg">
                         <table id="repos-table" class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead class="bg-gray-50 dark:bg-gray-800">
+                            <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
                                 <tr>
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200" data-sort="name">
                                         Repository <span class="sort-icon">↕</span>
@@ -1442,10 +1550,17 @@ class GithubVisualizer:
                         localStorage.setItem('color-theme', 'light');
                         // Update Plotly chart colors for light mode
                         Plotly.relayout('main-dashboard', {{
-                            'paper_bgcolor': '{self.theme["light_chart_bg"]}',
-                            'plot_bgcolor': '{self.theme["light_chart_bg"]}',
-                            'font.color': '{self.theme["light_text_color"]}'
+                            'paper_bgcolor': '#ffffff',
+                            'plot_bgcolor': '#ffffff',
+                            'font.color': '#111827'
                         }});
+                    }}
+
+                    // Update scrollbar colors based on theme
+                    if (document.documentElement.classList.contains('dark')) {{
+                        document.documentElement.style.setProperty('--scrollbar-track', '#374151');
+                    }} else {{
+                        document.documentElement.style.setProperty('--scrollbar-track', '#f1f1f1');
                     }}
                 }});
 
@@ -1710,8 +1825,8 @@ class GithubVisualizer:
                             openChartModal(chart);
                         }});
                     }});
-                    
-                     // Handle iframe load events
+
+                    // Handle iframe load events
                     chartModalIframe.addEventListener('load', function() {{
                         // Ensure iframe content is properly displayed
                         try {{
@@ -1736,7 +1851,7 @@ class GithubVisualizer:
                         
                         console.log(`Opening modal for: ${{title}}, src: ${{src}}`);
 
-                       // Set modal content
+                        // Set modal content
                         chartModalIframe.src = src;
                         chartModalTitle.textContent = title;
                         chartModalDescription.textContent = description;
@@ -1749,6 +1864,28 @@ class GithubVisualizer:
                         
                         // Add active class to show the modal
                         chartModal.classList.add('active');
+                        
+                        // Scroll to top when opening modal
+                        if (chartModalIframe.parentElement) {{
+                            chartModalIframe.parentElement.scrollTop = 0;
+                        }}
+                        
+                        // Force the scrollbars to display
+                        setTimeout(() => {{
+                            const modalContent = document.querySelector('.chart-modal-content');
+                            const iframeContainer = document.querySelector('.chart-modal-iframe-container');
+                            
+                            if (modalContent) {{
+                                modalContent.style.overflowY = 'auto';
+                                modalContent.style.display = 'block';
+                            }}
+                            
+                            if (iframeContainer) {{
+                                iframeContainer.style.overflowY = 'auto';
+                                iframeContainer.style.display = 'block';
+                                iframeContainer.style.height = '75vh';
+                            }}
+                        }}, 300);
                         
                         console.log('Modal should now be visible');
                     }}
@@ -1772,12 +1909,16 @@ class GithubVisualizer:
                         }}
                     }});
 
-                    // Keyboard navigation for modal
+                         // Keyboard navigation for modal
                     document.addEventListener('keydown', (e) => {{
                         if (e.key === 'Escape' && chartModal.classList.contains('active')) {{
                             closeChartModal();
                         }}
                     }});
+
+                    // Set CSS variables for scrollbar colors
+                    document.documentElement.style.setProperty('--primary', '#4f46e5');
+                    document.documentElement.style.setProperty('--scrollbar-track', '#f1f1f1');
                 }});
 
                 {repo_table_js}
