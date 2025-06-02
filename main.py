@@ -16,6 +16,7 @@ Main features:
 """
 
 import os
+import atexit
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,13 +24,12 @@ from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
 from tqdm.auto import tqdm
 
-from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, setup_logging
+from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, setup_logging, logger, shutdown_logging
 from lens import GithubLens
 from models import RepoStats
 
-# Initialize logger
-logger = setup_logging()
-
+# Register shutdown_logging to be called when the program exits
+atexit.register(shutdown_logging)
 
 def run_analysis(
     token: str,

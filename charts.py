@@ -1,18 +1,31 @@
-from asyncio.log import logger
-from models import RepoStats
-from utilities import ensure_utc
+"""
+GitHub Repository Charts Module
+
+This module generates visualizations and charts for repository analysis data.
+It creates interactive charts and graphs to visualize repository statistics,
+code quality metrics, and project trends.
+"""
+
+import os
 from pathlib import Path
+import json
 from datetime import datetime, timezone
-from collections import defaultdict, Counter
-from typing import List, Optional, Dict
+from typing import List, Dict, Any, Optional, Tuple, Set, Counter as CounterType
+
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
 from plotly.subplots import make_subplots
 import numpy as np
+import pandas as pd
+
+from config import logger
+from models import RepoStats
+from utilities import ensure_utc
+from collections import defaultdict, Counter
 from wordcloud import WordCloud
 from PIL import Image
 import tempfile
-import os
 from config import ThemeConfig
 
 

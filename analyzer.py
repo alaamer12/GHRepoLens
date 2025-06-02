@@ -1,10 +1,28 @@
-from asyncio.log import logger
+"""
+GitHub Repository Analyzer Module
+
+This module provides detailed analysis of GitHub repositories.
+It handles fetching repository data, analyzing code quality, activity metrics,
+and community engagement.
+"""
+
+import time
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+from github import Repository, RateLimitExceededException
+from github.GithubException import GithubException
+from tqdm.auto import tqdm
+
+from config import logger, Configuration
+from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
+from utilities import ensure_utc
+
 from zipfile import Path
 
 from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
 from utilities import ensure_utc
-import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict

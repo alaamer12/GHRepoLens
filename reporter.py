@@ -1,8 +1,17 @@
-from asyncio.log import logger
-from zipfile import Path
-from models import RepoStats
+"""
+GitHub Repository Reporter Module
+
+This module generates detailed reports based on repository analysis data.
+It creates Markdown reports with repository statistics, code quality metrics,
+and project insights.
+"""
+
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import List, Dict
+
+from config import logger
+from models import RepoStats
 from collections import defaultdict, Counter
 from typing import List, Dict
 

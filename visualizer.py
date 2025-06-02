@@ -1,4 +1,10 @@
-from asyncio.log import logger
+"""
+GitHub Repository Visualizer Module
+
+This module generates interactive visualizations and dashboards for repository analysis.
+It creates HTML reports with charts, graphs, and insights from repository data.
+"""
+
 import os
 import shutil
 from zipfile import Path
@@ -12,7 +18,7 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
-from config import ThemeConfig, DefaultTheme
+from config import ThemeConfig, DefaultTheme, logger
 from charts import CreateDetailedCharts
 
 
