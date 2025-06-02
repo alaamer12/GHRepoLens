@@ -1,4 +1,6 @@
 PyGithub
+matplotlib
+seaborn
 plotly
 pandas
 wordcloud

@@ -16,7 +16,7 @@ from github.Repository import Repository
 
 from analyzer import GithubAnalyzer
 from console import logger, RateLimitDisplay
-from config import DEFAULT_CONFIG, Configuration
+from config import DEFAULT_CONFIG, Configuration, load_theme_config
 from models import RepoStats
 from reporter import GithubReporter
 from utilities import Checkpoint
@@ -168,8 +168,7 @@ class GithubLens:
         logger.info("Generated detailed repository reports")
         
         # Generate visualizations
-        visualizer = GithubVisualizer(self.username, self.reports_dir)
-        visualizer.create_visualizations(all_stats)
+        self.generate_visualizations(all_stats)
         logger.info("Generated visual reports")
         
         # Save raw data as JSON
@@ -247,3 +246,20 @@ class GithubLens:
             json.dump(serializable_data, f, cls=DateTimeEncoder, indent=2)
             
         logger.info(f"Saved repository data to {output_file}")
+
+    def generate_visualizations(self, all_stats: List[RepoStats]) -> None:
+        """
+        Generate visualizations and interactive dashboard for the analyzed repositories.
+        
+        Args:
+            all_stats: List of RepoStats objects to include in the visualizations
+        """
+        # Load theme configuration
+        theme = load_theme_config()
+        
+        # Create visualizer instance
+        visualizer = GithubVisualizer(self.username, self.reports_dir, theme)
+        
+        # Generate visualizations
+        visualizer.create_visualizations(all_stats)
+        logger.info("Generated visualizations and interactive dashboard")
