@@ -1625,21 +1625,35 @@ class GithubVisualizer:
         return additional_charts_section
 
     def _create_footer_section(self, timestamp: str) -> str:
-        """Create the footer section of the HTML file"""
+        """Create the footer section of the HTML file with enhanced style and dynamic timestamp"""
         footer_section = f"""
-        <!-- Footer with animations -->
-                <div data-aos="fade-up" data-aos-duration="600" class="mt-10 text-center">
-                    <div class="py-6 px-4 bg-gradient-primary rounded-lg text-white/90 shadow-lg">
-                        <p class="flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 animate-pulse-slow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Generated with GHRepoLens • 2025-06-01 21:20:17
-                        </p>
-                    </div>
-                </div>
-            </div>"""
-
+        <!-- Footer with enhanced style and animation -->
+        <div data-aos="fade-up" data-aos-duration="800" class="mt-12 text-center border-none">
+            <div class="py-6 px-8 opacity-80 border-none bg-none">
+                <p class="flex items-center justify-center font-medium">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 
+                        dark:text-teal-400 
+                        text-teal-700
+                        animate-pulse-slow 
+                        opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span class="relative">
+                        <span class="mr-1 opacity-100 bg-clip-text text-transparent 
+                            bg-gradient-to-r from-teal-400 to-blue-500 font-semibold
+                            dark:bg-gradient-to-r dark:from-teal-400 dark:to-blue-500
+                            bg-gradient-to-r from-teal-500 via-cyan-400 to-blue-600
+                            dark:bg-clip-text dark:text-transparent
+                        ">
+                            Generated with GHRepoLens
+                        </span>
+                        <span class="inline-block ml-1 dark:text-white">• {timestamp}</span>
+                        <span class="absolute -bottom-1 left-0 w-full h-px bg-gradient-to-r from-transparent via-teal-500/50 to-transparent"></span>
+                    </span>
+                </p>
+            </div>
+        </div>
+        </div>"""
         return footer_section
 
     def _create_js_part1(self) -> str:
