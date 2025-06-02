@@ -95,6 +95,8 @@ class GithubVisualizer:
         all_languages = defaultdict(int)
         # Keep track of repositories that need their primary language changed to "Unknown"
         self.repos_with_unknown_language = set()
+        # Store inferred languages based on file extensions
+        self.inferred_languages = {}
         
         # Debug info: log repositories and their assigned languages before processing
         logger.info("Repository language data before processing:")
@@ -108,11 +110,81 @@ class GithubVisualizer:
             
             if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
                 # Either no language data or inconsistent data (>10% over total)
-                # Add the entire repository's LOC to "Unknown" language
                 if stats.total_loc > 0:
-                    all_languages["Unknown"] += stats.total_loc
-                    logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
-                    # Track this repository for consistency in the table
+                    # Try to infer language from file types
+                    inferred_language = "Unknown"
+                    
+                    # Map of file extensions to languages
+                    ext_to_lang = {
+                        ".py": "Python", 
+                        ".js": "JavaScript",
+                        ".tsx": "TypeScript",
+                        ".ts": "TypeScript",
+                        ".java": "Java",
+                        ".rb": "Ruby",
+                        ".php": "PHP",
+                        ".go": "Go",
+                        ".rs": "Rust",
+                        ".cs": "C#",
+                        ".cpp": "C++",
+                        ".c": "C",
+                        ".html": "HTML",
+                        ".css": "CSS",
+                        ".sh": "Shell",
+                        ".jsx": "JavaScript",
+                        ".vue": "Vue",
+                        ".dart": "Dart",
+                        ".kt": "Kotlin",
+                        ".swift": "Swift",
+                        ".scala": "Scala",
+                        ".m": "Objective-C",
+                        ".mm": "Objective-C",
+                        ".pl": "Perl",
+                        ".pm": "Perl",
+                        ".r": "R",
+                        ".lua": "Lua",
+                        ".groovy": "Groovy",
+                        ".sql": "SQL",
+                        ".md": "Markdown",
+                        ".json": "JSON",
+                        ".yml": "YAML",
+                        ".yaml": "YAML",
+                        ".xml": "XML",
+                        ".toml": "TOML",
+                        ".ex": "Elixir",
+                        ".exs": "Elixir",
+                        ".elm": "Elm",
+                        ".clj": "Clojure",
+                        ".fs": "F#",
+                        ".hs": "Haskell",
+                        ".jl": "Julia",
+                        ".nim": "Nim",
+                        ".zig": "Zig"
+                    }
+                    
+                    # Count files by extension
+                    file_counts = defaultdict(int)
+                    for ext, count in stats.file_types.items():
+                        file_counts[ext] += count
+                    
+                    # Find the most common programming language extension
+                    max_count = 0
+                    for ext, count in file_counts.items():
+                        if ext in ext_to_lang and count > max_count:
+                            max_count = count
+                            inferred_language = ext_to_lang[ext]
+                    
+                    if inferred_language != "Unknown":
+                        logger.info(f"Inferred language '{inferred_language}' for {stats.name} based on file extensions")
+                        all_languages[inferred_language] += stats.total_loc
+                        self.inferred_languages[stats.name] = inferred_language
+                    else:
+                        # If we couldn't infer a language, use "Unknown"
+                        logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
+                        all_languages["Unknown"] += stats.total_loc
+                        self.repos_with_unknown_language.add(stats.name)
+                else:
+                    # Zero LOC, just mark as unknown
                     self.repos_with_unknown_language.add(stats.name)
             else:
                 # Repository has consistent language data
@@ -121,6 +193,7 @@ class GithubVisualizer:
         
         # Log the repositories marked as having unknown language
         logger.info(f"Repositories with unknown language: {list(self.repos_with_unknown_language)}")
+        logger.info(f"Repositories with inferred languages: {self.inferred_languages}")
 
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
@@ -326,9 +399,15 @@ class GithubVisualizer:
         languages_in_table = {}
         
         for repo in non_empty_repos:
-            # Check if this repository was marked as having Unknown language
-            # during the language data processing
-            language = "Unknown" if hasattr(self, 'repos_with_unknown_language') and repo.name in self.repos_with_unknown_language else (repo.primary_language or "Unknown")
+            # Check if this repository has an inferred language
+            if hasattr(self, 'inferred_languages') and repo.name in self.inferred_languages:
+                language = self.inferred_languages[repo.name]
+            # Otherwise check if it's marked as Unknown
+            elif hasattr(self, 'repos_with_unknown_language') and repo.name in self.repos_with_unknown_language:
+                language = "Unknown"
+            # Fallback to the original primary language
+            else:
+                language = repo.primary_language or "Unknown"
             
             # Log individual language decisions
             if repo.primary_language != language:
