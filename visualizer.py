@@ -422,7 +422,8 @@ class GithubVisualizer:
                 "stars": repo.stars,
                 "loc": repo.total_loc,
                 "is_active": repo.is_active,
-                "maintenance": f"{repo.maintenance_score:.1f}"
+                "maintenance": f"{repo.maintenance_score:.1f}",
+                "url": f"https://github.com/{self.username}/{repo.name}"  # Add GitHub URL
             })
             
         # Log summary of languages in table
@@ -1889,7 +1890,12 @@ class GithubVisualizer:
 
                         row.innerHTML = `
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">
-                                ${{repo.name}}
+                                <a href="${{repo.url}}" target="_blank" class="hover:underline hover:text-primary-dark transition-colors duration-200 flex items-center">
+                                    ${{repo.name}}
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                 ${{repo.language}}
