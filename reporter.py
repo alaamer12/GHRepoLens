@@ -4,7 +4,7 @@ from models import RepoStats
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import defaultdict, Counter
-from typing import List
+from typing import List, Dict
 
 
 class GithubReporter:
@@ -281,6 +281,41 @@ class GithubReporter:
         
         logger.info(f"Detailed report saved to {report_path}")
 
+    def _get_consistent_language_data(self, repos: List[RepoStats]) -> Dict[str, int]:
+        """Process language data with consistency checks to avoid inflated LOC counts"""
+        # Calculate total LOC sum for validation
+        total_loc_sum = sum(repo.total_loc for repo in repos)
+        logger.info(f"Total LOC across repositories: {total_loc_sum:,}")
+        
+        # Collect language data with consistency checks
+        all_languages = defaultdict(int)
+        skipped_repos = 0
+        
+        for repo in repos:
+            # Skip repositories with anomalous language data
+            lang_sum = sum(repo.languages.values())
+            if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
+                skipped_repos += 1
+                continue
+                
+            for lang, loc in repo.languages.items():
+                all_languages[lang] += loc
+        
+        if skipped_repos > 0:
+            logger.warning(f"Skipped {skipped_repos} repositories with inconsistent language data")
+        
+        # Verify and log the total sum of language-specific LOC
+        lang_loc_sum = sum(all_languages.values())
+        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
+        
+        # If there's still a significant discrepancy, scale the language values
+        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
+            scaling_factor = total_loc_sum / lang_loc_sum
+            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
+            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
+        
+        return all_languages
+
     def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
         """Generate aggregated statistics report"""
         logger.info("Generating aggregated statistics report")
@@ -304,11 +339,9 @@ class GithubReporter:
         total_excluded_files = sum(getattr(stats, 'excluded_file_count', 0) for stats in all_stats)
         all_files_including_excluded = total_files + total_excluded_files
         
-        # Language statistics
-        all_languages = defaultdict(int)
-        for stats in non_empty_repos:
-            for lang, loc in stats.languages.items():
-                all_languages[lang] += loc
+        # Aggregate language data across repositories with consistency checking
+        all_languages = self._get_consistent_language_data(non_empty_repos)
+        sorted_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)
         
         # License statistics
         license_counts = Counter(stats.license_name for stats in all_stats if stats.license_name)
@@ -357,8 +390,7 @@ class GithubReporter:
             
             # Language usage
             f.write("## 💻 Language Usage Summary\n\n")
-            if all_languages:
-                sorted_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)
+            if sorted_languages:
                 f.write("| Language | Lines of Code | Percentage |\n")
                 f.write("|----------|---------------|------------|\n")
                 for lang, loc in sorted_languages[:15]:  # Top 15 languages
