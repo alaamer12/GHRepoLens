@@ -91,26 +91,41 @@ class GithubVisualizer:
         total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
         logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
 
-        # Collect language data more carefully
+        # Collect language data more carefully - completely new approach
         all_languages = defaultdict(int)
+        
         for stats in non_empty_repos:
-            # Skip repositories with anomalous language data
-            if sum(stats.languages.values()) > stats.total_loc * 1.1:  # Allow 10% margin for rounding
-                logger.warning(f"Repository {stats.name} has inconsistent language data. Skipping for language chart.")
-                continue
-
-            for lang, loc in stats.languages.items():
-                all_languages[lang] += loc
+            # Check if repository has any valid language data
+            lang_sum = sum(stats.languages.values())
+            
+            if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
+                # Either no language data or inconsistent data (>10% over total)
+                # Add the entire repository's LOC to "Unknown" language
+                if stats.total_loc > 0:
+                    all_languages["Unknown"] += stats.total_loc
+                    logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
+            else:
+                # Repository has consistent language data
+                for lang, loc in stats.languages.items():
+                    all_languages[lang] += loc
 
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
         logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
 
-        # If there's still a significant discrepancy, scale the language values
-        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
-            scaling_factor = total_loc_sum / lang_loc_sum
-            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
-            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
+        # Final sanity check
+        if total_loc_sum > 0 and abs(lang_loc_sum - total_loc_sum) > total_loc_sum * 0.01:  # 1% tolerance
+            logger.warning(f"Language LOC sum ({lang_loc_sum}) differs from total LOC ({total_loc_sum})")
+            # Add adjustment to make totals match exactly
+            diff = total_loc_sum - lang_loc_sum
+            if diff > 0:
+                all_languages["Unknown"] = all_languages.get("Unknown", 0) + diff
+                logger.info(f"Added {diff} LOC to 'Unknown' to match total LOC")
+            else:
+                # If language sum is higher than total, scale down proportionally
+                scaling_factor = total_loc_sum / lang_loc_sum
+                logger.info(f"Scaling languages by factor {scaling_factor:.4f} to match total LOC")
+                all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
 
         if all_languages:
             top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -118,6 +133,13 @@ class GithubVisualizer:
 
             fig.add_trace(
                 go.Bar(x=list(langs), y=list(locs), name="Languages", marker_color=chart_colors[0]),
+                row=1, col=1
+            )
+        else:
+            # If no language data at all, show a placeholder
+            logger.warning("No language data available for visualization")
+            fig.add_trace(
+                go.Bar(x=["No Data"], y=[0], name="Languages", marker_color=chart_colors[0]),
                 row=1, col=1
             )
 

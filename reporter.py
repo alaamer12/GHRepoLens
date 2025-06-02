@@ -301,27 +301,48 @@ class GithubReporter:
         skipped_repos = 0
         
         for repo in repos:
-            # Skip repositories with anomalous language data
+            # Check if repository has any language data
             lang_sum = sum(repo.languages.values())
+            
+            if lang_sum == 0:
+                # If repository has LOC but no language data, add to "Unknown"
+                if repo.total_loc > 0:
+                    all_languages["Unknown"] += repo.total_loc
+                    logger.info(f"Adding {repo.total_loc} LOC from {repo.name} to 'Unknown' language (no language data)")
+                continue
+            
+            # Skip repositories with anomalous language data (language sum much larger than total LOC)
             if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
+                # Instead of skipping, add to "Unknown" language
+                all_languages["Unknown"] += repo.total_loc
+                logger.warning(f"Repository {repo.name} has inconsistent language data. Adding its {repo.total_loc} LOC to 'Unknown'.")
                 skipped_repos += 1
                 continue
                 
+            # Add languages for repositories with consistent data
             for lang, loc in repo.languages.items():
                 all_languages[lang] += loc
         
         if skipped_repos > 0:
-            logger.warning(f"Skipped {skipped_repos} repositories with inconsistent language data")
+            logger.warning(f"Found {skipped_repos} repositories with inconsistent language data (added to 'Unknown' language)")
         
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
         logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
         
-        # If there's still a significant discrepancy, scale the language values
-        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
-            scaling_factor = total_loc_sum / lang_loc_sum
-            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
-            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
+        # Final adjustment if still different
+        if lang_loc_sum != total_loc_sum:
+            logger.info(f"Adjusting language data to match total LOC: {total_loc_sum:,}")
+            if lang_loc_sum < total_loc_sum:
+                # Add difference to Unknown
+                difference = total_loc_sum - lang_loc_sum
+                all_languages["Unknown"] = all_languages.get("Unknown", 0) + difference
+                logger.info(f"Added {difference:,} missing LOC to 'Unknown' language")
+            elif lang_loc_sum > total_loc_sum:
+                # Scale down proportionally
+                scaling_factor = total_loc_sum / lang_loc_sum
+                logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
+                all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
         
         return all_languages
 
