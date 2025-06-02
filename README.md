@@ -5,6 +5,7 @@
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
+  [![Async](https://img.shields.io/badge/async-supported-green)](https://docs.python.org/3/library/asyncio.html)
 </div>
 
 GHRepoLens is a powerful analysis tool that gives you unprecedented visibility into your GitHub repositories. It crawls through your public and private repositories (with proper authentication), analyzing code, commits, contributors, and more to generate comprehensive reports and interactive visualizations.
@@ -33,11 +34,14 @@ GHRepoLens is a powerful analysis tool that gives you unprecedented visibility i
 * **Actionable Recommendations**: Suggestions for improving repository quality
 
 ### ⚙️ Advanced Capabilities
+* **Async Processing**: Fast asynchronous processing of repository data
 * **Rate Limit Management**: Intelligent handling of GitHub API limits with checkpointing
+* **Environment Variables**: Support for .env files via python-dotenv
 * **Themeable Output**: Customize visualization appearance
-* **Progress Tracking**: Real-time progress indicators during analysis
+* **Progress Tracking**: Real-time progress indicators with Rich progress bars
 * **Local File Analysis**: Detailed scanning of cloned repositories
 * **Resume Support**: Continue interrupted analysis runs from checkpoint
+* **Multiple Analysis Modes**: Demo, Full, and Test modes for different use cases
 
 ## 📋 Prerequisites
 
@@ -76,45 +80,69 @@ You can configure GHRepoLens in several ways:
    export GITHUB_USERNAME="your_github_username"
    ```
 
-2. **Command Line Arguments**:
-   ```bash
-   python main.py --token YOUR_TOKEN --username YOUR_USERNAME
+2. **.env File**:
+   Create a `.env` file in the root directory:
+   ```
+   GITHUB_TOKEN=your_personal_access_token
+   GITHUB_USERNAME=your_github_username
    ```
 
-3. **Configuration File**:
-   Create a `config.json` file in the root directory:
-   ```json
-   {
-     "GITHUB_TOKEN": "your_personal_access_token",
-     "USERNAME": "your_github_username",
-     "EXCLUDE_REPOS": ["repo-to-exclude"],
-     "RESUME_FROM_CHECKPOINT": true
-   }
+3. **INI Configuration File**:
+   Create a `config.ini` file in the root directory:
+   ```ini
+   [github]
+   token = your_personal_access_token
+   username = your_github_username
+   
+   [analysis]
+   reports_dir = reports
+   clone_dir = temp_repos
+   max_workers = 4
+   
+   [filters]
+   skip_forks = false
+   skip_archived = false
+   include_private = true
    ```
+
+4. **Interactive Input**:
+   If no token or username is provided, the tool will prompt you interactively.
 
 ## 📖 Usage
 
 ### Basic Usage
 ```bash
-# Run with environment variables
+# Run with configuration from .env file or environment variables
 python main.py
 
+# The tool will prompt you to select an analysis mode:
+# 1. Demo mode - Analyze up to 10 repositories
+# 2. Full analysis - Analyze all repositories
+# 3. Test mode - Quick test with 1 repository
+```
+
+### Analysis Modes
+
+GHRepoLens offers three analysis modes to suit different needs:
+
+1. **Demo Mode**: Analyzes up to 10 repositories, perfect for getting a quick overview or testing the tool.
+
+2. **Full Analysis**: Analyzes all repositories for the specified user, providing comprehensive results.
+
+3. **Test Mode**: Analyzes only 1 repository for rapid testing and validation.
+
+### Command Line Parameters (coming soon)
+```bash
 # Specify token and username directly
 python main.py --token YOUR_TOKEN --username YOUR_USERNAME
 
-# Run in demo mode (analyze up to 10 repos)
-python main.py --demo
-```
+# Run in specific mode
+python main.py --mode demo|full|test
 
-### Advanced Usage
-```bash
-# Run with custom configuration
-python main.py --config custom_config.json
+# Use a custom config file
+python main.py --config custom_config.ini
 
-# Exclude specific repositories
-python main.py --exclude repo1,repo2
-
-# Resume from previous checkpoint
+# Resume from checkpoint
 python main.py --resume
 ```
 
@@ -125,7 +153,7 @@ GHRepoLens/
 ├── analyzer.py       # Core analysis logic
 ├── config.py         # Configuration handling
 ├── lens.py           # Main orchestration class
-├── main.py           # CLI entry point
+├── main.py           # CLI entry point with async support
 ├── models.py         # Data models
 ├── reporter.py       # Report generation
 ├── utilities.py      # Helper functions
@@ -164,6 +192,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Thanks to the PyGithub library for GitHub API integration
 - Plotly and Matplotlib for visualization capabilities
+- Rich library for beautiful terminal interfaces
+- Python-dotenv for environment variable management
 - All contributors who have helped improve this project
 
 ---

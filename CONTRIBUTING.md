@@ -45,17 +45,9 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
    pip install -r requirements.txt
    pip install -r requirements-dev.txt  # Development dependencies
    ```
-4. Make your changes and write tests
-5. Run tests and linting:
-   ```bash
-   pytest
-   black .
-   isort .
-   flake8
-   ```
-6. Commit your changes following the [conventional commits](https://www.conventionalcommits.org/) standard
-7. Push to your branch
-8. Create a Pull Request
+5. Commit your changes following the [conventional commits](https://www.conventionalcommits.org/) standard
+6. Push to your branch
+7. Create a Pull Request
 
 ## Coding Standards
 
