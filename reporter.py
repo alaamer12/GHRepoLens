@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict
 
-from config import logger
+from console import logger
 from models import RepoStats
 from collections import defaultdict, Counter
 from typing import List, Dict

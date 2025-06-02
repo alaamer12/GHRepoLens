@@ -14,7 +14,8 @@ from github import Repository, RateLimitExceededException
 from github.GithubException import GithubException
 from tqdm.auto import tqdm
 
-from config import logger, Configuration
+from console import rprint, logger, RateLimitDisplay
+from config import Configuration
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, AnalysisScores
 from utilities import ensure_utc
 
@@ -33,7 +34,8 @@ from github.Repository import Repository
 from github.GithubException import GithubException, RateLimitExceededException
 from tqdm.auto import tqdm
 
-
+# Initialize the rate limit display
+rate_display = RateLimitDisplay()
 
 class GithubAnalyzer:
     """Class responsible for analyzing GitHub repositories"""
@@ -43,7 +45,7 @@ class GithubAnalyzer:
         self.github = github
         self.username = username
         self.config = config
-        self.rate_display = None
+        self.rate_display = rate_display
         self.session = None
         self.user = None
         self.checkpoint = None
@@ -71,8 +73,8 @@ class GithubAnalyzer:
         # Cap very long waits to show reasonable progress
         if wait_time > 3600:  # If more than an hour
             logger.warning(f"Long wait time detected ({wait_time:.1f}s). Showing progress for first hour.")
-            print(f"⚠️ GitHub API requires a long cooldown period ({wait_time/60:.1f} minutes)")
-            print(f"The script will automatically continue after the wait period.")
+            rprint(f"[bold yellow]⚠️ GitHub API requires a long cooldown period ({wait_time/60:.1f} minutes)[/bold yellow]")
+            rprint(f"[dim]The script will automatically continue after the wait period.[/dim]")
             wait_time = 3600  # Cap to 1 hour for the progress bar
         
         # Show progress bar for the wait
@@ -98,7 +100,7 @@ class GithubAnalyzer:
                 all_stats = checkpoint_data.get('all_stats', [])
                 analyzed_repo_names = checkpoint_data.get('analyzed_repos', [])
                 logger.info(f"Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
-                print(f"📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
+                rprint(f"[blue]📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories[/blue]")
             
             # Initialize GitHub user with rate limit check
             self.check_rate_limit()
@@ -158,9 +160,9 @@ class GithubAnalyzer:
             total_repos = len(repos_to_analyze) + len(all_stats)
             
             # Display initial rate limit usage before starting
-            print("\n--- Initial API Rate Status ---")
+            rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
             self.rate_display.display_once()  # Use our interactive display
-            print("-------------------------------")
+            rprint("[bold]-------------------------------[/bold]")
             
             # Use parallel processing if configured with multiple workers
             if self.max_workers > 1 and len(repos_to_analyze) > 1:
@@ -186,9 +188,9 @@ class GithubAnalyzer:
                         
                         # Periodically show rate limit status (every 5 repos or after a batch)
                         if repo_counter % 5 == 0 or repo_counter == 1 or len(batch) == batch_size:
-                            print("\n--- Current API Rate Status ---")
+                            rprint("\n[bold]--- Current API Rate Status ---[/bold]")
                             self.rate_display.display_once()  # Use our interactive display
-                            print("-------------------------------")
+                            rprint("[bold]-------------------------------[/bold]")
                         
                         # Check if we need to checkpoint before processing this batch
                         if self.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names + [r.name for r in newly_analyzed_repos], 
@@ -198,24 +200,25 @@ class GithubAnalyzer:
                         
                         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                             # Submit all tasks for this batch
-                            future_to_repo = {
-                                executor.submit(self.analyze_single_repository, repo): repo 
-                                for repo in batch
-                            }
+                            future_to_repo = {executor.submit(self.analyze_single_repository, repo): repo for repo in batch}
                             
-                            # Process results
+                            # Process results as they complete
                             for future in concurrent.futures.as_completed(future_to_repo):
                                 repo = future_to_repo[future]
                                 try:
-                                    stats = future.result()
-                                    all_stats.append(stats)
+                                    repo_stats = future.result()
+                                    all_stats.append(repo_stats)
                                     newly_analyzed_repos.append(repo)
                                     analyzed_repo_names.append(repo.name)
                                     pbar.update(1)
                                 except Exception as e:
                                     logger.error(f"Failed to analyze {repo.name}: {e}")
+                
+                # Final checkpoint after all batches complete
+                if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
+                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
             else:
-                # Sequential processing with progress bar
+                # Sequential processing for single worker or single repo case
                 with tqdm(total=total_repos, initial=len(all_stats),
                         desc="Analyzing repositories", leave=True, colour='green') as pbar:
                     
@@ -223,70 +226,62 @@ class GithubAnalyzer:
                     if all_stats:
                         pbar.set_description(f"Analyzing repositories (resumed from checkpoint)")
                     
-                    # Process remaining repositories
-                    remaining_repos = repos_to_analyze.copy()
-                    repo_counter = 0  # Counter to track repository processing
-                    
-                    while remaining_repos:
-                        repo_counter += 1
-                        repo = remaining_repos.pop(0)
-                        
-                        # Periodically show rate limit status (every 5 repos)
-                        if repo_counter % 5 == 0 or repo_counter == 1:
-                            print("\n--- Current API Rate Status ---")
-                            self.rate_display.display_once()  # Use our interactive display
-                            print("-------------------------------")
-                        
+                    for repo in repos_to_analyze:
+                        # Periodically check and display rate limit status
+                        if len(newly_analyzed_repos) % 5 == 0 or len(newly_analyzed_repos) == 0:
+                            rprint("\n[bold]--- Current API Rate Status ---[/bold]")
+                            self.rate_display.display_once()
+                            rprint("[bold]-------------------------------[/bold]")
+                            
                         # Check if we need to checkpoint
-                        if self.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names + [r.name for r in newly_analyzed_repos], 
-                                                            remaining_repos + [repo]):
+                        if self.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze[repos_to_analyze.index(repo):]):
                             logger.info("Stopping analysis due to approaching API rate limit")
                             return all_stats
-                        
+                            
                         try:
-                            stats = self.analyze_single_repository(repo)
-                            all_stats.append(stats)
+                            repo_stats = self.analyze_single_repository(repo)
+                            all_stats.append(repo_stats)
                             newly_analyzed_repos.append(repo)
                             analyzed_repo_names.append(repo.name)
                             pbar.update(1)
                         except Exception as e:
                             logger.error(f"Failed to analyze {repo.name}: {e}")
-                            continue
+                
+                # Final checkpoint after all repos complete
+                if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
+                    self.save_checkpoint(all_stats, analyzed_repo_names, [])
             
-            # Analysis completed successfully - display final rate usage
-            print("\n--- Final API Rate Status ---")
-            self.rate_display.display_once()  # Use our interactive display
-            print("----------------------------")
+            # Final rate limit status display
+            rprint("\n[bold]--- Final API Rate Status ---[/bold]")
+            self.rate_display.display_once()
+            rprint("[bold]----------------------------[/bold]")
             
-            # Save final checkpoint with empty remaining repos
-            if self.config["ENABLE_CHECKPOINTING"]:
-                self.save_checkpoint(all_stats, analyzed_repo_names, [])
-                # Option to remove checkpoint file upon successful completion
-                # if self.checkpoint_path.exists():
-                #     self.checkpoint_path.unlink()
-                #     logger.info("Removed checkpoint file after successful completion")
-            
+            # If all repositories were successfully analyzed, clean up the checkpoint file
+            if self.config["ENABLE_CHECKPOINTING"] and not repos_to_analyze:
+                try:
+                    Path(self.config["CHECKPOINT_FILE"]).unlink(missing_ok=True)
+                    # logger.info("Removed checkpoint file after successful completion")
+                except:
+                    pass  # Silently ignore any issues with checkpoint deletion
+                    
             logger.info(f"Successfully analyzed {len(all_stats)} repositories")
             return all_stats
             
         except RateLimitExceededException:
             logger.error("GitHub API rate limit exceeded during repository listing")
-            # Create checkpoint before exiting due to rate limit
-            if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
                 self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            raise
+            return all_stats
         except GithubException as e:
             logger.error(f"GitHub API error: {e}")
-            # Create checkpoint before exiting due to error
-            if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
                 self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            raise
+            return all_stats
         except Exception as e:
             logger.error(f"Unexpected error during analysis: {e}")
-            # Create checkpoint before exiting due to error
-            if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
                 self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            raise
+            return all_stats
 
     def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
         """

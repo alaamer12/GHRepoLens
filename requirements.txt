@@ -1,11 +1,9 @@
 PyGithub
-matplotlib
-seaborn
 plotly
-tqdm
 pandas
 wordcloud
 requests
 scipy
 kaleido
 python-dotenv
+rich

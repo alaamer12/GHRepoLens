@@ -1,4 +1,5 @@
 from pathlib import Path
+from console import console, print_header
 
 # Define the reports directory
 reports_dir = Path("reports")
@@ -18,14 +19,14 @@ chart_names = [
 ]
 
 # Check each chart
-print("Testing chart existence:")
+print_header("Testing chart existence:")
 for chart_name in chart_names:
     chart_path = reports_dir / f"{chart_name}.png"
     exists = chart_path.exists()
-    status = "EXISTS" if exists else "MISSING"
-    print(f"Chart '{chart_name}': {status} at {chart_path}")
+    status = "[green]EXISTS[/green]" if exists else "[red]MISSING[/red]"
+    console.print(f"Chart '{chart_name}': {status} at {chart_path}")
 
 # Report summary
-print("\nSummary:")
-print(f"Reports directory exists: {reports_dir.exists()}")
-print(f"Total chart files found: {sum(1 for name in chart_names if (reports_dir / f'{name}.png').exists())}/{len(chart_names)}")
+print_header("\nSummary:")
+console.print(f"Reports directory exists: {reports_dir.exists()}")
+console.print(f"Total chart files found: {sum(1 for name in chart_names if (reports_dir / f'{name}.png').exists())}/{len(chart_names)}")

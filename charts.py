@@ -8,18 +8,14 @@ code quality metrics, and project trends.
 
 import os
 from pathlib import Path
-import json
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Tuple, Set, Counter as CounterType
+from typing import List, Dict, Optional
 
 import plotly.graph_objects as go
-import plotly.express as px
-import plotly.io as pio
 from plotly.subplots import make_subplots
 import numpy as np
-import pandas as pd
 
-from config import logger
+from console import logger
 from models import RepoStats
 from utilities import ensure_utc
 from collections import defaultdict, Counter

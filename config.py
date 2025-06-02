@@ -1,30 +1,22 @@
 """
 Configuration Module for GitHub Repository Analyzer
 
-This module provides configuration settings, logging setup, and constants used
+This module provides configuration settings and constants used
 throughout the GitHub Repository Analyzer. It handles loading configuration from
-files, setting up logging, and defines constants for file categorization.
+files and defines constants for file categorization.
 
 Key components:
 - Configuration: TypedDict for strongly typed configuration
 - Constants and mappings for file categorization
-- Logging setup functions
 - Configuration loading and sample creation functions
 """
 
 import os
-import logging
 import configparser
 from pathlib import Path
-from datetime import datetime
 from typing import List, TypedDict, Dict, Set
-import queue
-import logging.handlers
 
-# Initialize logging variables
-logger = None
-_logging_initialized = False
-_queue_listener = None
+from console import console, logger
 
 class Configuration(TypedDict):
     """
@@ -452,94 +444,6 @@ RELEASE_FILES: Set[str] = {
     'semver.txt', 'semantic-release.config.js'
 }
 
-# Configure logging with more detailed setup
-LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-LOG_LEVEL = logging.INFO
-
-def setup_logging(log_dir: str = "logs", async_logging: bool = True) -> logging.Logger:
-    """
-    Set up logging to both file and console with proper formatting.
-    
-    Creates a logger that writes to both a timestamped log file and the console,
-    with appropriate formatting for debugging and tracking. Can use asynchronous
-    logging via QueueHandler/QueueListener for better performance.
-    
-    Args:
-        log_dir: Directory where log files will be stored (default: "logs")
-        async_logging: Whether to use asynchronous logging (default: True)
-        
-    Returns:
-        Configured logger instance
-    """
-    global logger, _logging_initialized, _queue_listener
-    
-    # If logging is already initialized, return the existing logger
-    if _logging_initialized and logger:
-        return logger
-        
-    # Create logs directory if it doesn't exist
-    log_dir_path = Path(log_dir)
-    log_dir_path.mkdir(exist_ok=True)
-    
-    # Generate log filename with timestamp (no need for timezone in filenames)
-    log_file = log_dir_path / f"github_analyzer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    
-    # Create the base logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(LOG_LEVEL)
-    
-    # Clear any existing handlers to avoid duplicate logging
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    # Create formatters
-    formatter = logging.Formatter(LOG_FORMAT)
-    
-    # Create handlers
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    
-    if async_logging:
-        # Set up queue-based logging for async operation
-        log_queue = queue.Queue(-1)  # No limit on size
-        queue_handler = logging.handlers.QueueHandler(log_queue)
-        root_logger.addHandler(queue_handler)
-        
-        # The QueueListener gets records from the queue and sends them to the handlers
-        _queue_listener = logging.handlers.QueueListener(
-            log_queue, file_handler, console_handler, respect_handler_level=True
-        )
-        _queue_listener.start()
-    else:
-        # Traditional synchronous logging
-        root_logger.addHandler(file_handler)
-        root_logger.addHandler(console_handler)
-    
-    logger = logging.getLogger(__name__)
-    logger.info(f"Logging initialized. Log file: {log_file}")
-    
-    # Mark logging as initialized
-    _logging_initialized = True
-    
-    return logger
-
-def shutdown_logging() -> None:
-    """
-    Properly shut down logging, especially important for async logging.
-    Should be called when the application exits.
-    """
-    global _queue_listener
-    
-    if _queue_listener:
-        _queue_listener.stop()
-        _queue_listener = None
-        
-    # Let logging system do its own shutdown procedures
-    logging.shutdown()
-
 def load_config_from_file(config_file: str) -> Configuration:
     """
     Load configuration from a file.
@@ -655,12 +559,8 @@ def create_sample_config() -> None:
     with open(config_file, 'w') as f:
         config.write(f)
     
-    print(f"Created sample configuration file: {config_file}")
-    print("Rename to config.ini and update with your settings.")
-
-# Initialize logger
-logger = setup_logging() 
-
+    console.print(f"[green]Created sample configuration file: {config_file}[/green]")
+    console.print("[yellow]Rename to config.ini and update with your settings.[/yellow]")
 
 class ThemeConfig(TypedDict, total=False):
     """Theme configuration for the visualization dashboard"""
@@ -791,3 +691,12 @@ def get_config() -> configparser.ConfigParser:
         config['github']['token'] = os.environ['GITHUB_TOKEN']
     
     return config
+
+def shutdown_logging() -> None:
+    """
+    This function is kept for backwards compatibility.
+    The actual logging shutdown is now handled in console.py
+    """
+    from console import configure_logging
+    # Nothing to do, just import to ensure proper references
+    pass

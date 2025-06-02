@@ -18,7 +18,8 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
-from config import ThemeConfig, DefaultTheme, logger
+from config import ThemeConfig, DefaultTheme
+from console import logger
 from charts import CreateDetailedCharts
 
 
