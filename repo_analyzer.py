@@ -1,4 +1,3 @@
-
 from models import RepoStats
 from datetime import datetime, timezone
 from collections import defaultdict
@@ -32,6 +31,59 @@ class PersonalRepoAnalysis:
                     </h2>
                     <div id="main-dashboard" class="w-full animate-chart-enter" style="height: 2000px;"></div>
                 </div>
+
+                <!-- Responsive styles for dashboard -->
+                <style>
+                    @media (max-width: 768px) {
+                        #main-dashboard {
+                            height: 3500px !important; /* Increase height for stacked layout on mobile */
+                        }
+                    }
+                </style>
+                
+                <!-- Responsive script for dashboard layout -->
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        // Function to handle responsive layout
+                        function handleResponsiveLayout() {
+                            const dashboard = document.getElementById('main-dashboard');
+                            if (!dashboard || !window.dashboardFigure) return;
+                            
+                            // For mobile devices
+                            if (window.innerWidth <= 768) {
+                                // Store reference to the plotly figure
+                                const figure = window.dashboardFigure;
+                                
+                                // Adjust subplot layout for mobile (stacked single column)
+                                const update = {
+                                    'grid.subplots': [['xy'], ['xy2'], ['x2y2'], ['x2y3'], 
+                                                      ['x3y4'], ['x3y5'], ['x4y6'], ['x4y7']],
+                                    'grid.rows': 8,
+                                    'grid.columns': 1,
+                                    'grid.roworder': 'top to bottom',
+                                    'height': 3500 // Taller for stacked single-column layout
+                                };
+                                
+                                Plotly.relayout(dashboard, update);
+                            } else {
+                                // For desktop - restore original layout if needed
+                                const update = {
+                                    'grid.rows': 4,
+                                    'grid.columns': 2,
+                                    'height': 2000
+                                };
+                                
+                                Plotly.relayout(dashboard, update);
+                            }
+                        }
+                        
+                        // Add event listener for window resize
+                        window.addEventListener('resize', handleResponsiveLayout);
+                        
+                        // Initial check
+                        setTimeout(handleResponsiveLayout, 1000); // Delay to ensure plot is loaded
+                    });
+                </script>
 
                 <!-- Repository Details Table with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" data-aos-delay="200" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme transform hover:shadow-2xl transition-all duration-300">
@@ -121,10 +173,12 @@ class PersonalRepoAnalysis:
 
     def create_dashboard_figure(self, non_empty_repos: List[RepoStats]) -> go.Figure:
         """Create the main dashboard figure with multiple subplots"""
-        # Create subplots for different visualizations
-        fig = make_subplots(
-            rows=4, cols=2,
-            subplot_titles=[
+        # Define subplot layouts based on screen size
+        # Default is 4x2 grid for larger screens
+        subplot_config = {
+            "rows": 4, 
+            "cols": 2,
+            "subplot_titles": [
                 'Top 10 Languages by LOC',
                 'Repository Size Distribution',
                 'File Type Distribution',
@@ -134,12 +188,21 @@ class PersonalRepoAnalysis:
                 'Repository Age Distribution',
                 'Quality Metrics Overview'
             ],
-            specs=[
+            "specs": [
                 [{"type": "bar"}, {"type": "histogram"}],
                 [{"type": "pie"}, {"type": "scatter"}],
                 [{"type": "scatter"}, {"type": "histogram"}],
                 [{"type": "bar"}, {"type": "bar"}]
             ]
+        }
+
+        # Create subplots for different visualizations
+        fig = make_subplots(
+            rows=subplot_config["rows"],
+            cols=subplot_config["cols"],
+            subplot_titles=subplot_config["subplot_titles"],
+            specs=subplot_config["specs"],
+            vertical_spacing=0.1  # Increased spacing for better mobile view
         )
 
         # Use theme colors for plots
@@ -164,11 +227,88 @@ class PersonalRepoAnalysis:
             template="plotly_white",
             paper_bgcolor=self.theme["light_chart_bg"],
             plot_bgcolor=self.theme["light_chart_bg"],
-            font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"])
+            font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"]),
+            # Make layout responsive to screen size
+            autosize=True,
+            margin=dict(l=50, r=50, t=100, b=50),
         )
 
         # Update axes labels
         self._update_axis_labels(fig)
+        
+        # Add responsive layout configuration
+        fig.update_layout(
+            # This config ensures the plots stack properly
+            grid=dict(
+                rows=subplot_config["rows"], 
+                columns=subplot_config["cols"],
+                pattern='independent',
+                roworder='top to bottom'
+            )
+        )
+        
+        # Add display configurations that handle responsiveness
+        fig.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+
+        # Add config for responsive behavior
+        fig.config = {
+            'responsive': True,
+            'displayModeBar': False,  # Hide the modebar for cleaner mobile view
+            'scrollZoom': False       # Disable scroll zoom on mobile
+        }
+        
+        # Store the figure in a global JavaScript variable for access by the responsive script
+        fig.update_layout(
+            newshape=dict(line_color=self.theme["chart_palette"][0]),
+        )
+        
+        # Save a reference to the figure in JavaScript global scope
+        store_as_global = """
+        window.dashboardFigure = document.getElementById('main-dashboard')._fullData;
+        window.addEventListener('resize', function() {
+            if (window.resizeTimer) clearTimeout(window.resizeTimer);
+            window.resizeTimer = setTimeout(function() {
+                var modeBarButtons = document.querySelectorAll('.modebar-container');
+                for (var i = 0; i < modeBarButtons.length; i++) {
+                    modeBarButtons[i].style.display = (window.innerWidth <= 768) ? 'none' : 'flex';
+                }
+            }, 250);
+        });
+        """
+        
+        # Add to the figure config
+        if not hasattr(fig, 'layout'):
+            fig.layout = {}
+        
+        if 'updatemenus' not in fig.layout:
+            fig.layout['updatemenus'] = []
+            
+        # Store the script for execution after plot is rendered
+        fig.layout['updatemenus'].append({
+            'buttons': [],
+            'direction': 'left',
+            'pad': {'r': 10, 't': 10},
+            'showactive': False,
+            'type': 'buttons',
+            'x': 0.1,
+            'xanchor': 'right',
+            'y': 0,
+            'yanchor': 'top'
+        })
+        
+        if not hasattr(fig, '_config'):
+            fig._config = {}
+            
+        fig._config['responsive'] = True
+        fig._config['post_script'] = [store_as_global]
         
         return fig
 
