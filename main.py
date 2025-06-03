@@ -42,6 +42,7 @@ async def run_analysis(
     username: str,
     mode: str = "full",
     config_file: Optional[str] = None,
+    include_orgs: Optional[List[str]] = None,
 ) -> None:
     """
     Run GitHub repository analysis for the specified user.
@@ -54,6 +55,7 @@ async def run_analysis(
         username: GitHub username whose repositories will be analyzed
         mode: Analysis mode ("demo", "full", or "test")
         config_file: Path to custom configuration file (default: None)
+        include_orgs: List of organization names to include in analysis (default: None)
     """
     demo_mode = mode == "demo"
     test_mode = mode == "test"
@@ -73,6 +75,10 @@ async def run_analysis(
 
         config["GITHUB_TOKEN"] = token
         config["USERNAME"] = username
+        
+        # Update organizations to include if specified
+        if include_orgs:
+            config["INCLUDE_ORGS"] = include_orgs
 
         if demo_mode or test_mode:
             config["CHECKPOINT_FILE"] = f"github_analyzer_{mode}_checkpoint.pkl"
@@ -373,12 +379,25 @@ async def main() -> None:
     if use_config:
         config_file = Prompt.ask("[bold]Path to config file[/bold]", default="config.ini")
     
+    # Ask if user wants to include organization repositories
+    include_orgs = []
+    include_orgs_option = Confirm.ask("Include organization repositories?", default=False)
+    if include_orgs_option:
+        org_input = Prompt.ask(
+            "[bold]Organization names[/bold] (comma-separated)", 
+            default=""
+        )
+        if org_input:
+            include_orgs = [org.strip() for org in org_input.split(",")]
+            print_info(f"Will include repositories from organizations: {', '.join(include_orgs)}")
+    
     # Run the analysis
     await run_analysis(
         token=github_token,
         username=github_username,
         mode=selected_mode,
-        config_file=config_file
+        config_file=config_file,
+        include_orgs=include_orgs
     )
 
 

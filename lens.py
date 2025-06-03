@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Any
 import requests
 from github import Github
 from github.Repository import Repository
+from github.Organization import Organization
 
 from analyzer import GithubAnalyzer
 from console import logger, RateLimitDisplay
@@ -146,6 +147,88 @@ class GithubLens:
         # Pass to the analyzer instance
         return self.analyzer.analyze_single_repository(repo)
 
+    def get_personal_repositories(self) -> List[Repository]:
+        """
+        Get personal repositories (non-organization) for the authenticated user.
+        
+        Returns:
+            List of Repository objects owned by the user
+        """
+        try:
+            user = self.github.get_user()
+            username = user.login
+            all_repos = list(user.get_repos())
+            
+            # Filter repositories to only include those owned by the user
+            personal_repos = [
+                repo for repo in all_repos
+                if repo.owner.login == username
+            ]
+            
+            logger.info(f"Found {len(personal_repos)} personal repositories")
+            return personal_repos
+        except Exception as e:
+            logger.error(f"Error getting personal repositories: {e}")
+            return []
+    
+    def get_organization_repositories(self, org_name: str) -> List[Repository]:
+        """
+        Get repositories for a specific organization.
+        
+        Args:
+            org_name: Name of the organization
+            
+        Returns:
+            List of Repository objects from the organization
+        """
+        try:
+            org: Organization = self.github.get_organization(org_name)
+            org_repos = list(org.get_repos())
+            
+            logger.info(f"Found {len(org_repos)} repositories in organization {org_name}")
+            return org_repos
+        except Exception as e:
+            logger.error(f"Error getting repositories for organization {org_name}: {e}")
+            return []
+    
+    def get_repositories_to_analyze(self) -> List[Repository]:
+        """
+        Get all repositories to analyze based on configuration.
+        
+        Returns:
+            List of Repository objects to be analyzed
+        """
+        # Always include personal repositories
+        repositories = self.get_personal_repositories()
+        
+        # Include repositories from specified organizations if configured
+        include_orgs = self.config.get("INCLUDE_ORGS", [])
+        if include_orgs:
+            for org_name in include_orgs:
+                org_repos = self.get_organization_repositories(org_name)
+                repositories.extend(org_repos)
+                logger.info(f"Added {len(org_repos)} repositories from organization {org_name}")
+        
+        # Apply repository filters
+        filtered_repos = []
+        for repo in repositories:
+            # Skip forks if configured
+            if self.config.get("SKIP_FORKS", False) and repo.fork:
+                continue
+                
+            # Skip archived repositories if configured
+            if self.config.get("SKIP_ARCHIVED", False) and repo.archived:
+                continue
+                
+            # Skip private repositories if not configured to include them
+            if not self.config.get("INCLUDE_PRIVATE", True) and repo.private:
+                continue
+                
+            filtered_repos.append(repo)
+        
+        logger.info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
+        return filtered_repos
+
     def analyze_all_repositories(self) -> List[RepoStats]:
         """
         Analyze all repositories for the user.
@@ -153,9 +236,12 @@ class GithubLens:
         Returns:
             List of RepoStats objects, one for each repository
         """
-        # Delegate to the analyzer instance
-        return self.analyzer.analyze_all_repositories()
+        # Get repositories to analyze based on configuration
+        repositories_to_analyze = self.get_repositories_to_analyze()
         
+        # Delegate to the analyzer instance
+        return self.analyzer.analyze_repositories(repositories_to_analyze)
+
     def generate_report(self, all_stats: List[RepoStats]) -> None:
         """
         Generate detailed reports and visualizations for the analyzed repositories.

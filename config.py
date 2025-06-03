@@ -39,6 +39,7 @@ class Configuration(TypedDict):
     CHECKPOINT_FILE: str
     CHECKPOINT_THRESHOLD: int
     RESUME_FROM_CHECKPOINT: bool
+    INCLUDE_ORGS: List[str]  # List of organization names to include in analysis
 
 # Configuration - these will be replaced by command line args or config file
 DEFAULT_CONFIG: Configuration = {
@@ -57,6 +58,7 @@ DEFAULT_CONFIG: Configuration = {
     "CHECKPOINT_FILE": "github_analyzer_checkpoint.pkl",  # Checkpoint file location
     "CHECKPOINT_THRESHOLD": 100,  # Create checkpoint when remaining API requests falls below this
     "RESUME_FROM_CHECKPOINT": True,  # Whether to resume from checkpoint if it exists
+    "INCLUDE_ORGS": [],  # Empty list means don't include any organization repositories
 }
 
 # File type mappings for better categorization
@@ -497,6 +499,11 @@ def load_config_from_file(config_file: str) -> Configuration:
                 config['INCLUDE_PRIVATE'] = filters_section.getboolean('include_private')
             if 'analyze_clones' in filters_section:
                 config['ANALYZE_CLONES'] = filters_section.getboolean('analyze_clones')
+            if 'include_orgs' in filters_section:
+                # Parse comma-separated list of organization names
+                orgs_str = filters_section['include_orgs']
+                if orgs_str.strip():
+                    config['INCLUDE_ORGS'] = [org.strip() for org in orgs_str.split(',')]
                 
         if 'checkpointing' in parser:
             checkpoint_section = parser['checkpointing']
@@ -546,7 +553,8 @@ def create_sample_config() -> None:
         'skip_forks': 'false',
         'skip_archived': 'false',
         'include_private': 'true',
-        'analyze_clones': 'false'
+        'analyze_clones': 'false',
+        'include_orgs': ''  # Empty string for no organizations
     }
     
     config['checkpointing'] = {
