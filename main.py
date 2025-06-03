@@ -20,6 +20,7 @@ import os
 import atexit
 import asyncio
 from pathlib import Path
+import random
 from typing import List, Optional
 
 import dotenv
@@ -151,7 +152,7 @@ async def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_m
         user = github.get_user(username)
     
     demo_size = 1 if test_mode else 10
-    all_repos = list(user.get_repos())[:demo_size]
+    all_repos = random.shuffle(list(user.get_repos()))[:demo_size] # Shuffle the repos to randomize the order
 
     mode_name = "test" if test_mode else "demo"
     print_header(f"Running {mode_name} analysis on up to {demo_size} repositories")
