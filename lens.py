@@ -346,6 +346,9 @@ class GithubLens:
         # Create visualizer instance
         visualizer = GithubVisualizer(self.username, self.reports_dir, theme)
         
-        # Generate visualizations
-        visualizer.create_visualizations(all_stats)
+        # Check for organization repositories in config
+        include_orgs = self.config.get("INCLUDE_ORGS", [])
+        
+        # Generate visualizations with organization info if available
+        visualizer.create_visualizations(all_stats, include_orgs)
         logger.info("Generated visualizations and interactive dashboard")

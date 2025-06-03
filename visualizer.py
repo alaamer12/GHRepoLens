@@ -37,6 +37,10 @@ class GithubVisualizer:
         self.assets_dir = Path("assets")  # Changed from Path("static") / "assets" to just "assets"
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
         self.prepo_analysis = PersonalRepoAnalysis(username, theme)
+        # Flag to track if organization repos are included
+        self.has_org_repos = False
+        # Store org names for later use
+        self.org_names = []
 
         # Copy assets to the reports directory
         self.copy_assets(reports_dir)
@@ -54,12 +58,29 @@ class GithubVisualizer:
             except Exception as e:
                 logger.error(f"Failed to copy asset {asset.name}: {str(e)}")
 
-    def create_visualizations(self, all_stats: List[RepoStats]) -> None:
+    def set_org_repos_included(self, org_names: List[str]) -> None:
+        """Set flag to indicate organization repositories are included"""
+        if org_names and len(org_names) > 0:
+            self.has_org_repos = True
+            self.org_names = org_names
+            logger.info(f"Organization repositories will be included: {', '.join(org_names)}")
+        else:
+            self.has_org_repos = False
+            logger.info("No organization repositories will be included")
+            
+    def create_visualizations(self, all_stats: List[RepoStats], org_repos: List = None) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
 
         # Store all_stats as an instance attribute for later use
         self.all_stats = all_stats
+
+        # Set org repos flag if org_repos is provided
+        if org_repos is not None and len(org_repos) > 0:
+            self.set_org_repos_included(org_repos)
+        
+        logger.info(f"Organization repos flag: {self.has_org_repos}")
+        logger.info(f"Organization names: {self.org_names}")
 
         # Filter out empty repositories for most visualizations
         non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
@@ -333,6 +354,8 @@ class GithubVisualizer:
         body_start = self._create_body_start(timestamp)
         # Add creator section right after the header section
         creator_section = self._create_creator_section()
+        # Add repository type tabs after creator section
+        repo_type_tabs = self._create_repo_type_tabs()
 
         stats_section = self._create_stats_section()
 
@@ -341,7 +364,41 @@ class GithubVisualizer:
         additional_charts_section = self._create_additional_charts_section()
 
         # Add Chart Modal Container with iframe support for interactive charts
-        chart_modal_container = """
+        chart_modal_container = self._create_chart_modal_container()
+
+        footer_section = self._create_footer_section(timestamp)
+
+        # JavaScript section with complex escaping issues
+        js_part1 = self._create_js_part1()
+        js_part2 = self._create_js_part2(fig, total_repos, total_loc, total_stars, active_repos)
+        # Add repository table JavaScript with enhanced animations
+        repo_table_js = self._create_repo_table_js(repos_json)
+        # Add repository type tabs JavaScript
+        repo_tabs_js = self._create_repo_tabs_js()
+
+        js_part3 = self._create_js_part3(repo_table_js, repo_tabs_js)
+
+        # Combine all parts
+        html_content = "\n".join([
+            head_section,
+            body_start,
+            creator_section,
+            repo_type_tabs,  # Add repo type tabs to HTML content
+            stats_section,
+            charts_section,
+            additional_charts_section,
+            chart_modal_container,
+            footer_section,
+            js_part1,
+            js_part2,
+            js_part3
+        ])
+
+        return html_content
+
+    def _create_chart_modal_container(self) -> str:
+        """Create the chart modal container"""
+        return """
                 <!-- Modal for full-screen chart view with interactive content -->
                 <div class="chart-modal" id="chartModal">
                     <div class="chart-modal-content">
@@ -356,33 +413,7 @@ class GithubVisualizer:
                     </div>
                 </div>
         """
-
-        footer_section = self._create_footer_section(timestamp)
-
-        # JavaScript section with complex escaping issues
-        js_part1 = self._create_js_part1()
-        js_part2 = self._create_js_part2(fig, total_repos, total_loc, total_stars, active_repos)
-        # Add repository table JavaScript with enhanced animations
-        repo_table_js = self._create_repo_table_js(repos_json)
-
-        js_part3 = self._create_js_part3(repo_table_js)
-
-        # Combine all parts
-        html_content = "\n".join([
-            head_section,
-            body_start,
-            creator_section,
-            stats_section,
-            charts_section,
-            additional_charts_section,
-            chart_modal_container,
-            footer_section,
-            js_part1,
-            js_part2,
-            js_part3
-        ])
-
-        return html_content
+    
 
     def _create_head_section(self) -> str:
         """Create the head section of the HTML file"""
@@ -1170,6 +1201,58 @@ class GithubVisualizer:
             </script>
         """
         return creator_section
+    
+    def _create_repo_type_tabs(self) -> str:
+        """Create tab buttons to switch between personal and organization repositories"""
+        # If there are no organization repositories, don't show the tabs
+        if not self.has_org_repos:
+            return ""
+            
+        repo_type_tabs = """
+            <!-- Repository Type Tabs - Toggle between Personal and Organization repositories -->
+            <div data-aos="fade-up" data-aos-duration="600" class="mb-8">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-col sm:flex-row justify-between items-center">
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-3 sm:mb-0">Repository Analysis Type</h3>
+                    </div>
+                    
+                    <!-- Tab buttons with modern styling -->
+                    <div class="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 shadow-inner relative overflow-hidden">
+                        <!-- Personal repositories tab -->
+                        <button id="personal-repos-tab" class="flex items-center justify-center px-6 py-2 text-sm font-medium rounded-md relative z-10 transition-all duration-300 text-gray-900 dark:text-white active-tab">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            Personal
+                        </button>
+                        
+                        <!-- Organizations repositories tab -->
+                        <button id="org-repos-tab" class="flex items-center justify-center px-6 py-2 text-sm font-medium rounded-md relative z-10 transition-all duration-300 text-gray-500 dark:text-gray-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                            Organizations
+                        </button>
+                        
+                        <!-- Active indicator pill that slides between tabs -->
+                        <span id="tab-indicator" class="absolute inset-y-1 left-1 bg-primary/90 dark:bg-primary rounded-md transition-all duration-300 shadow-md"></span>
+                    </div>
+                </div>
+                
+                <!-- Current view indicator -->
+                <div class="mt-3 text-sm text-center">
+                    <div class="inline-flex items-center bg-primary/10 text-primary dark:bg-primary/20 px-3 py-1 rounded-full">
+                        <span id="current-view-icon" class="mr-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                        </span>
+                        <span id="current-view-text">Viewing Personal Repository Stats</span>
+                    </div>
+                </div>
+            </div>
+        """
+        return repo_type_tabs
 
     def _create_stats_section(self) -> str:
         """Create the stats section of the HTML file"""
@@ -1523,7 +1606,31 @@ class GithubVisualizer:
 
                 // Plot the main dashboard with animation
                 var plotData = {fig.to_json()};
-                Plotly.newPlot('main-dashboard', plotData.data, plotData.layout, {{responsive: true}});
+                
+                // Config options for the plot
+                const plotlyConfig = {{
+                    responsive: true,
+                    displayModeBar: false,  // Hide the modebar for cleaner mobile view
+                    scrollZoom: false,      // Disable scroll zoom on mobile
+                }};
+                
+                // Create the plot with proper config options
+                Plotly.newPlot('main-dashboard', plotData.data, plotData.layout, plotlyConfig);
+                
+                // Store the dashboard figure in a global variable for access by other functions
+                window.dashboardFigure = document.getElementById('main-dashboard')._fullData;
+                
+                // Add resize listener for responsive adjustments
+                window.addEventListener('resize', function() {{
+                    if (window.resizeTimer) clearTimeout(window.resizeTimer);
+                    window.resizeTimer = setTimeout(function() {{
+                        // Adjust modebar visibility on mobile
+                        var modeBarButtons = document.querySelectorAll('.modebar-container');
+                        for (var i = 0; i < modeBarButtons.length; i++) {{
+                            modeBarButtons[i].style.display = (window.innerWidth <= 768) ? 'none' : 'flex';
+                        }}
+                    }}, 250);
+                }});
 
                 // Initialize charts with the correct theme
                 if (document.documentElement.classList.contains('dark')) {{
@@ -1748,8 +1855,291 @@ class GithubVisualizer:
                 """
         return repo_table_js
 
-    def _create_js_part3(self, repo_table_js: str) -> str:
+    def _create_repo_tabs_js(self) -> str:
+        """Create the JavaScript for repository type tabs functionality"""
+        # If there are no organization repositories, return empty JavaScript
+        if not self.has_org_repos:
+            return ""
+            
+        repo_tabs_js = """
+                // Repository Type Tabs Functionality
+                function initRepoTypeTabs() {
+                    const personalReposTab = document.getElementById('personal-repos-tab');
+                    const orgReposTab = document.getElementById('org-repos-tab');
+                    const tabIndicator = document.getElementById('tab-indicator');
+                    const currentViewText = document.getElementById('current-view-text');
+                    const currentViewIcon = document.getElementById('current-view-icon');
+                    
+                    // Wait for stats counters to be fully animated before storing values
+                    setTimeout(() => {
+                        // Store the initial personal data state for restoration when switching back
+                        window.personalData = null;
+                        window.personalLayout = null;
+                        window.personalTableData = null;
+                        window.personalStats = {
+                            repoCount: document.getElementById('repo-count').textContent,
+                            locCount: document.getElementById('loc-count').textContent,
+                            starsCount: document.getElementById('stars-count').textContent,
+                            activeCount: document.getElementById('active-count').textContent
+                        };
+                        
+                        // Store initial table state
+                        const tableBody = document.getElementById('repos-table-body');
+                        window.personalTableData = tableBody.innerHTML;
+                        
+                        // Store initial total repos and page info
+                        window.totalReposCount = document.getElementById('total-repos-count').textContent;
+                        window.pageInfo = document.getElementById('page-info').textContent;
+                        
+                        // Capture the initial plot data
+                        const dashboardElement = document.getElementById('main-dashboard');
+                        if (dashboardElement && dashboardElement.data) {
+                            window.personalData = JSON.parse(JSON.stringify(dashboardElement.data));
+                            window.personalLayout = JSON.parse(JSON.stringify(dashboardElement.layout));
+                        }
+                        
+                        console.log('Personal stats stored:', window.personalStats);
+                    }, 2500); // Wait for animations to complete
+                    
+                    // Personal icon SVG
+                    const personalIconSvg = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                    `;
+                    
+                    // Organization icon SVG
+                    const orgIconSvg = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                    `;
+                    
+                    // Set initial tab indicator position
+                    setTimeout(() => {
+                        if (personalReposTab && tabIndicator) {
+                            tabIndicator.style.width = `${personalReposTab.offsetWidth}px`;
+                        }
+                    }, 100);
+                    
+                    // Personal repos tab click handler
+                    if (personalReposTab) {
+                        personalReposTab.addEventListener('click', () => {
+                            // Update tab styles
+                            personalReposTab.classList.add('text-gray-900', 'dark:text-white');
+                            personalReposTab.classList.remove('text-gray-500', 'dark:text-gray-400');
+                            
+                            orgReposTab.classList.remove('text-gray-900', 'dark:text-white');
+                            orgReposTab.classList.add('text-gray-500', 'dark:text-gray-400');
+                            
+                            // Update tab indicator
+                            tabIndicator.style.left = '1px';
+                            tabIndicator.style.width = `${personalReposTab.offsetWidth}px`;
+                            
+                            // Update view text and icon
+                            currentViewText.textContent = 'Viewing Personal Repository Stats';
+                            currentViewIcon.innerHTML = personalIconSvg;
+                            
+                            // Update content
+                            switchToPersonalRepos();
+                        });
+                    }
+                    
+                    // Organization repos tab click handler
+                    if (orgReposTab) {
+                        orgReposTab.addEventListener('click', () => {
+                            // Update tab styles
+                            orgReposTab.classList.add('text-gray-900', 'dark:text-white');
+                            orgReposTab.classList.remove('text-gray-500', 'dark:text-gray-400');
+                            
+                            personalReposTab.classList.remove('text-gray-900', 'dark:text-white');
+                            personalReposTab.classList.add('text-gray-500', 'dark:text-gray-400');
+                            
+                            // Update tab indicator
+                            tabIndicator.style.left = `${personalReposTab.offsetWidth + 1}px`;
+                            tabIndicator.style.width = `${orgReposTab.offsetWidth}px`;
+                            
+                            // Update view text and icon
+                            currentViewText.textContent = 'Viewing Organization Repository Stats';
+                            currentViewIcon.innerHTML = orgIconSvg;
+                            
+                            // Update content
+                            switchToOrgRepos();
+                        });
+                    }
+                    
+                    // Function to switch to personal repos content (default view)
+                    function switchToPersonalRepos() {
+                        console.log('Switched to personal repositories view');
+                        
+                        if (!window.personalStats) {
+                            console.error('Personal stats not found!');
+                            return;
+                        }
+                        
+                        console.log('Restoring personal stats:', window.personalStats);
+                        
+                        // Restore personal stats with animation
+                        const repoCount = document.getElementById('repo-count');
+                        const locCount = document.getElementById('loc-count');
+                        const starsCount = document.getElementById('stars-count');
+                        const activeCount = document.getElementById('active-count');
+                        
+                        // First store current state for animation
+                        const currentRepoCount = repoCount.textContent;
+                        const currentLocCount = locCount.textContent;
+                        const currentStarsCount = starsCount.textContent;
+                        const currentActiveCount = activeCount.textContent;
+                        
+                        // Clear current values
+                        repoCount.textContent = '0';
+                        locCount.textContent = '0';
+                        starsCount.textContent = '0';
+                        activeCount.textContent = '0';
+                        
+                        // Then animate to the saved values
+                        setTimeout(() => {
+                            // Animate repo count
+                            animateValue(repoCount, 0, parseInt(window.personalStats.repoCount.replace(/,/g, '')), 800);
+                            
+                            // Animate LOC count
+                            animateValue(locCount, 0, parseInt(window.personalStats.locCount.replace(/,/g, '')), 800);
+                            
+                            // Animate stars count
+                            animateValue(starsCount, 0, parseInt(window.personalStats.starsCount.replace(/,/g, '')), 800);
+                            
+                            // Animate active count
+                            animateValue(activeCount, 0, parseInt(window.personalStats.activeCount.replace(/,/g, '')), 800);
+                        }, 100);
+                        
+                        // Restore original chart if we have saved data
+                        if (window.personalData && window.personalLayout) {
+                            const plotlyConfig = {
+                                responsive: true,
+                                displayModeBar: false,
+                                scrollZoom: false
+                            };
+                            
+                            Plotly.newPlot('main-dashboard', window.personalData, window.personalLayout, plotlyConfig);
+                        }
+                        
+                        // Restore table data
+                        if (window.personalTableData) {
+                            document.getElementById('repos-table-body').innerHTML = window.personalTableData;
+                            document.getElementById('total-repos-count').textContent = window.totalReposCount;
+                            document.getElementById('page-info').textContent = window.pageInfo;
+                        }
+                    }
+                    
+                    // Function to switch to organization repos content (empty for now)
+                    function switchToOrgRepos() {
+                        console.log('Switched to organization repositories view');
+                        
+                        // Reset stats to zero with animation
+                        const repoCount = document.getElementById('repo-count');
+                        const locCount = document.getElementById('loc-count');
+                        const starsCount = document.getElementById('stars-count');
+                        const activeCount = document.getElementById('active-count');
+                        
+                        // First store current state for animation
+                        const currentRepoCount = parseInt(repoCount.textContent.replace(/,/g, ''));
+                        const currentLocCount = parseInt(locCount.textContent.replace(/,/g, ''));
+                        const currentStarsCount = parseInt(starsCount.textContent.replace(/,/g, ''));
+                        const currentActiveCount = parseInt(activeCount.textContent.replace(/,/g, ''));
+                        
+                        // Animate to zero
+                        animateValue(repoCount, currentRepoCount, 0, 800);
+                        animateValue(locCount, currentLocCount, 0, 800);
+                        animateValue(starsCount, currentStarsCount, 0, 800);
+                        animateValue(activeCount, currentActiveCount, 0, 800);
+                        
+                        // Clear the charts
+                        Plotly.purge('main-dashboard');
+                        
+                        // Create empty/placeholder chart
+                        const emptyLayout = {
+                            height: 2000,
+                            title: {
+                                text: '📊 Organization Repository Analysis Dashboard - Not Implemented Yet',
+                                x: 0.5
+                            },
+                            annotations: [{
+                                text: 'Organization repositories analysis will be available soon',
+                                font: {
+                                    size: 20,
+                                    color: document.documentElement.classList.contains('dark') ? 'white' : 'black'
+                                },
+                                showarrow: false,
+                                xref: 'paper',
+                                yref: 'paper',
+                                x: 0.5,
+                                y: 0.5
+                            }],
+                            paper_bgcolor: document.documentElement.classList.contains('dark') ? '#1f2937' : '#ffffff',
+                            plot_bgcolor: document.documentElement.classList.contains('dark') ? '#1f2937' : '#ffffff'
+                        };
+                        
+                        // Make sure to apply the same config options when creating the empty chart
+                        const plotlyConfig = {
+                            responsive: true,
+                            displayModeBar: false,
+                            scrollZoom: false
+                        };
+                        
+                        Plotly.newPlot('main-dashboard', [], emptyLayout, plotlyConfig);
+                        
+                        // Clear repository table
+                        document.getElementById('repos-table-body').innerHTML = '';
+                        document.getElementById('total-repos-count').textContent = '0';
+                        document.getElementById('page-info').textContent = 'Page 1 of 1';
+                    }
+                    
+                    // Reuse the counter animation function
+                    function animateValue(element, start, end, duration) {
+                        let startTimestamp = null;
+                        const step = (timestamp) => {
+                            if (!startTimestamp) startTimestamp = timestamp;
+                            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                            let value = Math.floor(progress * (end - start) + start);
+
+                            // Format with commas if needed
+                            if (end > 999 || start > 999) {
+                                value = value.toLocaleString();
+                            }
+
+                            element.textContent = value;
+                            if (progress < 1) {
+                                window.requestAnimationFrame(step);
+                            }
+                        };
+                        window.requestAnimationFrame(step);
+                    }
+                    
+                    // Handle window resize for tab indicator
+                    window.addEventListener('resize', () => {
+                        if (personalReposTab && orgReposTab && tabIndicator) {
+                            if (personalReposTab.classList.contains('text-gray-900') || 
+                                personalReposTab.classList.contains('dark:text-white')) {
+                                tabIndicator.style.left = '1px';
+                                tabIndicator.style.width = `${personalReposTab.offsetWidth}px`;
+                            } else {
+                                tabIndicator.style.left = `${personalReposTab.offsetWidth + 1}px`;
+                                tabIndicator.style.width = `${orgReposTab.offsetWidth}px`;
+                            }
+                        }
+                    });
+                }
+                """
+        return repo_tabs_js
+
+    def _create_js_part3(self, repo_table_js: str, repo_tabs_js: str) -> str:
         """Create the third part of the JavaScript section of the HTML file"""
+        # Add conditional check for repo_tabs_js
+        init_repo_tabs_js = """
+                    // Initialize repository type tabs
+                    initRepoTypeTabs();
+        """ if repo_tabs_js else ""
+        
         js_part3 = f"""
                 // Initialize when DOM is loaded
                 document.addEventListener('DOMContentLoaded', function() {{
@@ -1758,6 +2148,7 @@ class GithubVisualizer:
 
                     // Initialize repository table
                     initReposTable();
+                    {init_repo_tabs_js}
 
                     // Add intersection observer for animations not handled by AOS
                     const observer = new IntersectionObserver((entries) => {{
@@ -1852,7 +2243,7 @@ class GithubVisualizer:
                         console.log('Modal should now be visible');
                     }}
 
-                     function closeChartModal() {{
+                    function closeChartModal() {{
                         // Hide modal and restore scrolling
                         chartModal.classList.remove('active');
                         document.body.style.overflow = 'auto';
@@ -1871,7 +2262,7 @@ class GithubVisualizer:
                         }}
                     }});
 
-                         // Keyboard navigation for modal
+                    // Keyboard navigation for modal
                     document.addEventListener('keydown', (e) => {{
                         if (e.key === 'Escape' && chartModal.classList.contains('active')) {{
                             closeChartModal();
@@ -1884,6 +2275,8 @@ class GithubVisualizer:
                 }});
 
                 {repo_table_js}
+                
+                {repo_tabs_js}
             </script>
             </div>
         </body>

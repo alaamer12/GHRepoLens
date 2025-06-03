@@ -257,13 +257,6 @@ class PersonalRepoAnalysis:
                 x=1
             )
         )
-
-        # Add config for responsive behavior
-        fig.config = {
-            'responsive': True,
-            'displayModeBar': False,  # Hide the modebar for cleaner mobile view
-            'scrollZoom': False       # Disable scroll zoom on mobile
-        }
         
         # Store the figure in a global JavaScript variable for access by the responsive script
         fig.update_layout(
@@ -284,15 +277,9 @@ class PersonalRepoAnalysis:
         });
         """
         
-        # Add to the figure config
-        if not hasattr(fig, 'layout'):
-            fig.layout = {}
-        
-        if 'updatemenus' not in fig.layout:
-            fig.layout['updatemenus'] = []
-            
-        # Store the script for execution after plot is rendered
-        fig.layout['updatemenus'].append({
+        # Fix: Instead of trying to append to updatemenus, set it directly
+        # Create the updatemenus as a list with our new menu
+        updatemenus = [{
             'buttons': [],
             'direction': 'left',
             'pad': {'r': 10, 't': 10},
@@ -302,14 +289,15 @@ class PersonalRepoAnalysis:
             'xanchor': 'right',
             'y': 0,
             'yanchor': 'top'
-        })
+        }]
         
-        if not hasattr(fig, '_config'):
-            fig._config = {}
+        # Update the layout directly with the new updatemenus
+        fig.update_layout(updatemenus=updatemenus)
+        
+        # Include configuration in the figure's JSON metadata for the front-end to use
+        if not hasattr(fig, '_config_applied'):
+            fig._config_applied = True
             
-        fig._config['responsive'] = True
-        fig._config['post_script'] = [store_as_global]
-        
         return fig
 
     def _add_language_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
