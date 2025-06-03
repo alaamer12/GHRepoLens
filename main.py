@@ -388,8 +388,17 @@ async def main() -> None:
             default=""
         )
         if org_input:
-            include_orgs = [org.strip() for org in org_input.split(",")]
-            print_info(f"Will include repositories from organizations: {', '.join(include_orgs)}")
+            # Check if input follows the comma-separated format
+            if "," in org_input or not org_input.strip():
+                include_orgs = [org.strip() for org in org_input.split(",") if org.strip()]
+                if include_orgs:
+                    print_info(f"Will include repositories from organizations: {', '.join(include_orgs)}")
+                else:
+                    print_warning("No valid organization names provided. Continuing without organization repositories.")
+            else:
+                # Single organization name without commas
+                include_orgs = [org_input.strip()]
+                print_info(f"Will include repositories from organization: {include_orgs[0]}")
     
     # Run the analysis
     await run_analysis(
