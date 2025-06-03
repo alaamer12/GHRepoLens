@@ -36,7 +36,12 @@ class PersonalRepoAnalysis:
                 <style>
                     @media (max-width: 768px) {
                         #main-dashboard {
-                            height: 3500px !important; /* Increase height for stacked layout on mobile */
+                            height: 3000px !important; /* Adjusted height for mobile view */
+                        }
+                    }
+                    @media (max-width: 480px) {
+                        #main-dashboard {
+                            height: 3500px !important; /* Even taller for small phones */
                         }
                     }
                 </style>
@@ -51,8 +56,8 @@ class PersonalRepoAnalysis:
                             
                             // For mobile devices
                             if (window.innerWidth <= 768) {
-                                // Store reference to the plotly figure
-                                const figure = window.dashboardFigure;
+                                // Get the current layout
+                                const currentLayout = dashboard.layout || {};
                                 
                                 // Adjust subplot layout for mobile (stacked single column)
                                 const update = {
@@ -61,16 +66,28 @@ class PersonalRepoAnalysis:
                                     'grid.rows': 8,
                                     'grid.columns': 1,
                                     'grid.roworder': 'top to bottom',
-                                    'height': 3500 // Taller for stacked single-column layout
+                                    'height': window.innerWidth <= 480 ? 3500 : 3000, // Adjusted height based on screen size
+                                    'width': window.innerWidth * 0.95, // Use 95% of screen width
                                 };
                                 
+                                // Adjust subplot dimensions
                                 Plotly.relayout(dashboard, update);
+                                
+                                // Smaller font size for mobile
+                                Plotly.relayout(dashboard, {
+                                    'font.size': 10,
+                                    'title.font.size': 14,
+                                    'margin': { t: 50, l: 35, r: 35, b: 35 },
+                                });
                             } else {
-                                // For desktop - restore original layout if needed
+                                // For desktop - restore original layout
                                 const update = {
                                     'grid.rows': 4,
                                     'grid.columns': 2,
-                                    'height': 2000
+                                    'height': 2000,
+                                    'font.size': 12,
+                                    'title.font.size': 16,
+                                    'margin': { t: 100, l: 50, r: 50, b: 50 },
                                 };
                                 
                                 Plotly.relayout(dashboard, update);
@@ -78,10 +95,14 @@ class PersonalRepoAnalysis:
                         }
                         
                         // Add event listener for window resize
-                        window.addEventListener('resize', handleResponsiveLayout);
+                        window.addEventListener('resize', function() {
+                            if (window.resizeTimer) clearTimeout(window.resizeTimer);
+                            window.resizeTimer = setTimeout(handleResponsiveLayout, 250);
+                        });
                         
-                        // Initial check
-                        setTimeout(handleResponsiveLayout, 1000); // Delay to ensure plot is loaded
+                        // Initial check - run twice with a delay to ensure plots load correctly
+                        setTimeout(handleResponsiveLayout, 500);
+                        setTimeout(handleResponsiveLayout, 1500);
                     });
                 </script>
 
@@ -202,7 +223,8 @@ class PersonalRepoAnalysis:
             cols=subplot_config["cols"],
             subplot_titles=subplot_config["subplot_titles"],
             specs=subplot_config["specs"],
-            vertical_spacing=0.1  # Increased spacing for better mobile view
+            vertical_spacing=0.12,  # Increased spacing for better mobile view
+            horizontal_spacing=0.08  # Adjusted horizontal spacing
         )
 
         # Use theme colors for plots
@@ -228,7 +250,6 @@ class PersonalRepoAnalysis:
             paper_bgcolor=self.theme["light_chart_bg"],
             plot_bgcolor=self.theme["light_chart_bg"],
             font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"]),
-            # Make layout responsive to screen size
             autosize=True,
             margin=dict(l=50, r=50, t=100, b=50),
         )
@@ -238,7 +259,6 @@ class PersonalRepoAnalysis:
         
         # Add responsive layout configuration
         fig.update_layout(
-            # This config ensures the plots stack properly
             grid=dict(
                 rows=subplot_config["rows"], 
                 columns=subplot_config["cols"],
@@ -247,57 +267,86 @@ class PersonalRepoAnalysis:
             )
         )
         
-        # Add display configurations that handle responsiveness
+        # Configure for better mobile experience
         fig.update_layout(
+            # More compact legend for mobile
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=1.02,
                 xanchor="right",
-                x=1
+                x=1,
+                font=dict(size=10)
             )
         )
+        
+        # Update font size for subplot titles
+        if fig.layout.annotations:
+            for ann in fig.layout.annotations:
+                ann.font.size = 12
         
         # Store the figure in a global JavaScript variable for access by the responsive script
         fig.update_layout(
             newshape=dict(line_color=self.theme["chart_palette"][0]),
+            # Mobile-specific config
+            modebar=dict(
+                orientation='v',  # Vertical mode bar for mobile
+                bgcolor='rgba(255, 255, 255, 0.7)',  # Semi-transparent background
+            )
         )
         
-        # Save a reference to the figure in JavaScript global scope
+        # Save a reference to the figure in JavaScript global scope with improved handling
         store_as_global = """
         window.dashboardFigure = document.getElementById('main-dashboard')._fullData;
+        
+        // Enhanced responsive handling
+        function updateModeBarVisibility() {
+            var modeBarButtons = document.querySelectorAll('.modebar-container');
+            var isMobile = window.innerWidth <= 768;
+            
+            for (var i = 0; i < modeBarButtons.length; i++) {
+                // Hide full modebar on mobile, show minimal controls
+                var buttons = modeBarButtons[i].querySelectorAll('.modebar-btn');
+                for (var j = 0; j < buttons.length; j++) {
+                    // On mobile, only show download and zoom buttons
+                    var isEssentialButton = buttons[j].getAttribute('data-title') === 'Download plot as a png' || 
+                                           buttons[j].getAttribute('data-title') === 'Zoom' ||
+                                           buttons[j].getAttribute('data-title') === 'Reset axes';
+                    buttons[j].style.display = (isMobile && !isEssentialButton) ? 'none' : 'inline-block';
+                }
+                
+                // Adjust modebar position on mobile
+                modeBarButtons[i].style.top = isMobile ? '10px' : '0';
+                modeBarButtons[i].style.right = isMobile ? '5px' : '0';
+            }
+        }
+        
         window.addEventListener('resize', function() {
             if (window.resizeTimer) clearTimeout(window.resizeTimer);
-            window.resizeTimer = setTimeout(function() {
-                var modeBarButtons = document.querySelectorAll('.modebar-container');
-                for (var i = 0; i < modeBarButtons.length; i++) {
-                    modeBarButtons[i].style.display = (window.innerWidth <= 768) ? 'none' : 'flex';
-                }
-            }, 250);
+            window.resizeTimer = setTimeout(updateModeBarVisibility, 250);
         });
+        
+        // Initial setup
+        setTimeout(updateModeBarVisibility, 1000);
+        setTimeout(updateModeBarVisibility, 2000); // Run again to catch any late-loaded elements
         """
         
-        # Fix: Instead of trying to append to updatemenus, set it directly
-        # Create the updatemenus as a list with our new menu
-        updatemenus = [{
-            'buttons': [],
-            'direction': 'left',
-            'pad': {'r': 10, 't': 10},
-            'showactive': False,
-            'type': 'buttons',
-            'x': 0.1,
-            'xanchor': 'right',
-            'y': 0,
-            'yanchor': 'top'
-        }]
+        # Update config to be more mobile-friendly
+        fig.update_layout(
+            # Config for better touch interaction
+            hovermode='closest',
+            dragmode='pan',  # Pan is more touch-friendly than zoom
+            # For mobile: adjust spacing between subplots
+            grid_xgap=0.1,
+            grid_ygap=0.2
+        )
         
-        # Update the layout directly with the new updatemenus
-        fig.update_layout(updatemenus=updatemenus)
-        
-        # Include configuration in the figure's JSON metadata for the front-end to use
-        if not hasattr(fig, '_config_applied'):
-            fig._config_applied = True
-            
+        # Make sure plots are responsive
+        for i in range(1, subplot_config["rows"] + 1):
+            for j in range(1, subplot_config["cols"] + 1):
+                fig.update_xaxes(automargin=True, row=i, col=j)
+                fig.update_yaxes(automargin=True, row=i, col=j)
+                
         return fig
 
     def _add_language_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
