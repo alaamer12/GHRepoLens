@@ -352,8 +352,7 @@ class InfrastructureQualityMetricsCreator:
                 text=hover_text,
                 hoverinfo='text',
                 colorbar=dict(
-                    title='Correlation',
-                    titleside='right'
+                    title='Correlation'
                 )
             ))
             
@@ -911,26 +910,45 @@ class CreateDetailedCharts:
             created_at = ensure_utc(stats.created_at)
             year = created_at.year
             
-            # Skip repositories with anomalous language data
+            # Check if repository has any language data
             lang_sum = sum(stats.languages.values())
-            if lang_sum > stats.total_loc * 1.1:  # Allow 10% margin for rounding
-                logger.warning(f"Repository {stats.name} has inconsistent language data. Skipping for language chart.")
+            
+            if lang_sum == 0:
+                # If repository has LOC but no language data, add to "Unknown"
+                if stats.total_loc > 0:
+                    yearly_languages[year]["Unknown"] += stats.total_loc
                 continue
+            
+            # For repositories with inconsistent language data, scale the data
+            if lang_sum > stats.total_loc * 1.1:  # Allow 10% margin for rounding
+                scaling_factor = stats.total_loc / lang_sum if lang_sum > 0 else 1
+                logger.info(f"Repository {stats.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
                 
-            for lang, loc in stats.languages.items():
-                yearly_languages[year][lang] += loc
+                # Add scaled language data
+                for lang, loc in stats.languages.items():
+                    yearly_languages[year][lang] += int(loc * scaling_factor)
+            else:
+                # Add languages as is for repositories with consistent data
+                for lang, loc in stats.languages.items():
+                    yearly_languages[year][lang] += loc
         
-        # Verify and scale language data if needed
+        # Verify and adjust yearly totals if necessary
         for year in yearly_languages:
             lang_sum = sum(yearly_languages[year].values())
             total_loc = yearly_total_loc[year]
             
-            # If language sum exceeds total LOC significantly, scale it
-            if lang_sum > total_loc * 1.5:
-                scaling_factor = total_loc / lang_sum
-                logger.warning(f"Year {year}: Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
-                for lang in yearly_languages[year]:
-                    yearly_languages[year][lang] = int(yearly_languages[year][lang] * scaling_factor)
+            if abs(lang_sum - total_loc) > total_loc * 0.05:  # Allow 5% difference
+                logger.info(f"Year {year}: Adjusting language data to match total LOC ({total_loc:,})")
+                
+                if lang_sum < total_loc:
+                    # Add difference to Unknown
+                    difference = total_loc - lang_sum
+                    yearly_languages[year]["Unknown"] += difference
+                elif lang_sum > total_loc:
+                    # Scale down proportionally
+                    scaling_factor = total_loc / lang_sum
+                    for lang in yearly_languages[year]:
+                        yearly_languages[year][lang] = int(yearly_languages[year][lang] * scaling_factor)
         
         # Get top 5 languages overall
         all_lang_totals = defaultdict(int)
@@ -1385,8 +1403,7 @@ class CreateDetailedCharts:
             text=hover_text,
             hoverinfo='text',
             colorbar=dict(
-                title='Correlation',
-                titleside='right'
+                title='Correlation'
             )
         ))
         
@@ -1804,30 +1821,54 @@ class CreateDetailedCharts:
         
         # Collect language data with consistency checks
         all_languages = defaultdict(int)
-        skipped_repos = 0
+        scaled_repos = 0
         
         for repo in repos:
-            # Skip repositories with anomalous language data
+            # Check if repository has any language data
             lang_sum = sum(repo.languages.values())
-            if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
-                skipped_repos += 1
+            
+            if lang_sum == 0:
+                # If repository has LOC but no language data, add to "Unknown"
+                if repo.total_loc > 0:
+                    all_languages["Unknown"] += repo.total_loc
+                    logger.info(f"Adding {repo.total_loc} LOC from {repo.name} to 'Unknown' language (no language data)")
                 continue
+            
+            # For repositories with inconsistent language data (language sum much larger than total LOC)
+            # Scale the language data proportionally to match repo.total_loc
+            if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
+                scaling_factor = repo.total_loc / lang_sum
+                logger.info(f"Repository {repo.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
+                scaled_repos += 1
                 
-            for lang, loc in repo.languages.items():
-                all_languages[lang] += loc
+                # Add scaled language data
+                for lang, loc in repo.languages.items():
+                    all_languages[lang] += int(loc * scaling_factor)
+            else:
+                # Add languages for repositories with consistent data
+                for lang, loc in repo.languages.items():
+                    all_languages[lang] += loc
         
-        if skipped_repos > 0:
-            logger.warning(f"Skipped {skipped_repos} repositories with inconsistent language data")
+        if scaled_repos > 0:
+            logger.info(f"Scaled language data for {scaled_repos} repositories with inconsistent totals")
         
         # Verify and log the total sum of language-specific LOC
         lang_loc_sum = sum(all_languages.values())
         logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
         
-        # If there's still a significant discrepancy, scale the language values
-        if lang_loc_sum > total_loc_sum * 1.5:  # If language sum is more than 50% higher than total
-            scaling_factor = total_loc_sum / lang_loc_sum
-            logger.warning(f"Scaling language LOC by factor of {scaling_factor:.2f} to match total LOC")
-            all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
+        # Final adjustment if still different
+        if lang_loc_sum != total_loc_sum:
+            logger.info(f"Adjusting language data to match total LOC: {total_loc_sum:,}")
+            if lang_loc_sum < total_loc_sum:
+                # Add difference to Unknown
+                difference = total_loc_sum - lang_loc_sum
+                all_languages["Unknown"] = all_languages.get("Unknown", 0) + difference
+                logger.info(f"Added {difference:,} missing LOC to 'Unknown' language")
+            elif lang_loc_sum > total_loc_sum:
+                # Scale down proportionally
+                scaling_factor = total_loc_sum / lang_loc_sum
+                logger.info(f"Scaling all language LOC by factor of {scaling_factor:.4f} to match total LOC")
+                all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
         
         return all_languages
                         
