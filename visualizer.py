@@ -59,10 +59,178 @@ class GithubVisualizer:
         # Filter out empty repositories for most visualizations
         non_empty_repos = [s for s in all_stats if "Empty repository with no files" not in s.anomalies]
 
-        # Set style for matplotlib
+        # Set up visualization environment
+        self._setup_visualization_environment()
+        
+        # Process language data
+        self._process_language_data(non_empty_repos)
+        
+        # Create main dashboard figure
+        fig = self._create_dashboard_figure(non_empty_repos)
+        
+        # Create detailed charts
+        self._create_detailed_charts()
+        
+        # Generate and save HTML dashboard
+        self._save_dashboard_html(fig, non_empty_repos)
+
+    def _setup_visualization_environment(self):
+        """Set up the visualization environment with proper styling"""
         plt.style.use('seaborn-v0_8')
         sns.set_palette("husl")
 
+    def _process_language_data(self, non_empty_repos: List[RepoStats]) -> None:
+        """Process and validate language data for repositories"""
+        # Verify total LOC for sanity check
+        total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
+        logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
+
+        # Collect language data more carefully
+        all_languages = defaultdict(int)
+        # Keep track of repositories that need their primary language changed to "Unknown"
+        self.repos_with_unknown_language = set()
+        # Store inferred languages based on file extensions
+        self.inferred_languages = {}
+        
+        # Debug info: log repositories and their assigned languages before processing
+        logger.info("Repository language data before processing:")
+        for stats in non_empty_repos:
+            logger.info(f"  {stats.name}: primary_language={stats.primary_language}, " +
+                      f"language_data={stats.languages}, total_loc={stats.total_loc}")
+        
+        for stats in non_empty_repos:
+            self._process_repo_language(stats, all_languages)
+        
+        # Log the repositories marked as having unknown language
+        logger.info(f"Repositories with unknown language: {list(self.repos_with_unknown_language)}")
+        logger.info(f"Repositories with inferred languages: {self.inferred_languages}")
+
+        # Verify and log the total sum of language-specific LOC
+        lang_loc_sum = sum(all_languages.values())
+        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
+
+        # Final sanity check and adjustment
+        self._adjust_language_totals(all_languages, total_loc_sum, lang_loc_sum)
+        
+        # Store processed language data for later use
+        self.all_languages = all_languages
+
+    def _process_repo_language(self, stats: RepoStats, all_languages: dict) -> None:
+        """Process language data for a single repository"""
+        # Check if repository has any valid language data
+        lang_sum = sum(stats.languages.values())
+        
+        if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
+            # Either no language data or inconsistent data (>10% over total)
+            if stats.total_loc > 0:
+                # Try to infer language from file types
+                inferred_language = self._infer_language_from_file_types(stats)
+                
+                if inferred_language != "Unknown":
+                    logger.info(f"Inferred language '{inferred_language}' for {stats.name} based on file extensions")
+                    all_languages[inferred_language] += stats.total_loc
+                    self.inferred_languages[stats.name] = inferred_language
+                else:
+                    # If we couldn't infer a language, use "Unknown"
+                    logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
+                    all_languages["Unknown"] += stats.total_loc
+                    self.repos_with_unknown_language.add(stats.name)
+            else:
+                # Zero LOC, just mark as unknown
+                self.repos_with_unknown_language.add(stats.name)
+        else:
+            # Repository has consistent language data
+            for lang, loc in stats.languages.items():
+                all_languages[lang] += loc
+
+    def _infer_language_from_file_types(self, stats: RepoStats) -> str:
+        """Infer the primary language of a repository based on file extensions"""
+        # Map of file extensions to languages
+        ext_to_lang = self._get_ext_to_lang_mapping()
+        
+        # Count files by extension
+        file_counts = defaultdict(int)
+        for ext, count in stats.file_types.items():
+            file_counts[ext] += count
+        
+        # Find the most common programming language extension
+        max_count = 0
+        inferred_language = "Unknown"
+        for ext, count in file_counts.items():
+            if ext in ext_to_lang and count > max_count:
+                max_count = count
+                inferred_language = ext_to_lang[ext]
+        
+        return inferred_language
+    
+    def _get_ext_to_lang_mapping(self) -> dict:
+        """Get the mapping of file extensions to languages"""
+        return {
+            ".py": "Python", 
+            ".js": "JavaScript",
+            ".tsx": "TypeScript",
+            ".ts": "TypeScript",
+            ".java": "Java",
+            ".rb": "Ruby",
+            ".php": "PHP",
+            ".go": "Go",
+            ".rs": "Rust",
+            ".cs": "C#",
+            ".cpp": "C++",
+            ".c": "C",
+            ".html": "HTML",
+            ".css": "CSS",
+            ".sh": "Shell",
+            ".jsx": "JavaScript",
+            ".vue": "Vue",
+            ".dart": "Dart",
+            ".kt": "Kotlin",
+            ".swift": "Swift",
+            ".scala": "Scala",
+            ".m": "Objective-C",
+            ".mm": "Objective-C",
+            ".pl": "Perl",
+            ".pm": "Perl",
+            ".r": "R",
+            ".lua": "Lua",
+            ".groovy": "Groovy",
+            ".sql": "SQL",
+            ".md": "Markdown",
+            ".json": "JSON",
+            ".yml": "YAML",
+            ".yaml": "YAML",
+            ".xml": "XML",
+            ".toml": "TOML",
+            ".ex": "Elixir",
+            ".exs": "Elixir",
+            ".elm": "Elm",
+            ".clj": "Clojure",
+            ".fs": "F#",
+            ".hs": "Haskell",
+            ".jl": "Julia",
+            ".nim": "Nim",
+            ".zig": "Zig"
+        }
+    
+
+    def _adjust_language_totals(self, all_languages: dict, total_loc_sum: int, lang_loc_sum: int) -> None:
+        """Adjust language totals to match the overall LOC count"""
+        if total_loc_sum > 0 and abs(lang_loc_sum - total_loc_sum) > total_loc_sum * 0.01:  # 1% tolerance
+            logger.warning(f"Language LOC sum ({lang_loc_sum}) differs from total LOC ({total_loc_sum})")
+            # Add adjustment to make totals match exactly
+            diff = total_loc_sum - lang_loc_sum
+            if diff > 0:
+                all_languages["Unknown"] = all_languages.get("Unknown", 0) + diff
+                logger.info(f"Added {diff} LOC to 'Unknown' to match total LOC")
+            else:
+                # If language sum is higher than total, scale down proportionally
+                scaling_factor = total_loc_sum / lang_loc_sum
+                logger.info(f"Scaling languages by factor {scaling_factor:.4f} to match total LOC")
+                for lang in all_languages:
+                    all_languages[lang] = int(all_languages[lang] * scaling_factor)
+
+    def _create_dashboard_figure(self, non_empty_repos: List[RepoStats]) -> go.Figure:
+        """Create the main dashboard figure with multiple subplots"""
         # Create subplots for different visualizations
         fig = make_subplots(
             rows=4, cols=2,
@@ -86,136 +254,38 @@ class GithubVisualizer:
 
         # Use theme colors for plots
         chart_colors = self.theme["chart_palette"]
-
-        # 1. Top 10 Languages by LOC
-        # Verify total LOC for sanity check
-        total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
-        logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
-
-        # Collect language data more carefully - completely new approach
-        all_languages = defaultdict(int)
-        # Keep track of repositories that need their primary language changed to "Unknown"
-        self.repos_with_unknown_language = set()
-        # Store inferred languages based on file extensions
-        self.inferred_languages = {}
         
-        # Debug info: log repositories and their assigned languages before processing
-        logger.info("Repository language data before processing:")
-        for stats in non_empty_repos:
-            logger.info(f"  {stats.name}: primary_language={stats.primary_language}, " +
-                      f"language_data={stats.languages}, total_loc={stats.total_loc}")
+        # Add all chart traces
+        self._add_language_chart(fig, chart_colors, non_empty_repos)
+        self._add_repo_size_chart(fig, chart_colors, non_empty_repos)
+        self._add_file_type_chart(fig, chart_colors, non_empty_repos)
+        self._add_activity_timeline_chart(fig, chart_colors, non_empty_repos)
+        self._add_stars_vs_loc_chart(fig, chart_colors, non_empty_repos)
+        self._add_maintenance_score_chart(fig, chart_colors, non_empty_repos)
+        self._add_repo_age_chart(fig, chart_colors, non_empty_repos)
+        self._add_quality_metrics_chart(fig, chart_colors, non_empty_repos)
         
-        for stats in non_empty_repos:
-            # Check if repository has any valid language data
-            lang_sum = sum(stats.languages.values())
-            
-            if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
-                # Either no language data or inconsistent data (>10% over total)
-                if stats.total_loc > 0:
-                    # Try to infer language from file types
-                    inferred_language = "Unknown"
-                    
-                    # Map of file extensions to languages
-                    ext_to_lang = {
-                        ".py": "Python", 
-                        ".js": "JavaScript",
-                        ".tsx": "TypeScript",
-                        ".ts": "TypeScript",
-                        ".java": "Java",
-                        ".rb": "Ruby",
-                        ".php": "PHP",
-                        ".go": "Go",
-                        ".rs": "Rust",
-                        ".cs": "C#",
-                        ".cpp": "C++",
-                        ".c": "C",
-                        ".html": "HTML",
-                        ".css": "CSS",
-                        ".sh": "Shell",
-                        ".jsx": "JavaScript",
-                        ".vue": "Vue",
-                        ".dart": "Dart",
-                        ".kt": "Kotlin",
-                        ".swift": "Swift",
-                        ".scala": "Scala",
-                        ".m": "Objective-C",
-                        ".mm": "Objective-C",
-                        ".pl": "Perl",
-                        ".pm": "Perl",
-                        ".r": "R",
-                        ".lua": "Lua",
-                        ".groovy": "Groovy",
-                        ".sql": "SQL",
-                        ".md": "Markdown",
-                        ".json": "JSON",
-                        ".yml": "YAML",
-                        ".yaml": "YAML",
-                        ".xml": "XML",
-                        ".toml": "TOML",
-                        ".ex": "Elixir",
-                        ".exs": "Elixir",
-                        ".elm": "Elm",
-                        ".clj": "Clojure",
-                        ".fs": "F#",
-                        ".hs": "Haskell",
-                        ".jl": "Julia",
-                        ".nim": "Nim",
-                        ".zig": "Zig"
-                    }
-                    
-                    # Count files by extension
-                    file_counts = defaultdict(int)
-                    for ext, count in stats.file_types.items():
-                        file_counts[ext] += count
-                    
-                    # Find the most common programming language extension
-                    max_count = 0
-                    for ext, count in file_counts.items():
-                        if ext in ext_to_lang and count > max_count:
-                            max_count = count
-                            inferred_language = ext_to_lang[ext]
-                    
-                    if inferred_language != "Unknown":
-                        logger.info(f"Inferred language '{inferred_language}' for {stats.name} based on file extensions")
-                        all_languages[inferred_language] += stats.total_loc
-                        self.inferred_languages[stats.name] = inferred_language
-                    else:
-                        # If we couldn't infer a language, use "Unknown"
-                        logger.info(f"Adding {stats.total_loc} LOC from {stats.name} to 'Unknown' language")
-                        all_languages["Unknown"] += stats.total_loc
-                        self.repos_with_unknown_language.add(stats.name)
-                else:
-                    # Zero LOC, just mark as unknown
-                    self.repos_with_unknown_language.add(stats.name)
-            else:
-                # Repository has consistent language data
-                for lang, loc in stats.languages.items():
-                    all_languages[lang] += loc
+        # Update layout with theme colors
+        fig.update_layout(
+            height=2000,
+            title_text=f"📊 GitHub Repository Analysis Dashboard - {self.username}",
+            title_x=0.5,
+            showlegend=False,
+            template="plotly_white",
+            paper_bgcolor=self.theme["light_chart_bg"],
+            plot_bgcolor=self.theme["light_chart_bg"],
+            font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"])
+        )
+
+        # Update axes labels
+        self._update_axis_labels(fig)
         
-        # Log the repositories marked as having unknown language
-        logger.info(f"Repositories with unknown language: {list(self.repos_with_unknown_language)}")
-        logger.info(f"Repositories with inferred languages: {self.inferred_languages}")
+        return fig
 
-        # Verify and log the total sum of language-specific LOC
-        lang_loc_sum = sum(all_languages.values())
-        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
-
-        # Final sanity check
-        if total_loc_sum > 0 and abs(lang_loc_sum - total_loc_sum) > total_loc_sum * 0.01:  # 1% tolerance
-            logger.warning(f"Language LOC sum ({lang_loc_sum}) differs from total LOC ({total_loc_sum})")
-            # Add adjustment to make totals match exactly
-            diff = total_loc_sum - lang_loc_sum
-            if diff > 0:
-                all_languages["Unknown"] = all_languages.get("Unknown", 0) + diff
-                logger.info(f"Added {diff} LOC to 'Unknown' to match total LOC")
-            else:
-                # If language sum is higher than total, scale down proportionally
-                scaling_factor = total_loc_sum / lang_loc_sum
-                logger.info(f"Scaling languages by factor {scaling_factor:.4f} to match total LOC")
-                all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
-
-        if all_languages:
-            top_languages = sorted(all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
+    def _add_language_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add language distribution chart to the figure"""
+        if self.all_languages:
+            top_languages = sorted(self.all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
             langs, locs = zip(*top_languages)
 
             fig.add_trace(
@@ -230,7 +300,8 @@ class GithubVisualizer:
                 row=1, col=1
             )
 
-        # 2. Repository Size Distribution
+    def _add_repo_size_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add repository size distribution chart to the figure"""
         repo_sizes = [stats.total_loc for stats in non_empty_repos if stats.total_loc > 0]
         if repo_sizes:
             fig.add_trace(
@@ -238,7 +309,8 @@ class GithubVisualizer:
                 row=1, col=2
             )
 
-        # 3. File Type Distribution (Top 10)
+    def _add_file_type_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add file type distribution chart to the figure"""
         all_file_types = defaultdict(int)
         for stats in non_empty_repos:
             for file_type, count in stats.file_types.items():
@@ -254,7 +326,8 @@ class GithubVisualizer:
                 row=2, col=1
             )
 
-        # 4. Activity Timeline (commits per month)
+    def _add_activity_timeline_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add activity timeline chart to the figure"""
         commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
         if commit_dates:
             # Group by month
@@ -274,7 +347,8 @@ class GithubVisualizer:
                     row=2, col=2
                 )
 
-        # 5. Stars vs LOC Correlation
+    def _add_stars_vs_loc_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add stars vs LOC correlation chart to the figure"""
         stars = [stats.stars for stats in non_empty_repos]
         locs = [stats.total_loc for stats in non_empty_repos]
         names = [stats.name for stats in non_empty_repos]
@@ -287,7 +361,8 @@ class GithubVisualizer:
             row=3, col=1
         )
 
-        # 6. Maintenance Score Distribution
+    def _add_maintenance_score_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add maintenance score distribution chart to the figure"""
         maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
         if maintenance_scores:
             fig.add_trace(
@@ -295,7 +370,8 @@ class GithubVisualizer:
                 row=3, col=2
             )
 
-        # 7. Repository Age Distribution
+    def _add_repo_age_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add repository age distribution chart to the figure"""
         ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in
                 non_empty_repos]
         if ages:
@@ -304,7 +380,8 @@ class GithubVisualizer:
                 row=4, col=1
             )
 
-        # 8. Quality Metrics Overview
+    def _add_quality_metrics_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+        """Add quality metrics overview chart to the figure"""
         quality_metrics = {
             'Has Documentation': sum(1 for s in non_empty_repos if s.has_docs),
             'Has Tests': sum(1 for s in non_empty_repos if s.has_tests),
@@ -318,19 +395,8 @@ class GithubVisualizer:
             row=4, col=2
         )
 
-        # Update layout with theme colors
-        fig.update_layout(
-            height=2000,
-            title_text=f"📊 GitHub Repository Analysis Dashboard - {self.username}",
-            title_x=0.5,
-            showlegend=False,
-            template="plotly_white",
-            paper_bgcolor=self.theme["light_chart_bg"],
-            plot_bgcolor=self.theme["light_chart_bg"],
-            font=dict(family=self.theme["font_family"], color=self.theme["light_text_color"])
-        )
-
-        # Update axes labels
+    def _update_axis_labels(self, fig: go.Figure) -> None:
+        """Update axis labels for all subplots"""
         fig.update_xaxes(title_text="Language", row=1, col=1)
         fig.update_yaxes(title_text="Lines of Code", row=1, col=1)
 
@@ -352,26 +418,29 @@ class GithubVisualizer:
         fig.update_xaxes(title_text="Quality Metric", row=4, col=2)
         fig.update_yaxes(title_text="Count", row=4, col=2)
 
-        # Save as interactive HTML
-        report_path = self.reports_dir / "visual_report.html"
-
+    def _create_detailed_charts(self) -> None:
+        """Create detailed charts for in-depth analysis"""
+        logger.info("Starting to create detailed charts...")
+        
         # Ensure the static directory exists
         static_dir = Path("reports/static")
         os.makedirs(static_dir, exist_ok=True)
-
-        # First create individual static charts for detailed analysis
-        logger.info("Starting to create detailed charts...")
+        
+        # Create detailed charts
         detailed_charts = CreateDetailedCharts(self.all_stats, self.theme, self.reports_dir)
-        # Generate all the detailed charts
         detailed_charts.create()
         
         # Verify that charts were created
         chart_files = list(self.reports_dir.glob("*.png"))
         logger.info(f"Created {len(chart_files)} chart files: {[f.name for f in chart_files]}")
 
+    def _save_dashboard_html(self, fig: go.Figure, non_empty_repos: List[RepoStats]) -> None:
+        """Generate and save the HTML dashboard"""
         # Create HTML with Tailwind CSS, custom styling and interactivity
         html_content = self._generate_dashboard_html(fig, non_empty_repos)
 
+        # Save as interactive HTML
+        report_path = self.reports_dir / "visual_report.html"
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
 
