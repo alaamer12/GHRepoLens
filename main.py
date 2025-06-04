@@ -19,6 +19,7 @@ Main features:
 import os
 import atexit
 import asyncio
+import argparse
 from pathlib import Path
 import random
 from typing import List, Optional
@@ -55,12 +56,13 @@ async def run_analysis(
     Args:
         token: GitHub personal access token for API authentication
         username: GitHub username whose repositories will be analyzed
-        mode: Analysis mode ("demo", "full", or "test")
+        mode: Analysis mode ("demo", "full", "test", or "quicktest")
         config_file: Path to custom configuration file (default: None)
         include_orgs: List of organization names to include in analysis (default: None)
     """
     demo_mode = mode == "demo"
     test_mode = mode == "test"
+    quicktest_mode = mode == "quicktest"
 
     with console.status(f"[bold green]Starting GitHub Repository Analyzer ({mode.upper()} MODE)"):
         logger.info(
@@ -82,15 +84,20 @@ async def run_analysis(
         if include_orgs:
             config["INCLUDE_ORGS"] = include_orgs
 
-        if demo_mode or test_mode:
+        if demo_mode or test_mode or quicktest_mode:
             config["CHECKPOINT_FILE"] = f"github_analyzer_{mode}_checkpoint.pkl"
 
     try:
         analyzer = GithubLens(config["GITHUB_TOKEN"], config["USERNAME"], config)
         await _handle_checkpoint_message(config)
 
-        if demo_mode or test_mode:
-            all_stats = await _run_demo_mode(token, username, analyzer, test_mode)
+        if quicktest_mode:
+            all_stats = await _run_quicktest_mode(token, username, analyzer, include_orgs)
+            if not all_stats:
+                logger.error("❌ No repositories analyzed in quicktest mode")
+                return
+        elif demo_mode or test_mode:
+            all_stats = await _run_demo_mode(token, username, analyzer, test_mode, include_orgs)
             if not all_stats:
                 logger.error(f"❌ No repositories analyzed in {mode} mode")
                 return
@@ -125,7 +132,124 @@ async def _handle_checkpoint_message(config: Configuration) -> None:
         print_success("Will resume analysis from checkpoint")
 
 
-async def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_mode: bool = False) -> List[RepoStats]:
+async def _run_quicktest_mode(
+    token: str, 
+    username: str, 
+    analyzer: GithubLens,
+    include_orgs: Optional[List[str]] = None
+) -> List[RepoStats]:
+    """
+    Run analysis in quicktest mode (1 personal repo and 1 repo per organization).
+    
+    Fetches and analyzes repositories for quick testing with predefined organizations.
+    
+    Args:
+        token: GitHub personal access token
+        username: GitHub username to analyze
+        analyzer: Initialized GithubLens instance
+        include_orgs: List of organization names to include in analysis
+        
+    Returns:
+        List of RepoStats objects for analyzed repositories
+    """
+    github = Github(token)
+    
+    # Check if we're analyzing the authenticated user (to access private repos)
+    auth_user = github.get_user()
+    if username == auth_user.login:
+        # If analyzing ourselves, use the authenticated user to get all repos including private
+        print_info(f"Analyzing authenticated user {username}, will include private repositories")
+        user = auth_user
+    else:
+        # Otherwise get the specified user (which will only return public repos)
+        user = github.get_user(username)
+    
+    # Get all repos and select just one for testing
+    repos = list(user.get_repos())
+    if not repos:
+        print_warning(f"No repositories found for user {username}")
+        return []
+    
+    # Just pick the first repository for simplicity in quicktest mode
+    selected_repos = [repos[0]]
+    
+    print_header(f"Running quicktest analysis on one personal repository: {selected_repos[0].name}")
+    rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
+    analyzer.rate_display.display_once()
+    rprint("[bold]-------------------------------[/bold]")
+
+    personal_stats: List[RepoStats] = []
+    # Use our progress bar from console
+    progress = create_progress_bar(transient=False)
+    
+    with progress:
+        task = progress.add_task(f"Analyzing personal repository", total=1)
+        for repo in selected_repos:
+            try:
+                stats = analyzer.analyze_single_repository(repo)
+                personal_stats.append(stats)
+                progress.update(task, advance=1, description=f"Analyzed {repo.name}")
+            except Exception as e:
+                logger.error(f"Failed to analyze {repo.name}: {e}")
+                progress.update(task, advance=1, description=f"Failed to analyze {repo.name}")
+                continue
+                
+    # Use predefined organizations for quicktest mode
+    predefined_orgs = ["JsonAlchemy", "T2F-lab"]
+    org_repos = {}
+    
+    print_header(f"Analyzing organization repositories (one per org)")
+    org_stats_map = {}
+    
+    for org_name in predefined_orgs:
+        try:
+            print_info(f"Fetching repositories for organization: {org_name}")
+            org = github.get_organization(org_name)
+            org_repos_list = list(org.get_repos())
+            
+            if not org_repos_list:
+                print_warning(f"No repositories found for organization {org_name}")
+                continue
+                
+            # Just pick the first repository for each org in quicktest mode
+            selected_org_repo = [org_repos_list[0]]
+            print_info(f"Selected repository {selected_org_repo[0].name} from {org_name}")
+            
+            org_stats = []
+            
+            with progress:
+                task = progress.add_task(f"Analyzing {org_name} repository", total=1)
+                for repo in selected_org_repo:
+                    try:
+                        stats = analyzer.analyze_single_repository(repo)
+                        org_stats.append(stats)
+                        progress.update(task, advance=1, description=f"Analyzed {repo.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to analyze {org_name}/{repo.name}: {e}")
+                        progress.update(task, advance=1, description=f"Failed to analyze {org_name}/{repo.name}")
+                        continue
+            
+            if org_stats:
+                org_stats_map[org_name] = org_stats
+                
+        except Exception as e:
+            print_warning(f"Failed to fetch repositories for organization {org_name}: {str(e)}")
+            logger.error(f"Failed to fetch organization {org_name}: {e}")
+    
+    # Set organization repositories data in the analyzer
+    analyzer.set_organization_repositories(org_stats_map)
+    
+    # Return the personal stats - the org stats are stored in the analyzer
+    return personal_stats
+
+
+async def _run_demo_mode(
+    token: str, 
+    username: str, 
+    analyzer: GithubLens, 
+    test_mode: bool = False,
+    include_orgs: Optional[List[str]] = None
+) -> List[RepoStats]:
     """
     Run analysis in demo mode (up to 10 repositories) or test mode (1 repository).
     
@@ -136,6 +260,7 @@ async def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_m
         username: GitHub username to analyze
         analyzer: Initialized GithubLens instance
         test_mode: Whether to run in test mode (1 repo only)
+        include_orgs: List of organization names to include in analysis
         
     Returns:
         List of RepoStats objects for analyzed repositories
@@ -154,6 +279,20 @@ async def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_m
     
     demo_size = 1 if test_mode else 10
     repos = list(user.get_repos())
+    
+    # Handle organization repositories if specified
+    org_repos = {}
+    if include_orgs:
+        for org_name in include_orgs:
+            try:
+                print_info(f"Fetching repositories for organization: {org_name}")
+                org = github.get_organization(org_name)
+                org_repos[org_name] = list(org.get_repos())
+                print_info(f"Found {len(org_repos[org_name])} repositories in organization {org_name}")
+            except Exception as e:
+                print_warning(f"Failed to fetch repositories for organization {org_name}: {str(e)}")
+                logger.error(f"Failed to fetch organization {org_name}: {e}")
+    
     if demo_size == 10:
         random.shuffle(repos)
     all_repos = repos[:demo_size] # Shuffle the repos to randomize the order
@@ -184,6 +323,46 @@ async def _run_demo_mode(token: str, username: str, analyzer: GithubLens, test_m
                 demo_stats, [s.name for s in demo_stats], []
             ):
                 break
+                
+    # Process organization repositories if any were found
+    if include_orgs and org_repos:
+        print_header(f"Analyzing organization repositories")
+        org_stats_map = {}
+        
+        for org_name, org_repo_list in org_repos.items():
+            if test_mode:
+                # Limit to 1 repository per organization in test mode
+                org_repo_list = org_repo_list[:1]
+            elif len(org_repo_list) > 5:
+                # Limit to 5 repositories per organization in demo mode
+                random.shuffle(org_repo_list)
+                org_repo_list = org_repo_list[:5]
+                
+            print_info(f"Analyzing up to {len(org_repo_list)} repositories from {org_name}")
+            org_stats = []
+            
+            with progress:
+                task = progress.add_task(f"Analyzing {org_name} repositories", total=len(org_repo_list))
+                for repo in org_repo_list:
+                    try:
+                        stats = analyzer.analyze_single_repository(repo)
+                        org_stats.append(stats)
+                        progress.update(task, advance=1, description=f"Analyzed {repo.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to analyze {org_name}/{repo.name}: {e}")
+                        progress.update(task, advance=1, description=f"Failed to analyze {org_name}/{repo.name}")
+                        continue
+
+                    if analyzer.analyzer.check_rate_limit_and_checkpoint(
+                        org_stats, [s.name for s in org_stats], []
+                    ):
+                        break
+            
+            if org_stats:
+                org_stats_map[org_name] = org_stats
+        
+        # Set organization repositories data in the analyzer
+        analyzer.set_organization_repositories(org_stats_map)
 
     return demo_stats
 
@@ -234,7 +413,7 @@ def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) 
     Args:
         analyzer: Initialized GithubLens instance
         all_stats: List of RepoStats objects for analyzed repositories
-        mode: Analysis mode ("demo", "full", or "test")
+        mode: Analysis mode ("demo", "full", "test", or "quicktest")
     """
     analyzed_count = len(all_stats)
     summary_text = (
@@ -249,6 +428,9 @@ def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) 
     elif mode == "test":
         summary_text += "\n⚠️ Test mode: Limited to 1 repository for quick testing\n"
         summary_text += "🔄 Run without --test flag to analyze all repositories"
+    elif mode == "quicktest":
+        summary_text += "\n⚠️ Quicktest mode: Limited to 1 personal repository and 1 repository per organization\n"
+        summary_text += "🔄 This is a temporary test mode for specific development purposes"
 
     summary_panel = Panel(
         summary_text, 
@@ -342,11 +524,43 @@ async def main() -> None:
     Handles command-line arguments, prompts for required inputs,
     and runs the analysis process.
     """
-    # Welcome banner
-    print_header("GitHub Repository Analyzer")
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="GitHub Repository Analyzer")
+    parser.add_argument('--quicktest', action='store_true', help='Run quick test with predefined parameters')
+    args = parser.parse_args()
     
     # Load environment variables from .env file if present
     dotenv.load_dotenv()
+    
+    if args.quicktest:
+        # Use environment variables or defaults for quicktest mode
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        if not github_token:
+            print_error("GitHub token not found in environment. Set GITHUB_TOKEN environment variable.")
+            return
+            
+        github_username = os.environ.get("GITHUB_USERNAME", "")
+        if not github_username:
+            print_error("GitHub username not found in environment. Set GITHUB_USERNAME environment variable.")
+            return
+            
+        # Set predefined organizations for quicktest mode
+        include_orgs = ["JsonAlchemy", "T2F-Labs"]
+        
+        # Run analysis in quicktest mode
+        await run_analysis(
+            token=github_token,
+            username=github_username,
+            mode="quicktest",
+            config_file=None,
+            include_orgs=include_orgs
+        )
+        
+        return
+    
+    # Interactive mode - original code from here
+    # Welcome banner
+    print_header("GitHub Repository Analyzer")
     
     # Check for token from environment variable
     github_token = os.environ.get("GITHUB_TOKEN", "")

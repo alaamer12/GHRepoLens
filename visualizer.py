@@ -12,7 +12,7 @@ from models import RepoStats
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import defaultdict
-from typing import List, Optional
+from typing import List, Optional, Dict
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
@@ -20,7 +20,7 @@ import json
 from config import ThemeConfig, DefaultTheme
 from console import logger
 from charts import CreateDetailedCharts
-from repo_analyzer import PersonalRepoAnalysis
+from repo_analyzer import PersonalRepoAnalysis, OrganizationRepoAnalysis
 
 
 
@@ -36,6 +36,8 @@ class GithubVisualizer:
         self.assets_dir = Path("assets")  # Changed from Path("static") / "assets" to just "assets"
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
         self.prepo_analysis = PersonalRepoAnalysis(username, theme)
+        # Initialize the organization repo analysis (will be used only if org repos are included)
+        self.orepo_analysis = None
         # Flag to track if organization repos are included
         self.has_org_repos = False
         # Store org names for later use
@@ -62,21 +64,26 @@ class GithubVisualizer:
         if org_names and len(org_names) > 0:
             self.has_org_repos = True
             self.org_names = org_names
+            # Initialize the organization repo analysis with org names
+            self.orepo_analysis = OrganizationRepoAnalysis(self.username, org_names, self.theme)
             logger.info(f"Organization repositories will be included: {', '.join(org_names)}")
         else:
             self.has_org_repos = False
             logger.info("No organization repositories will be included")
             
-    def create_visualizations(self, all_stats: List[RepoStats], org_repos: List = None) -> None:
+    def create_visualizations(self, all_stats: List[RepoStats], org_repos: Dict[str, List[RepoStats]] = None) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
 
         # Store all_stats as an instance attribute for later use
         self.all_stats = all_stats
-
-        # Set org repos flag if org_repos is provided
-        if org_repos is not None and len(org_repos) > 0:
-            self.set_org_repos_included(org_repos)
+        
+        # Set org repos flag and process org repos if provided
+        if org_repos and len(org_repos) > 0:
+            self.set_org_repos_included(list(org_repos.keys()))
+            # Process organization repositories if there are any
+            if self.orepo_analysis:
+                self.orepo_analysis.process_repositories(org_repos)
         
         logger.info(f"Organization repos flag: {self.has_org_repos}")
         logger.info(f"Organization names: {self.org_names}")
@@ -1364,7 +1371,31 @@ class GithubVisualizer:
 
     def _create_charts_section(self) -> str:
         """Create the charts section of the HTML file"""
-        return self.prepo_analysis.create_charts_section()
+        # Generate personal repository charts
+        personal_charts = self.prepo_analysis.create_charts_section()
+        
+        # Generate organization repository charts if applicable
+        org_charts = ""
+        if self.has_org_repos and self.orepo_analysis:
+            org_charts = self.orepo_analysis.create_charts_section()
+        
+        # If there are organization repositories, we'll include both sections
+        # The repo_tabs_js will handle showing/hiding these sections
+        if self.has_org_repos:
+            return f"""
+            <!-- Personal Repository Charts (visible by default) -->
+            <div id="personal-repos-content">
+                {personal_charts}
+            </div>
+            
+            <!-- Organization Repository Charts (hidden by default) -->
+            <div id="org-repos-content" class="hidden">
+                {org_charts}
+            </div>
+            """
+        else:
+            # If there are no organization repositories, just return the personal charts
+            return personal_charts
 
     def _check_chart_exists(self, chart_name: str) -> bool:
         """Check if a chart file exists in the reports directory"""

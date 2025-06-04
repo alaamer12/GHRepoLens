@@ -8,7 +8,7 @@ It coordinates between the analyzer, reporter, and visualizer components.
 from pathlib import Path
 import json
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 import requests
 from github import Github
@@ -78,6 +78,8 @@ class GithubLens:
         # Set rate display for analyzer
         self.analyzer.rate_display = self.rate_display
         self.analyzer.checkpoint = self.checkpoint
+        self.theme = load_theme_config()
+        self.visualizer = GithubVisualizer(self.username, self.reports_dir, self.theme)
         
         logger.info(f"Initialized analyzer for user: {username}")
         
@@ -346,9 +348,27 @@ class GithubLens:
         # Create visualizer instance
         visualizer = GithubVisualizer(self.username, self.reports_dir, theme)
         
-        # Check for organization repositories in config
-        include_orgs = self.config.get("INCLUDE_ORGS", [])
+        # Check for organization repositories from previously set data
+        org_repos = getattr(self, 'org_repositories', None)
+        
+        # If no org repositories were set directly, check config for org names to include
+        if not org_repos and self.config.get("INCLUDE_ORGS"):
+            include_orgs = self.config.get("INCLUDE_ORGS", [])
+            visualizer.set_org_repos_included(include_orgs)
         
         # Generate visualizations with organization info if available
-        visualizer.create_visualizations(all_stats, include_orgs)
+        visualizer.create_visualizations(all_stats, org_repos)
         logger.info("Generated visualizations and interactive dashboard")
+
+    def set_organization_repositories(self, org_repos_map: Dict[str, List[RepoStats]]) -> None:
+        """
+        Set organization repositories data in the lens.
+        
+        Args:
+            org_repos_map: Dictionary mapping organization names to lists of repository statistics
+        """
+        self.org_repositories = org_repos_map
+        logger.info(f"Set organization repositories for {len(org_repos_map)} organizations")
+        
+        # The visualizer is created later, so we don't need to set anything here
+        # The generate_visualizations method will use the org_repositories data
