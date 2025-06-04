@@ -7,8 +7,8 @@ It coordinates between the analyzer, reporter, and visualizer components.
 
 from pathlib import Path
 import json
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import List, Optional, Any
 
 import requests
 from github import Github

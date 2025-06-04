@@ -16,7 +16,6 @@ from typing import List, Optional
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import json
 from config import ThemeConfig, DefaultTheme
 from console import logger
