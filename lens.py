@@ -41,6 +41,8 @@ class GithubLens:
             username: GitHub username to analyze
             config: Optional configuration dictionary to override defaults
         """
+        self.org_repositories: Optional[Dict[str, List[RepoStats]]] = None
+        self.github: Optional[Github] = None
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self.config.update(config)
@@ -105,7 +107,8 @@ class GithubLens:
             logger.error(f"Error starting continuous rate monitoring: {e}")
             return False
             
-    def stop_monitoring(self) -> bool:
+    @staticmethod
+    def stop_monitoring() -> bool:
         """
         Stop continuous rate monitoring.
         

@@ -58,21 +58,26 @@ console = Console(theme=CONSOLE_THEME, highlight=True)
 # Export rich_print as rprint for consistent naming across the application
 rprint = rich_print
 
+
 # Custom progress columns with labeled time displays
 class LabeledElapsedColumn(TimeElapsedColumn):
     """Custom time elapsed column with a label"""
+
     def render(self, task):
         return Text(f"⏱ Elapsed: {super().render(task)}", style="progress.elapsed")
 
+
 class LabeledRemainingColumn(TimeRemainingColumn):
     """Custom time remaining column with a label"""
+
     def render(self, task):
         return Text(f"⏳ Left: {super().render(task)}", style="progress.remaining")
 
+
 def create_progress_bar(
-    expand: bool = True,
-    transient: bool = False,
-    refresh_per_second: int = 10
+        expand: bool = True,
+        transient: bool = False,
+        refresh_per_second: int = 10
 ) -> Progress:
     """
     Create a consistently styled progress bar for use throughout the application
@@ -104,18 +109,20 @@ def create_progress_bar(
         console=console,
     )
 
+
 # Log file configuration
 def get_log_filename() -> str:
     """Generate a timestamped log filename"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"ghlens_{timestamp}.log"
 
+
 # Configure logging with Rich
 def configure_logging(
-    log_file: Optional[str] = None,
-    log_level: int = logging.INFO,
-    log_to_console: bool = True,
-    log_to_file: bool = True,
+        log_file: Optional[str] = None,
+        log_level: int = logging.INFO,
+        log_to_console: bool = True,
+        log_to_file: bool = True,
 ) -> logging.Logger:
     """
     Configure and return the application logger with Rich formatting
@@ -132,26 +139,26 @@ def configure_logging(
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # Set up log filename
     if log_file is None:
         log_file = log_dir / get_log_filename()
     else:
         log_file = Path(log_file)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
-    
+
     # Remove existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    
+
     # Set up formatters
     file_formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
-    
+
     # Configure console handler with Rich
     if log_to_console:
         console_handler = RichHandler(
@@ -164,53 +171,62 @@ def configure_logging(
         )
         console_handler.setLevel(log_level)
         root_logger.addHandler(console_handler)
-    
+
     # Configure file handler
     if log_to_file:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(file_formatter)
         file_handler.setLevel(log_level)
         root_logger.addHandler(file_handler)
-    
+
     # Return module-specific logger
     logger = logging.getLogger("ghlens")
     return logger
 
+
 # Create and export the default logger
 logger = configure_logging()
+
 
 # Helper functions for formatted output
 def print_header(text: str, style: str = "heading") -> None:
     """Print a formatted header text"""
     console.print(f"\n[{style}]{text}[/{style}]")
 
+
 def print_subheader(text: str, style: str = "subheading") -> None:
     """Print a formatted subheader text"""
     console.print(f"[{style}]{text}[/{style}]")
+
 
 def print_info(text: str) -> None:
     """Print info text"""
     console.print(f"[info]ℹ️ {text}[/info]")
 
+
 def print_success(text: str) -> None:
     """Print success text"""
     console.print(f"[success]✅ {text}[/success]")
+
 
 def print_warning(text: str) -> None:
     """Print warning text"""
     console.print(f"[warning]⚠️ {text}[/warning]")
 
+
 def print_error(text: str) -> None:
     """Print error text"""
     console.print(f"[error]❌ {text}[/error]")
+
 
 def display_panel(title: str, content: str, style: str = "info") -> None:
     """Display content in a styled panel"""
     console.print(Panel(content, title=title, style=style, box=box.ROUNDED))
 
+
 class RateLimitDisplay:
     """Display GitHub API rate limit information"""
-    
+
     def __init__(self, console: Console = console):
         """Initialize rate limit display with console"""
         self.console = console
@@ -220,7 +236,7 @@ class RateLimitDisplay:
             "reset_time": None,
             "used": 0
         }
-    
+
     def update_from_api(self, github_client: Any) -> None:
         """Update rate limit data from GitHub client"""
         try:
@@ -231,12 +247,12 @@ class RateLimitDisplay:
             self.rate_data["used"] = rate_limit.core.limit - rate_limit.core.remaining
         except Exception as e:
             logger.warning(f"Could not update rate limit data: {e}")
-    
+
     def _get_status_style(self) -> str:
         """Get color style based on remaining requests"""
         remaining = self.rate_data["remaining"]
         limit = self.rate_data["limit"]
-        
+
         if remaining == 0:
             return "rate_limit.low"
         elif remaining < limit * 0.2:
@@ -245,22 +261,23 @@ class RateLimitDisplay:
             return "rate_limit.medium"
         else:
             return "rate_limit.good"
-    
+
     def display_once(self) -> None:
         """Display current rate limit status"""
         if not self.rate_data.get("limit"):
             self.console.print("[warning]No rate limit data available yet[/warning]")
             return
-        
+
         style = self._get_status_style()
         reset_time = self.rate_data["reset_time"]
-        reset_str = reset_time.strftime("%H:%M:%S") if reset_time else "Unknown"
-        
+        reset_str = reset_time if reset_time else "Unknown"
+
         self.console.print(
             f"[{style}]API Requests: "
             f"{self.rate_data['remaining']}/{self.rate_data['limit']} remaining "
             f"(resets at {reset_str})[/{style}]"
         )
+
 
 # Export main interfaces
 __all__ = [
@@ -277,4 +294,4 @@ __all__ = [
     'display_panel',
     'RateLimitDisplay',
     'configure_logging'
-] 
+]

@@ -6,14 +6,13 @@ It creates Markdown reports with repository statistics, code quality metrics,
 and project insights.
 """
 
-from pathlib import Path
+from collections import defaultdict, Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict
 
 from console import logger
 from models import RepoStats
-from collections import defaultdict, Counter
-from typing import List, Dict
 
 
 class GithubReporter:

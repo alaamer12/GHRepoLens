@@ -8,7 +8,6 @@ from config import ThemeConfig, DefaultTheme
 from console import logger
 
 
-
 class PersonalRepoAnalysis:
     """Class responsible for creating repository analysis dashboard"""
 
@@ -197,7 +196,7 @@ class PersonalRepoAnalysis:
         # Define subplot layouts based on screen size
         # Default is 4x2 grid for larger screens
         subplot_config = {
-            "rows": 4, 
+            "rows": 4,
             "cols": 2,
             "subplot_titles": [
                 'Top 10 Languages by LOC',
@@ -229,7 +228,7 @@ class PersonalRepoAnalysis:
 
         # Use theme colors for plots
         chart_colors = self.theme["chart_palette"]
-        
+
         # Add all chart traces
         self._add_language_chart(fig, chart_colors, non_empty_repos)
         self._add_repo_size_chart(fig, chart_colors, non_empty_repos)
@@ -239,7 +238,7 @@ class PersonalRepoAnalysis:
         self._add_maintenance_score_chart(fig, chart_colors, non_empty_repos)
         self._add_repo_age_chart(fig, chart_colors, non_empty_repos)
         self._add_quality_metrics_chart(fig, chart_colors, non_empty_repos)
-        
+
         # Update layout with theme colors
         fig.update_layout(
             height=2000,
@@ -256,17 +255,17 @@ class PersonalRepoAnalysis:
 
         # Update axes labels
         self._update_axis_labels(fig)
-        
+
         # Add responsive layout configuration
         fig.update_layout(
             grid=dict(
-                rows=subplot_config["rows"], 
+                rows=subplot_config["rows"],
                 columns=subplot_config["cols"],
                 pattern='independent',
                 roworder='top to bottom'
             )
         )
-        
+
         # Configure for better mobile experience
         fig.update_layout(
             # More compact legend for mobile
@@ -279,12 +278,12 @@ class PersonalRepoAnalysis:
                 font=dict(size=10)
             )
         )
-        
+
         # Update font size for subplot titles
         if fig.layout.annotations:
             for ann in fig.layout.annotations:
                 ann.font.size = 12
-        
+
         # Store the figure in a global JavaScript variable for access by the responsive script
         fig.update_layout(
             newshape=dict(line_color=self.theme["chart_palette"][0]),
@@ -294,7 +293,7 @@ class PersonalRepoAnalysis:
                 bgcolor='rgba(255, 255, 255, 0.7)',  # Semi-transparent background
             )
         )
-        
+
         # Save a reference to the figure in JavaScript global scope with improved handling
         store_as_global = """
         window.dashboardFigure = document.getElementById('main-dashboard')._fullData;
@@ -330,7 +329,7 @@ class PersonalRepoAnalysis:
         setTimeout(updateModeBarVisibility, 1000);
         setTimeout(updateModeBarVisibility, 2000); // Run again to catch any late-loaded elements
         """
-        
+
         # Update config to be more mobile-friendly
         fig.update_layout(
             # Config for better touch interaction
@@ -340,13 +339,13 @@ class PersonalRepoAnalysis:
             grid_xgap=0.1,
             grid_ygap=0.2
         )
-        
+
         # Make sure plots are responsive
         for i in range(1, subplot_config["rows"] + 1):
             for j in range(1, subplot_config["cols"] + 1):
                 fig.update_xaxes(automargin=True, row=i, col=j)
                 fig.update_yaxes(automargin=True, row=i, col=j)
-                
+
         return fig
 
     def _add_language_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
@@ -394,7 +393,8 @@ class PersonalRepoAnalysis:
                 row=2, col=1
             )
 
-    def _add_activity_timeline_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    def _add_activity_timeline_chart(self, fig: go.Figure, chart_colors: list,
+                                     non_empty_repos: List[RepoStats]) -> None:
         """Add activity timeline chart to the figure"""
         commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
         if commit_dates:
@@ -429,7 +429,8 @@ class PersonalRepoAnalysis:
             row=3, col=1
         )
 
-    def _add_maintenance_score_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    def _add_maintenance_score_chart(self, fig: go.Figure, chart_colors: list,
+                                     non_empty_repos: List[RepoStats]) -> None:
         """Add maintenance score distribution chart to the figure"""
         maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
         if maintenance_scores:
@@ -602,29 +603,29 @@ class OrganizationRepoAnalysis:
         # Clear previous data
         self.org_languages = {}
         self.all_languages = defaultdict(int)
-        
+
         # Process each organization's repositories
         for org_name, repos in org_repos.items():
             org_lang_data = defaultdict(int)
-            
+
             for repo in repos:
                 # Add languages from this repo to the org-specific data
                 for lang, loc in repo.languages.items():
                     org_lang_data[lang] += loc
                     # Also add to the overall languages count
                     self.all_languages[lang] += loc
-                    
+
             # Store the organization's language data
             self.org_languages[org_name] = dict(org_lang_data)
             logger.info(f"Processed {len(repos)} repositories for organization {org_name}")
-        
+
         logger.info(f"Processed repositories for {len(org_repos)} organizations")
 
     def create_dashboard_figure(self, org_repos: Dict[str, List[RepoStats]]) -> go.Figure:
         """Create the main dashboard figure with multiple subplots for organization data"""
         # Define subplot layouts
         subplot_config = {
-            "rows": 4, 
+            "rows": 4,
             "cols": 2,
             "subplot_titles": [
                 'Top 10 Languages in Organizations',
@@ -656,12 +657,12 @@ class OrganizationRepoAnalysis:
 
         # Use theme colors for plots
         chart_colors = self.theme["chart_palette"]
-        
+
         # Combine all repos for easier access
         all_org_repos = []
         for org_repos_list in org_repos.values():
             all_org_repos.extend(org_repos_list)
-        
+
         # Add charts
         self._add_org_language_chart(fig, chart_colors, org_repos)
         self._add_org_repo_count_chart(fig, chart_colors, org_repos)
@@ -671,7 +672,7 @@ class OrganizationRepoAnalysis:
         self._add_activity_status_chart(fig, chart_colors, org_repos)
         self._add_org_repo_age_chart(fig, chart_colors, all_org_repos)
         self._add_org_contribution_timeline(fig, chart_colors, all_org_repos)
-        
+
         # Update layout with theme colors
         fig.update_layout(
             height=2000,
@@ -688,11 +689,11 @@ class OrganizationRepoAnalysis:
 
         # Update axes labels
         self._update_org_axis_labels(fig)
-        
+
         # Add responsive layout configuration
         fig.update_layout(
             grid=dict(
-                rows=subplot_config["rows"], 
+                rows=subplot_config["rows"],
                 columns=subplot_config["cols"],
                 pattern='independent',
                 roworder='top to bottom'
@@ -707,21 +708,22 @@ class OrganizationRepoAnalysis:
                 font=dict(size=10)
             )
         )
-        
+
         # Update font size for subplot titles
         if fig.layout.annotations:
             for ann in fig.layout.annotations:
                 ann.font.size = 12
-                
+
         # Make sure plots are responsive
         for i in range(1, subplot_config["rows"] + 1):
             for j in range(1, subplot_config["cols"] + 1):
                 fig.update_xaxes(automargin=True, row=i, col=j)
                 fig.update_yaxes(automargin=True, row=i, col=j)
-                
+
         return fig
 
-    def _add_org_language_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_org_language_chart(self, fig: go.Figure, chart_colors: list,
+                                org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add top languages across all organizations chart"""
         if self.all_languages:
             top_languages = sorted(self.all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -738,7 +740,8 @@ class OrganizationRepoAnalysis:
                 row=1, col=1
             )
 
-    def _add_org_repo_count_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_org_repo_count_chart(self, fig: go.Figure, chart_colors: list,
+                                  org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add organization repository count pie chart"""
         if org_repos:
             org_counts = {org: len(repos) for org, repos in org_repos.items()}
@@ -750,48 +753,50 @@ class OrganizationRepoAnalysis:
                 row=1, col=2
             )
 
-    def _add_org_specific_language_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_org_specific_language_chart(self, fig: go.Figure, chart_colors: list,
+                                         org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add organization-specific language distribution"""
         if self.org_languages:
             # Create data for a stacked bar chart of languages per organization
             orgs = list(self.org_languages.keys())
-            
+
             # Get top 5 languages across all orgs
             all_langs_sorted = sorted(self.all_languages.items(), key=lambda x: x[1], reverse=True)
             top_langs = [lang for lang, _ in all_langs_sorted[:5]]
-            
+
             # Create a trace for each top language
             for i, lang in enumerate(top_langs):
                 y_values = []
                 for org in orgs:
                     y_values.append(self.org_languages[org].get(lang, 0))
-                
+
                 fig.add_trace(
                     go.Bar(
-                        x=orgs, 
+                        x=orgs,
                         y=y_values,
                         name=lang,
                         marker_color=chart_colors[i % len(chart_colors)]
                     ),
                     row=2, col=1
                 )
-            
+
             # Set barmode to stack for this subplot
             fig.update_layout(barmode='stack')
 
-    def _add_repo_size_by_org_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_repo_size_by_org_chart(self, fig: go.Figure, chart_colors: list,
+                                    org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add repository size boxplot by organization"""
         if org_repos:
             # Create data for boxplot
             boxplot_data = []
             org_names = []
-            
+
             for org_name, repos in org_repos.items():
                 repo_sizes = [repo.total_loc for repo in repos if repo.total_loc > 0]
                 if repo_sizes:
                     boxplot_data.append(repo_sizes)
                     org_names.append(org_name)
-            
+
             if boxplot_data:
                 fig.add_trace(
                     go.Box(
@@ -801,7 +806,7 @@ class OrganizationRepoAnalysis:
                     ),
                     row=2, col=2
                 )
-                
+
                 # Add additional box plots for each organization
                 for i in range(1, len(boxplot_data)):
                     fig.add_trace(
@@ -813,16 +818,17 @@ class OrganizationRepoAnalysis:
                         row=2, col=2
                     )
 
-    def _add_stars_by_org_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_stars_by_org_chart(self, fig: go.Figure, chart_colors: list,
+                                org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add stars distribution by organization"""
         if org_repos:
             orgs = []
             total_stars = []
-            
+
             for org_name, repos in org_repos.items():
                 orgs.append(org_name)
                 total_stars.append(sum(repo.stars for repo in repos))
-            
+
             fig.add_trace(
                 go.Bar(
                     x=orgs,
@@ -833,18 +839,19 @@ class OrganizationRepoAnalysis:
                 row=3, col=1
             )
 
-    def _add_activity_status_chart(self, fig: go.Figure, chart_colors: list, org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_activity_status_chart(self, fig: go.Figure, chart_colors: list,
+                                   org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add active vs inactive repositories by organization"""
         if org_repos:
             orgs = []
             active_counts = []
             inactive_counts = []
-            
+
             for org_name, repos in org_repos.items():
                 orgs.append(org_name)
                 active_counts.append(sum(1 for repo in repos if repo.is_active))
                 inactive_counts.append(sum(1 for repo in repos if not repo.is_active))
-            
+
             fig.add_trace(
                 go.Bar(
                     x=orgs,
@@ -854,7 +861,7 @@ class OrganizationRepoAnalysis:
                 ),
                 row=3, col=2
             )
-            
+
             fig.add_trace(
                 go.Bar(
                     x=orgs,
@@ -864,31 +871,33 @@ class OrganizationRepoAnalysis:
                 ),
                 row=3, col=2
             )
-            
+
             # Set barmode to group for this subplot only
             fig.update_layout(barmode='group')
 
     def _add_org_repo_age_chart(self, fig: go.Figure, chart_colors: list, all_org_repos: List[RepoStats]) -> None:
         """Add repository age distribution chart for all organization repos"""
-        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in all_org_repos]
+        ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in
+                all_org_repos]
         if ages:
             fig.add_trace(
                 go.Histogram(x=ages, nbinsx=15, name="Repository Ages (Years)", marker_color=chart_colors[5]),
                 row=4, col=1
             )
 
-    def _add_org_contribution_timeline(self, fig: go.Figure, chart_colors: list, all_org_repos: List[RepoStats]) -> None:
+    def _add_org_contribution_timeline(self, fig: go.Figure, chart_colors: list,
+                                       all_org_repos: List[RepoStats]) -> None:
         """Add organization contribution timeline chart"""
         # Group repos by creation year
         years = defaultdict(int)
         for repo in all_org_repos:
             year = repo.created_at.year
             years[year] += 1
-        
+
         if years:
             sorted_years = sorted(years.items())
             year_labels, repo_counts = zip(*sorted_years)
-            
+
             fig.add_trace(
                 go.Bar(
                     x=list(year_labels),
@@ -899,7 +908,8 @@ class OrganizationRepoAnalysis:
                 row=4, col=2
             )
 
-    def _update_org_axis_labels(self, fig: go.Figure) -> None:
+    @staticmethod
+    def _update_org_axis_labels(fig: go.Figure) -> None:
         """Update axis labels for all subplots"""
         fig.update_xaxes(title_text="Language", row=1, col=1)
         fig.update_yaxes(title_text="Lines of Code", row=1, col=1)

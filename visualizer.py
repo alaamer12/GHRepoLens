@@ -23,7 +23,54 @@ from charts import CreateDetailedCharts
 from repo_analyzer import PersonalRepoAnalysis, OrganizationRepoAnalysis
 
 
-
+def _get_ext_to_lang_mapping() -> dict:
+    """Get the mapping of file extensions to languages"""
+    return {
+        ".py": "Python",
+        ".js": "JavaScript",
+        ".tsx": "TypeScript",
+        ".ts": "TypeScript",
+        ".java": "Java",
+        ".rb": "Ruby",
+        ".php": "PHP",
+        ".go": "Go",
+        ".rs": "Rust",
+        ".cs": "C#",
+        ".cpp": "C++",
+        ".c": "C",
+        ".html": "HTML",
+        ".css": "CSS",
+        ".sh": "Shell",
+        ".jsx": "JavaScript",
+        ".vue": "Vue",
+        ".dart": "Dart",
+        ".kt": "Kotlin",
+        ".swift": "Swift",
+        ".scala": "Scala",
+        ".m": "Objective-C",
+        ".mm": "Objective-C",
+        ".pl": "Perl",
+        ".pm": "Perl",
+        ".r": "R",
+        ".lua": "Lua",
+        ".groovy": "Groovy",
+        ".sql": "SQL",
+        ".md": "Markdown",
+        ".json": "JSON",
+        ".yml": "YAML",
+        ".yaml": "YAML",
+        ".xml": "XML",
+        ".toml": "TOML",
+        ".ex": "Elixir",
+        ".exs": "Elixir",
+        ".elm": "Elm",
+        ".clj": "Clojure",
+        ".fs": "F#",
+        ".hs": "Haskell",
+        ".jl": "Julia",
+        ".nim": "Nim",
+        ".zig": "Zig"
+    }
 
 
 class GithubVisualizer:
@@ -31,6 +78,7 @@ class GithubVisualizer:
 
     def __init__(self, username: str, reports_dir: Path, theme: Optional[ThemeConfig] = None):
         """Initialize the visualizer with username and reports directory"""
+        self.all_stats: Optional[List[RepoStats]] = None
         self.username = username
         self.reports_dir = reports_dir
         self.assets_dir = Path("assets")  # Changed from Path("static") / "assets" to just "assets"
@@ -70,21 +118,21 @@ class GithubVisualizer:
         else:
             self.has_org_repos = False
             logger.info("No organization repositories will be included")
-            
+
     def create_visualizations(self, all_stats: List[RepoStats], org_repos: Dict[str, List[RepoStats]] = None) -> None:
         """Generate visual reports with charts and graphs"""
         logger.info("Generating visual report")
 
         # Store all_stats as an instance attribute for later use
         self.all_stats = all_stats
-        
+
         # Set org repos flag and process org repos if provided
         if org_repos and len(org_repos) > 0:
             self.set_org_repos_included(list(org_repos.keys()))
             # Process organization repositories if there are any
             if self.orepo_analysis:
                 self.orepo_analysis.process_repositories(org_repos)
-        
+
         logger.info(f"Organization repos flag: {self.has_org_repos}")
         logger.info(f"Organization names: {self.org_names}")
 
@@ -93,20 +141,21 @@ class GithubVisualizer:
 
         # Set up visualization environment
         self._setup_visualization_environment()
-        
+
         # Process language data
         self._process_language_data(non_empty_repos)
-        
+
         # Create main dashboard figure
         fig = self._create_dashboard_figure(non_empty_repos)
-        
+
         # Create detailed charts
         self._create_detailed_charts()
-        
+
         # Generate and save HTML dashboard
         self._save_dashboard_html(fig, non_empty_repos)
 
-    def _setup_visualization_environment(self):
+    @staticmethod
+    def _setup_visualization_environment():
         """Set up the visualization environment with proper styling"""
         plt.style.use('seaborn-v0_8')
         sns.set_palette("husl")
@@ -123,16 +172,16 @@ class GithubVisualizer:
         self.repos_with_unknown_language = set()
         # Store inferred languages based on file extensions
         self.inferred_languages = {}
-        
+
         # Debug info: log repositories and their assigned languages before processing
         logger.info("Repository language data before processing:")
         for stats in non_empty_repos:
             logger.info(f"  {stats.name}: primary_language={stats.primary_language}, " +
-                      f"language_data={stats.languages}, total_loc={stats.total_loc}")
-        
+                        f"language_data={stats.languages}, total_loc={stats.total_loc}")
+
         for stats in non_empty_repos:
             self._process_repo_language(stats, all_languages)
-        
+
         # Log the repositories marked as having unknown language
         logger.info(f"Repositories with unknown language: {list(self.repos_with_unknown_language)}")
         logger.info(f"Repositories with inferred languages: {self.inferred_languages}")
@@ -143,7 +192,7 @@ class GithubVisualizer:
 
         # Final sanity check and adjustment
         self._adjust_language_totals(all_languages, total_loc_sum, lang_loc_sum)
-        
+
         # Store processed language data for later use
         self.all_languages = all_languages
 
@@ -151,13 +200,13 @@ class GithubVisualizer:
         """Process language data for a single repository"""
         # Check if repository has any valid language data
         lang_sum = sum(stats.languages.values())
-        
+
         if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
             # Either no language data or inconsistent data (>10% over total)
             if stats.total_loc > 0:
                 # Try to infer language from file types
                 inferred_language = self._infer_language_from_file_types(stats)
-                
+
                 if inferred_language != "Unknown":
                     logger.info(f"Inferred language '{inferred_language}' for {stats.name} based on file extensions")
                     all_languages[inferred_language] += stats.total_loc
@@ -175,16 +224,17 @@ class GithubVisualizer:
             for lang, loc in stats.languages.items():
                 all_languages[lang] += loc
 
-    def _infer_language_from_file_types(self, stats: RepoStats) -> str:
+    @staticmethod
+    def _infer_language_from_file_types(stats: RepoStats) -> str:
         """Infer the primary language of a repository based on file extensions"""
         # Map of file extensions to languages
-        ext_to_lang = self._get_ext_to_lang_mapping()
-        
+        ext_to_lang = _get_ext_to_lang_mapping()
+
         # Count files by extension
         file_counts = defaultdict(int)
         for ext, count in stats.file_types.items():
             file_counts[ext] += count
-        
+
         # Find the most common programming language extension
         max_count = 0
         inferred_language = "Unknown"
@@ -192,60 +242,11 @@ class GithubVisualizer:
             if ext in ext_to_lang and count > max_count:
                 max_count = count
                 inferred_language = ext_to_lang[ext]
-        
-        return inferred_language
-    
-    def _get_ext_to_lang_mapping(self) -> dict:
-        """Get the mapping of file extensions to languages"""
-        return {
-            ".py": "Python", 
-            ".js": "JavaScript",
-            ".tsx": "TypeScript",
-            ".ts": "TypeScript",
-            ".java": "Java",
-            ".rb": "Ruby",
-            ".php": "PHP",
-            ".go": "Go",
-            ".rs": "Rust",
-            ".cs": "C#",
-            ".cpp": "C++",
-            ".c": "C",
-            ".html": "HTML",
-            ".css": "CSS",
-            ".sh": "Shell",
-            ".jsx": "JavaScript",
-            ".vue": "Vue",
-            ".dart": "Dart",
-            ".kt": "Kotlin",
-            ".swift": "Swift",
-            ".scala": "Scala",
-            ".m": "Objective-C",
-            ".mm": "Objective-C",
-            ".pl": "Perl",
-            ".pm": "Perl",
-            ".r": "R",
-            ".lua": "Lua",
-            ".groovy": "Groovy",
-            ".sql": "SQL",
-            ".md": "Markdown",
-            ".json": "JSON",
-            ".yml": "YAML",
-            ".yaml": "YAML",
-            ".xml": "XML",
-            ".toml": "TOML",
-            ".ex": "Elixir",
-            ".exs": "Elixir",
-            ".elm": "Elm",
-            ".clj": "Clojure",
-            ".fs": "F#",
-            ".hs": "Haskell",
-            ".jl": "Julia",
-            ".nim": "Nim",
-            ".zig": "Zig"
-        }
-    
 
-    def _adjust_language_totals(self, all_languages: dict, total_loc_sum: int, lang_loc_sum: int) -> None:
+        return inferred_language
+
+    @staticmethod
+    def _adjust_language_totals(all_languages: dict, total_loc_sum: int, lang_loc_sum: int) -> None:
         """Adjust language totals to match the overall LOC count"""
         if total_loc_sum > 0 and abs(lang_loc_sum - total_loc_sum) > total_loc_sum * 0.01:  # 1% tolerance
             logger.warning(f"Language LOC sum ({lang_loc_sum}) differs from total LOC ({total_loc_sum})")
@@ -265,22 +266,22 @@ class GithubVisualizer:
         """Create the main dashboard figure with multiple subplots"""
         # Set any data the PersonalRepoAnalysis needs
         self.prepo_analysis.all_languages = self.all_languages
-        
+
         # Delegate to the PersonalRepoAnalysis class
         return self.prepo_analysis.create_dashboard_figure(non_empty_repos)
 
     def _create_detailed_charts(self) -> None:
         """Create detailed charts for in-depth analysis"""
         logger.info("Starting to create detailed charts...")
-        
+
         # Ensure the static directory exists
         static_dir = Path("reports/static")
         os.makedirs(static_dir, exist_ok=True)
-        
+
         # Create detailed charts
         detailed_charts = CreateDetailedCharts(self.all_stats, self.theme, self.reports_dir)
         detailed_charts.create()
-        
+
         # Verify that charts were created
         chart_files = list(self.reports_dir.glob("*.png"))
         logger.info(f"Created {len(chart_files)} chart files: {[f.name for f in chart_files]}")
@@ -310,7 +311,8 @@ class GithubVisualizer:
 
         # Log information about repos_with_unknown_language
         if hasattr(self, 'repos_with_unknown_language'):
-            logger.info(f"In _generate_dashboard_html: Found repos_with_unknown_language with {len(self.repos_with_unknown_language)} entries")
+            logger.info(
+                f"In _generate_dashboard_html: Found repos_with_unknown_language with {len(self.repos_with_unknown_language)} entries")
             logger.info(f"  Content: {sorted(list(self.repos_with_unknown_language))}")
         else:
             logger.warning("In _generate_dashboard_html: repos_with_unknown_language attribute not found!")
@@ -318,7 +320,7 @@ class GithubVisualizer:
         # Prepare repository data for the table
         repos_table_data = []
         languages_in_table = {}
-        
+
         for repo in non_empty_repos:
             # Check if this repository has an inferred language
             if hasattr(self, 'inferred_languages') and repo.name in self.inferred_languages:
@@ -329,14 +331,15 @@ class GithubVisualizer:
             # Fallback to the original primary language
             else:
                 language = repo.primary_language or "Unknown"
-            
+
             # Log individual language decisions
             if repo.primary_language != language:
-                logger.info(f"Repository {repo.name}: Overriding primary_language '{repo.primary_language}' with '{language}'")
-            
+                logger.info(
+                    f"Repository {repo.name}: Overriding primary_language '{repo.primary_language}' with '{language}'")
+
             # Track languages for later summary
             languages_in_table[repo.name] = language
-            
+
             repos_table_data.append({
                 "name": repo.name,
                 "language": language,
@@ -346,7 +349,7 @@ class GithubVisualizer:
                 "maintenance": f"{repo.maintenance_score:.1f}",
                 "url": f"https://github.com/{self.username}/{repo.name}"  # Add GitHub URL
             })
-            
+
         # Log summary of languages in table
         logger.info("Summary of languages in repository table:")
         for repo_name, language in sorted(languages_in_table.items()):
@@ -402,7 +405,8 @@ class GithubVisualizer:
 
         return html_content
 
-    def _create_chart_modal_container(self) -> str:
+    @staticmethod
+    def _create_chart_modal_container() -> str:
         """Create the chart modal container"""
         return """
                 <!-- Modal for full-screen chart view with interactive content -->
@@ -419,7 +423,6 @@ class GithubVisualizer:
                     </div>
                 </div>
         """
-    
 
     def _create_head_section(self) -> str:
         """Create the head section of the HTML file"""
@@ -1086,7 +1089,8 @@ class GithubVisualizer:
 
         return body_start
 
-    def _create_creator_section(self) -> str:
+    @staticmethod
+    def _create_creator_section() -> str:
         """Create the creator section of the HTML file"""
         creator_section = """
             <!-- Creator Section - Modern & Compact -->
@@ -1207,13 +1211,13 @@ class GithubVisualizer:
             </script>
         """
         return creator_section
-    
+
     def _create_repo_type_tabs(self) -> str:
         """Create tab buttons to switch between personal and organization repositories"""
         # If there are no organization repositories, don't show the tabs
         if not self.has_org_repos:
             return ""
-            
+
         repo_type_tabs = """
             <!-- Repository Type Tabs - Toggle between Personal and Organization repositories -->
             <div data-aos="fade-up" data-aos-duration="600" class="mb-8">
@@ -1260,7 +1264,8 @@ class GithubVisualizer:
         """
         return repo_type_tabs
 
-    def _create_stats_section(self) -> str:
+    @staticmethod
+    def _create_stats_section() -> str:
         """Create the stats section of the HTML file"""
         stats_section = f"""<!-- Stats overview with enhanced animations -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
@@ -1373,12 +1378,12 @@ class GithubVisualizer:
         """Create the charts section of the HTML file"""
         # Generate personal repository charts
         personal_charts = self.prepo_analysis.create_charts_section()
-        
+
         # Generate organization repository charts if applicable
         org_charts = ""
         if self.has_org_repos and self.orepo_analysis:
             org_charts = self.orepo_analysis.create_charts_section()
-        
+
         # If there are organization repositories, we'll include both sections
         # The repo_tabs_js will handle showing/hiding these sections
         if self.has_org_repos:
@@ -1404,7 +1409,7 @@ class GithubVisualizer:
         logger.info(f"Checking if chart exists at: {chart_path}")
         exists = chart_path.exists()
         logger.info(f"Chart {chart_name}.png exists: {exists}")
-        
+
         # Always return True to include the section with placeholder images when needed
         # The _get_chart_html method will handle displaying a placeholder if the file doesn't exist
         return True
@@ -1462,15 +1467,15 @@ class GithubVisualizer:
     def _create_additional_charts_section(self) -> str:
         """Create the additional charts section of the HTML file"""
         # Log which charts exist before creating the section
-        chart_names = ["repository_timeline", "repo_creation_timeline", "quality_heatmap", 
+        chart_names = ["repository_timeline", "repo_creation_timeline", "quality_heatmap",
                        "repo_types_distribution", "commit_activity_heatmap", "top_repos_metrics",
                        "infrastructure_metrics", "documentation_quality", "active_inactive_age"]
-        
+
         logger.info("Checking charts for additional section:")
         for chart_name in chart_names:
             exists = self._check_chart_exists(chart_name)
             logger.info(f"- {chart_name}: {'✓' if exists else '✗'}")
-            
+
         additional_charts_section = """<!-- Additional Charts Section with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" data-aos-delay="300" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme mb-10 transform hover:shadow-2xl transition-all duration-300">
                     <h2 class="text-2xl font-semibold mb-6 dark:text-white flex items-center">
@@ -1534,7 +1539,8 @@ class GithubVisualizer:
 
         return additional_charts_section
 
-    def _create_footer_section(self, timestamp: str) -> str:
+    @staticmethod
+    def _create_footer_section(timestamp: str) -> str:
         """Create the footer section of the HTML file with enhanced style and dynamic timestamp"""
         footer_section = f"""
         <!-- Footer with enhanced style and animation -->
@@ -1566,7 +1572,8 @@ class GithubVisualizer:
         </div>"""
         return footer_section
 
-    def _create_js_part1(self) -> str:
+    @staticmethod
+    def _create_js_part1() -> str:
         """Create the first part of the JavaScript section of the HTML file"""
         js_part1 = """<script>
                 // Initialize AOS animations
@@ -1715,7 +1722,8 @@ class GithubVisualizer:
 
         return js_part2
 
-    def _create_repo_table_js(self, repos_json: str) -> str:
+    @staticmethod
+    def _create_repo_table_js(repos_json: str) -> str:
         """Create the JavaScript section for the repository table"""
         repo_table_js = f"""
                 // Repository data
@@ -1890,7 +1898,7 @@ class GithubVisualizer:
         # If there are no organization repositories, return empty JavaScript
         if not self.has_org_repos:
             return ""
-            
+
         repo_tabs_js = """
                 // Repository Type Tabs Functionality
                 function initRepoTypeTabs() {
@@ -2162,14 +2170,15 @@ class GithubVisualizer:
                 """
         return repo_tabs_js
 
-    def _create_js_part3(self, repo_table_js: str, repo_tabs_js: str) -> str:
+    @staticmethod
+    def _create_js_part3(repo_table_js: str, repo_tabs_js: str) -> str:
         """Create the third part of the JavaScript section of the HTML file"""
         # Add conditional check for repo_tabs_js
         init_repo_tabs_js = """
                     // Initialize repository type tabs
                     initRepoTypeTabs();
         """ if repo_tabs_js else ""
-        
+
         js_part3 = f"""
                 // Initialize when DOM is loaded
                 document.addEventListener('DOMContentLoaded', function() {{

@@ -11,12 +11,13 @@ Key components:
 - Configuration loading and sample creation functions
 """
 
-import os
 import configparser
+import os
 from pathlib import Path
 from typing import List, TypedDict, Dict, Set
 
 from console import console, logger
+
 
 class Configuration(TypedDict):
     """
@@ -40,6 +41,7 @@ class Configuration(TypedDict):
     CHECKPOINT_THRESHOLD: int
     RESUME_FROM_CHECKPOINT: bool
     INCLUDE_ORGS: List[str]  # List of organization names to include in analysis
+
 
 # Configuration - these will be replaced by command line args or config file
 DEFAULT_CONFIG: Configuration = {
@@ -65,31 +67,31 @@ DEFAULT_CONFIG: Configuration = {
 LANGUAGE_EXTENSIONS: Dict[str, str] = {
     # Python and related
     '.py': 'Python', '.pyx': 'Cython', '.pyd': 'Python', '.pyi': 'Python', '.ipynb': 'Jupyter',
-    
+
     # JavaScript/TypeScript ecosystem
-    '.js': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript', 
+    '.js': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript',
     '.ts': 'TypeScript', '.tsx': 'TypeScript', '.jsx': 'JavaScript',
     '.vue': 'Vue', '.svelte': 'Svelte', '.astro': 'Astro',
-    
+
     # Web technologies
     '.html': 'HTML', '.htm': 'HTML', '.xhtml': 'HTML',
     '.css': 'CSS', '.scss': 'SCSS', '.sass': 'Sass', '.less': 'Less',
     '.json': 'JSON', '.jsonc': 'JSON', '.json5': 'JSON',
-    '.xml': 'XML', '.xsl': 'XML', '.xslt': 'XML', '.svg': 'SVG',
-    
+    '.xsl': 'XML', '.xslt': 'XML', '.svg': 'SVG',
+
     # JVM languages
-    '.java': 'Java', '.kt': 'Kotlin', '.kts': 'Kotlin', '.groovy': 'Groovy',
+    '.java': 'Java', '.kts': 'Kotlin', '.groovy': 'Groovy',
     '.scala': 'Scala', '.sc': 'Scala', '.clj': 'Clojure', '.cljs': 'ClojureScript',
-    
+
     # C-family languages
     '.c': 'C', '.h': 'C', '.cpp': 'C++', '.cc': 'C++', '.cxx': 'C++',
     '.hpp': 'C++', '.hxx': 'C++', '.hh': 'C++',
     '.cs': 'C#', '.vb': 'Visual Basic', '.fs': 'F#', '.fsx': 'F#',
-    
+
     # Mobile development
     '.swift': 'Swift', '.m': 'Objective-C', '.mm': 'Objective-C++',
     '.dart': 'Dart', '.kt': 'Kotlin',
-    
+
     # Other programming languages
     '.go': 'Go', '.rs': 'Rust', '.rb': 'Ruby', '.erb': 'Ruby',
     '.php': 'PHP', '.phtml': 'PHP', '.phps': 'PHP',
@@ -102,28 +104,28 @@ LANGUAGE_EXTENSIONS: Dict[str, str] = {
     '.elm': 'Elm', '.purs': 'PureScript',
     '.ml': 'OCaml', '.mli': 'OCaml',
     '.nim': 'Nim', '.crystal': 'Crystal',
-    
+
     # Shell and scripting
     '.sh': 'Shell', '.bash': 'Bash', '.zsh': 'Zsh', '.fish': 'Fish',
     '.ps1': 'PowerShell', '.psm1': 'PowerShell', '.psd1': 'PowerShell',
     '.bat': 'Batch', '.cmd': 'Batch',
     '.awk': 'AWK', '.sed': 'Sed',
-    
+
     # Configuration and data formats
     '.yml': 'YAML', '.yaml': 'YAML', '.toml': 'TOML', '.ini': 'INI',
     '.xml': 'XML', '.sql': 'SQL', '.graphql': 'GraphQL', '.gql': 'GraphQL',
     '.proto': 'Protocol Buffers', '.thrift': 'Thrift',
-    
+
     # Infrastructure and DevOps
     '.dockerfile': 'Docker', '.containerfile': 'Docker',
     '.tf': 'Terraform', '.tfvars': 'Terraform',
     '.hcl': 'HCL', '.nomad': 'Nomad',
     '.bicep': 'Bicep', '.cdk': 'CDK',
-    
+
     # Documentation
     '.md': 'Markdown', '.mdx': 'MDX', '.rst': 'reStructuredText',
     '.tex': 'LaTeX', '.adoc': 'AsciiDoc', '.wiki': 'Wiki',
-    
+
     # Other
     '.csv': 'CSV', '.tsv': 'TSV',
     '.zig': 'Zig', '.v': 'V', '.vlang': 'V',
@@ -134,34 +136,34 @@ BINARY_EXTENSIONS: Set[str] = {
     # Images
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp', '.tiff', '.tif',
     '.psd', '.ai', '.eps', '.indd', '.raw', '.cr2', '.nef', '.heif', '.heic',
-    
+
     # Documents and PDFs
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
     '.odt', '.ods', '.odp', '.pages', '.numbers', '.key',
-    
+
     # Archives and compressed files
     '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar', '.iso',
     '.tgz', '.tbz2', '.txz', '.lz', '.lzma', '.lzo', '.zst',
-    
+
     # Executables and libraries
     '.exe', '.dll', '.so', '.dylib', '.a', '.lib', '.o', '.obj',
     '.bin', '.com', '.msi', '.app', '.dmg', '.deb', '.rpm',
-    
+
     # Compiled code
     '.pyc', '.pyd', '.pyo', '.class', '.jar', '.war', '.ear',
     '.whl', '.egg', '.dex', '.apk', '.aab', '.ipa',
-    
+
     # Data and databases
     '.dat', '.db', '.sqlite', '.sqlite3', '.mdb', '.accdb',
     '.frm', '.myd', '.myi', '.ibd', '.dbf', '.bak',
-    
+
     # Media files
     '.mp3', '.mp4', '.wav', '.flac', '.ogg', '.m4a', '.aac',
     '.avi', '.mov', '.wmv', '.mkv', '.webm', '.flv', '.m4v',
-    
+
     # Fonts
     '.ttf', '.otf', '.woff', '.woff2', '.eot',
-    
+
     # Other binary formats
     '.blend', '.fbx', '.3ds', '.obj', '.stl', '.glb', '.gltf',
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
@@ -183,7 +185,7 @@ SPECIAL_FILENAMES: Dict[str, str] = {
     'PATENTS': 'Text',
     'VERSION': 'Text',
     'INSTALL': 'Text',
-    
+
     # Configuration files
     'Dockerfile': 'Docker',
     'Makefile': 'Makefile',
@@ -202,29 +204,29 @@ SPECIAL_FILENAMES: Dict[str, str] = {
     '.yarnrc': 'YAML',
     '.editorconfig': 'INI',
     '.browserslistrc': 'Text',
-    
+
     # Go files
     'go.mod': 'Go',
     'go.sum': 'Go',
-    
+
     # Python files
     'Pipfile': 'TOML',
     'pyproject.toml': 'TOML',
     'requirements': 'Text',
-    
+
     # JavaScript/Node files
     'package.json': 'JSON',
     'package-lock.json': 'JSON',
     'yarn.lock': 'YAML',
     'tsconfig.json': 'JSON',
-    
+
     # Ruby files
     'Gemfile': 'Ruby',
     'Rakefile': 'Ruby',
-    
+
     # Shell scripts
     'configure': 'Shell',
-    
+
     # Other
     'CODEOWNERS': 'Text',
     '.mailmap': 'Text',
@@ -237,63 +239,63 @@ CONFIG_FILES: Set[str] = {
     'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt',
     'Pipfile', 'Pipfile.lock', 'pyproject.toml', 'setup.py', 'setup.cfg',
     'poetry.lock', 'conda-env.yml', 'environment.yml', 'tox.ini',
-    
+
     # JavaScript/TypeScript
     'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
     'bun.lockb', 'npm-shrinkwrap.json', 'bower.json', 'lerna.json',
     'tsconfig.json', 'jsconfig.json', '.babelrc', '.eslintrc', '.prettierrc',
     'webpack.config.js', 'rollup.config.js', 'vite.config.js', 'next.config.js',
     'svelte.config.js', 'nuxt.config.js', 'astro.config.mjs',
-    
+
     # Ruby
     'Gemfile', 'Gemfile.lock', '.ruby-version', '.ruby-gemset',
-    
+
     # Go
     'go.mod', 'go.sum', 'glide.yaml', 'glide.lock', 'Gopkg.toml', 'Gopkg.lock',
-    
+
     # Rust
     'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
-    
+
     # Java/JVM
     'pom.xml', 'build.gradle', 'build.gradle.kts', 'settings.gradle',
     'settings.gradle.kts', 'gradle.properties', 'build.sbt', 'ivy.xml',
     'maven-wrapper.properties', 'gradle-wrapper.properties',
-    
+
     # PHP
     'composer.json', 'composer.lock', '.htaccess',
-    
+
     # .NET
     'packages.config', '*.csproj', '*.vbproj', '*.fsproj', 'nuget.config',
     'project.json', 'global.json', 'paket.dependencies', 'paket.lock',
-    
+
     # Docker and containers
     'dockerfile', 'docker-compose.yml', 'docker-compose.yaml', '.dockerignore',
     'containerfile', 'docker-compose.override.yml',
-    
+
     # Infrastructure as Code
     'terraform.tfstate', 'terraform.tfvars', 'terragrunt.hcl',
     'cloudformation.yaml', 'cloudformation.json', 'serverless.yml',
     'kubernetes.yaml', 'kustomization.yaml', 'helm.yaml',
-    
+
     # Build systems
     'CMakeLists.txt', 'Makefile', 'makefile', 'Rakefile', 'Gruntfile.js',
     'Gulpfile.js', 'build.xml', 'ant.xml', 'meson.build', 'ninja.build',
     'WORKSPACE', 'BUILD', 'bazel.rc',
-    
+
     # Version control
     '.gitignore', '.gitattributes', '.gitmodules', '.gitkeep',
     '.hgignore', '.svnignore', '.bzrignore', '.cvsignore',
-    
+
     # Editor configs
     '.editorconfig', '.vscode/settings.json', '.idea/workspace.xml',
     '.sublime-project', '.sublime-workspace',
-    
+
     # Linting and formatting
     '.eslintrc.js', '.eslintrc.json', '.eslintrc.yml',
     '.prettierrc.js', '.prettierrc.json', '.prettierrc.yml',
     '.stylelintrc', '.pylintrc', '.flake8', 'mypy.ini',
     'rustfmt.toml', 'clippy.toml', '.golangci.yml',
-    
+
     # Environment and secrets
     '.env', '.env.example', '.env.local', '.env.development', '.env.production',
     '.env.test', '.envrc', '.direnv'
@@ -304,11 +306,11 @@ CICD_FILES: Set[str] = {
     # GitHub
     '.github/workflows', '.github/actions', '.github/CODEOWNERS',
     '.github/dependabot.yml', '.github/dependabot.yaml',
-    
+
     # GitLab
     '.gitlab-ci.yml', '.gitlab/agents', '.gitlab/issue_templates',
     '.gitlab/merge_request_templates',
-    
+
     # Other CI systems
     '.travis.yml', '.circleci/config.yml', 'circle.yml',
     'Jenkinsfile', 'jenkins.yml', 'jenkins.yaml',
@@ -317,19 +319,19 @@ CICD_FILES: Set[str] = {
     '.drone.yml', '.drone.yaml',
     'bitbucket-pipelines.yml', 'bitbucket-pipelines.yaml',
     '.teamcity', 'buildkite.yml', 'buildkite.yaml',
-    
+
     # Testing and quality
     '.codecov.yml', '.coveralls.yml', 'sonar-project.properties',
     'codecov.yml', 'jest.config.js', 'karma.conf.js',
     'cypress.json', 'cypress.config.js', 'playwright.config.js',
     'phpunit.xml', 'pytest.ini', '.nycrc', 'vitest.config.js',
-    
+
     # Deployment
     '.netlify.toml', 'vercel.json', 'now.json',
     'firebase.json', 'fly.toml', 'railway.json',
     'heroku.yml', 'Procfile', 'app.yaml', 'app.json',
     'k8s', 'kubernetes', 'helm', 'charts',
-    
+
     # Release management
     '.releaserc', '.releaserc.json', '.releaserc.js',
     'release.config.js', '.goreleaser.yml', '.goreleaser.yaml',
@@ -343,31 +345,31 @@ EXCLUDED_DIRECTORIES: Set[str] = {
     'Debug', 'Release', 'x64', 'x86', 'Win32', 'ARM',
     'x64/Debug', 'x64/Release', 'x86/Debug', 'x86/Release',
     'cmake-build-debug', 'cmake-build-release',
-    
+
     # Package management
     'node_modules', 'bower_components', 'jspm_packages', 'package',
     'vendor', '.nuget', '.pub-cache', 'site-packages',
     '.venv', 'venv', 'env', 'ENV', 'virtualenv',
     '.gradle', '.m2', '.ivy2', '.cargo', 'node_modules',
-    
+
     # IDE and editor specific
     '.vs', '.vscode', '.idea', '.fleet',
     '.project', '.settings', '.classpath', '.metadata',
     '__pycache__', '.ipynb_checkpoints',
-    
+
     # Documentation and generated content
     'docs/_build', '_site', 'public', 'coverage', 'htmlcov', '.nyc_output',
     'swagger-ui', 'apidoc',
-    
+
     # Version control
     '.git', '.hg', '.svn', '.bzr', 'CVS',
-    
+
     # OS specific
     '.DS_Store', 'Thumbs.db', '__MACOSX',
-    
+
     # Temporary files
     'tmp', 'temp', 'cache', '.cache',
-    
+
     # Unity specific
     'Library', 'Temp', 'Obj', 'Logs', 'UserSettings',
 
@@ -381,27 +383,27 @@ PACKAGE_FILES: Set[str] = {
     'setup.py', 'pyproject.toml', 'setup.cfg', 'requirements.txt',
     'Pipfile', 'Pipfile.lock', 'poetry.lock', 'conda-env.yml',
     'environment.yml',
-    
+
     # JavaScript/Node.js
     'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
     'bun.lockb', 'npm-shrinkwrap.json', 'lerna.json',
-    
+
     # Ruby
     'Gemfile', 'Gemfile.lock',
-    
+
     # PHP
     'composer.json', 'composer.lock',
-    
+
     # .NET
     'packages.config', '.csproj', '.vbproj', '.fsproj', '.nupkg',
-    
+
     # Java
     'pom.xml', 'build.gradle', 'gradle.properties', 'build.sbt',
     'maven-wrapper.properties',
-    
+
     # Go
     'go.mod', 'go.sum',
-    
+
     # Rust
     'Cargo.toml', 'Cargo.lock'
 }
@@ -411,25 +413,25 @@ DEPLOYMENT_FILES: Set[str] = {
     # Docker and containers
     'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
     'containerfile', 'docker-compose.override.yml',
-    
+
     # Kubernetes
     'kubernetes.yaml', 'kubernetes.yml', 'kustomization.yaml',
     'helm.yaml', 'chart.yaml', 'values.yaml',
-    
+
     # Cloud providers
     'appveyor.yml', 'azure-pipelines.yml', '.travis.yml',
     '.circleci/config.yml', 'cloudbuild.yaml', 'buildspec.yml',
     'serverless.yml', 'cloudformation.yaml', 'cloudformation.json',
-    
+
     # Platform specific
     'Procfile', 'app.yaml', 'app.json', '.platform.app.yaml',
     'fly.toml', 'railway.json', 'heroku.yml',
     'vercel.json', 'netlify.toml', 'now.json',
-    
+
     # Infrastructure as code
     'terraform.tfstate', 'terraform.tfvars', 'terragrunt.hcl',
     'main.tf', 'variables.tf', 'outputs.tf',
-    
+
     # Deployment scripts
     'deploy.sh', 'deploy.py', 'deploy.js', 'deploy.ps1',
     'deploy-production.sh', 'deploy-staging.sh'
@@ -446,6 +448,7 @@ RELEASE_FILES: Set[str] = {
     'semver.txt', 'semantic-release.config.js'
 }
 
+
 def load_config_from_file(config_file: str) -> Configuration:
     """
     Load configuration from a file.
@@ -460,22 +463,22 @@ def load_config_from_file(config_file: str) -> Configuration:
         Updated configuration dictionary
     """
     config = DEFAULT_CONFIG.copy()
-    
+
     if not os.path.exists(config_file):
         logger.warning(f"Config file {config_file} not found, using defaults")
         return config
-        
+
     try:
         parser = configparser.ConfigParser()
         parser.read(config_file)
-        
+
         if 'github' in parser:
             github_section = parser['github']
             if 'token' in github_section:
                 config['GITHUB_TOKEN'] = github_section['token']
             if 'username' in github_section:
                 config['USERNAME'] = github_section['username']
-                
+
         if 'analysis' in parser:
             analysis_section = parser['analysis']
             if 'reports_dir' in analysis_section:
@@ -488,7 +491,7 @@ def load_config_from_file(config_file: str) -> Configuration:
                 config['INACTIVE_THRESHOLD_DAYS'] = int(analysis_section['inactive_threshold_days'])
             if 'large_repo_loc_threshold' in analysis_section:
                 config['LARGE_REPO_LOC_THRESHOLD'] = int(analysis_section['large_repo_loc_threshold'])
-                
+
         if 'filters' in parser:
             filters_section = parser['filters']
             if 'skip_forks' in filters_section:
@@ -504,7 +507,7 @@ def load_config_from_file(config_file: str) -> Configuration:
                 orgs_str = filters_section['include_orgs']
                 if orgs_str.strip():
                     config['INCLUDE_ORGS'] = [org.strip() for org in orgs_str.split(',')]
-                
+
         if 'checkpointing' in parser:
             checkpoint_section = parser['checkpointing']
             if 'enable_checkpointing' in checkpoint_section:
@@ -515,13 +518,14 @@ def load_config_from_file(config_file: str) -> Configuration:
                 config['CHECKPOINT_THRESHOLD'] = int(checkpoint_section['checkpoint_threshold'])
             if 'resume_from_checkpoint' in checkpoint_section:
                 config['RESUME_FROM_CHECKPOINT'] = checkpoint_section.getboolean('resume_from_checkpoint')
-                
+
         logger.info(f"Loaded configuration from {config_file}")
         return config
-        
+
     except Exception as e:
         logger.error(f"Error loading config file {config_file}: {e}")
         return config
+
 
 def create_sample_config() -> None:
     """
@@ -531,16 +535,16 @@ def create_sample_config() -> None:
     as a template for users to customize.
     """
     config_file = 'config.ini.sample'
-    
+
     if os.path.exists(config_file):
         return
-        
+
     config = configparser.ConfigParser()
     config['github'] = {
         'token': 'your_github_token_here',
         'username': 'your_username_here'
     }
-    
+
     config['analysis'] = {
         'reports_dir': 'reports',
         'clone_dir': 'temp_repos',
@@ -548,7 +552,7 @@ def create_sample_config() -> None:
         'inactive_threshold_days': '180',
         'large_repo_loc_threshold': '1000'
     }
-    
+
     config['filters'] = {
         'skip_forks': 'false',
         'skip_archived': 'false',
@@ -556,58 +560,59 @@ def create_sample_config() -> None:
         'analyze_clones': 'false',
         'include_orgs': ''  # Empty string for no organizations
     }
-    
+
     config['checkpointing'] = {
         'enable_checkpointing': 'true',
         'checkpoint_file': 'github_analyzer_checkpoint.pkl',
         'checkpoint_threshold': '100',
         'resume_from_checkpoint': 'true'
     }
-    
+
     with open(config_file, 'w') as f:
         config.write(f)
-    
+
     console.print(f"[green]Created sample configuration file: {config_file}[/green]")
     console.print("[yellow]Rename to config.ini and update with your settings.[/yellow]")
+
 
 class ThemeConfig(TypedDict, total=False):
     """Theme configuration for the visualization dashboard"""
     # Color schemes
-    primary_color: str       # Main brand color
-    secondary_color: str     # Secondary brand color
-    accent_color: str        # Accent color for highlights
-    
+    primary_color: str  # Main brand color
+    secondary_color: str  # Secondary brand color
+    accent_color: str  # Accent color for highlights
+
     # Light mode colors
-    light_bg_color: str      # Light mode background
-    light_text_color: str    # Light mode text color
-    light_card_bg: str       # Light mode card background
-    light_chart_bg: str       # Light mode chart background
-    
+    light_bg_color: str  # Light mode background
+    light_text_color: str  # Light mode text color
+    light_card_bg: str  # Light mode card background
+    light_chart_bg: str  # Light mode chart background
+
     # Dark mode colors
-    dark_bg_color: str       # Dark mode background
-    dark_text_color: str     # Dark mode text color
-    dark_card_bg: str        # Dark mode card background
-    dark_chart_bg: str       # Dark mode chart background
-    
+    dark_bg_color: str  # Dark mode background
+    dark_text_color: str  # Dark mode text color
+    dark_card_bg: str  # Dark mode card background
+    dark_chart_bg: str  # Dark mode chart background
+
     # Typography
-    font_family: str         # Main font family
-    heading_font: str        # Font for headings
-    code_font: str           # Font for code sections
-    
+    font_family: str  # Main font family
+    heading_font: str  # Font for headings
+    code_font: str  # Font for code sections
+
     # UI Elements
-    border_radius: str       # Border radius for cards/buttons
-    shadow_style: str        # Shadow style for elements
-    
+    border_radius: str  # Border radius for cards/buttons
+    shadow_style: str  # Shadow style for elements
+
     # Chart colors
-    chart_palette: List[str] # Colors for charts
-    
+    chart_palette: List[str]  # Colors for charts
+
     # Header gradient
-    header_gradient: str     # CSS gradient for header
+    header_gradient: str  # CSS gradient for header
 
 
 class DefaultTheme:
     """Default theme configuration for visualization"""
-    
+
     @staticmethod
     def get_default_theme() -> ThemeConfig:
         """Return the default theme configuration"""
@@ -616,38 +621,39 @@ class DefaultTheme:
             "primary_color": "#4f46e5",  # Indigo
             "secondary_color": "#7c3aed",  # Violet
             "accent_color": "#f97316",  # Orange
-            
+
             # Light mode colors
             "light_bg_color": "#f9fafb",
             "light_text_color": "#111827",
             "light_card_bg": "#ffffff",
             "light_chart_bg": "#ffffff",
-            
+
             # Dark mode colors
             "dark_bg_color": "#111827",
             "dark_text_color": "#f9fafb",
             "dark_card_bg": "#1f2937",
             "dark_chart_bg": "#1f2937",
-            
+
             # Typography
             "font_family": "'Inter', sans-serif",
             "heading_font": "'Inter', sans-serif",
             "code_font": "'Fira Code', monospace",
-            
+
             # UI Elements
             "border_radius": "0.375rem",
             "shadow_style": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
-            
+
             # Chart colors
             "chart_palette": [
-                "#4f46e5", "#7c3aed", "#f97316", "#06b6d4", 
+                "#4f46e5", "#7c3aed", "#f97316", "#06b6d4",
                 "#10b981", "#ec4899", "#f59e0b", "#6366f1",
                 "#ef4444", "#64748b"
             ],
-            
+
             # Header gradient
             "header_gradient": "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #f97316 100%)"
         }
+
 
 def load_theme_config() -> ThemeConfig:
     """
@@ -659,6 +665,7 @@ def load_theme_config() -> ThemeConfig:
     # TODO: In the future, add functionality to load custom theme from file
     return DefaultTheme.get_default_theme()
 
+
 def get_config() -> configparser.ConfigParser:
     """
     Get configuration from .env file or environment variables.
@@ -667,13 +674,13 @@ def get_config() -> configparser.ConfigParser:
         configparser.ConfigParser: A ConfigParser object with configuration settings
     """
     config = configparser.ConfigParser()
-    
+
     # Default configuration
     config['github'] = {
         'username': 'your_github_username',
         'token': 'your_github_token',
     }
-    
+
     # Check for .env file
     env_file = Path('.env')
     if env_file.exists():
@@ -685,26 +692,26 @@ def get_config() -> configparser.ConfigParser:
                 if line and not line.startswith('#'):
                     key, value = line.split('=', 1)
                     env_config[key.strip()] = value.strip().strip('"\'')
-        
+
         # Update config with values from .env
         if 'GITHUB_USERNAME' in env_config:
             config['github']['username'] = env_config['GITHUB_USERNAME']
         if 'GITHUB_TOKEN' in env_config:
             config['github']['token'] = env_config['GITHUB_TOKEN']
-    
+
     # Environment variables override .env file
     if 'GITHUB_USERNAME' in os.environ:
         config['github']['username'] = os.environ['GITHUB_USERNAME']
     if 'GITHUB_TOKEN' in os.environ:
         config['github']['token'] = os.environ['GITHUB_TOKEN']
-    
+
     return config
+
 
 def shutdown_logging() -> None:
     """
     This function is kept for backwards compatibility.
     The actual logging shutdown is now handled in console.py
     """
-    from console import configure_logging
     # Nothing to do, just import to ensure proper references
     pass
