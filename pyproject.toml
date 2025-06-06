@@ -43,7 +43,7 @@ dependencies = [
 "Documentation" = "https://github.com/alaamer12/GHRepoLens#readme"
 
 [project.scripts]
-ghrepolens = "ghrepolens.main:main"
+lens = "ghrepolens.main:main"
 
 [tool.black]
 line-length = 88
