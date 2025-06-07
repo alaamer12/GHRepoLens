@@ -303,7 +303,7 @@ class CodeAnalyzer:
         language = self.get_language_from_file(file_path)
         
         # Special handling for Jupyter notebooks
-        if language == 'jupyter':
+        if language.lower() == 'jupyter':
             return self._count_jupyter_notebook_loc(content, file_path)
             
         # Regular file handling
