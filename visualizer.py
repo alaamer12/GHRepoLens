@@ -30,6 +30,7 @@ def _get_ext_to_lang_mapping() -> dict:
         ".js": "JavaScript",
         ".tsx": "TypeScript",
         ".ts": "TypeScript",
+        ".jsx": "JavaScript",
         ".java": "Java",
         ".rb": "Ruby",
         ".php": "PHP",
@@ -41,7 +42,6 @@ def _get_ext_to_lang_mapping() -> dict:
         ".html": "HTML",
         ".css": "CSS",
         ".sh": "Shell",
-        ".jsx": "JavaScript",
         ".vue": "Vue",
         ".dart": "Dart",
         ".kt": "Kotlin",
@@ -69,7 +69,10 @@ def _get_ext_to_lang_mapping() -> dict:
         ".hs": "Haskell",
         ".jl": "Julia",
         ".nim": "Nim",
-        ".zig": "Zig"
+        ".zig": "Zig",
+        ".tex": "LaTeX",
+        ".ltx": "LaTeX",
+        ".latex": "LaTeX"
     }
 
 
@@ -201,6 +204,26 @@ class GithubVisualizer:
         # Store processed language data for later use
         self.all_languages = all_languages
 
+    @staticmethod
+    def _standardize_language_name(language: str) -> str:
+        """
+        Standardize language names to handle aliases and variations.
+        
+        Args:
+            language: The language name to standardize
+            
+        Returns:
+            Standardized language name
+        """
+        # Language standardization mapping
+        language_aliases = {
+            'TeX': 'LaTeX',  # Treat TeX as LaTeX
+            'React': 'JavaScript',  # For backward compatibility, treat React as JavaScript
+            'ReactJS': 'JavaScript'
+        }
+        
+        return language_aliases.get(language, language)
+
     def _process_repo_language(self, stats: RepoStats, all_languages: dict) -> None:
         """Process language data for a single repository"""
         # Check if repository has any valid language data
@@ -227,7 +250,9 @@ class GithubVisualizer:
         else:
             # Repository has language data
             for lang, loc in stats.languages.items():
-                all_languages[lang] += loc
+                # Standardize language names (e.g., treat TeX as LaTeX)
+                standardized_lang = self._standardize_language_name(lang)
+                all_languages[standardized_lang] += loc
 
     @staticmethod
     def _infer_language_from_file_types(stats: RepoStats) -> str:
@@ -248,7 +273,8 @@ class GithubVisualizer:
                 max_count = count
                 inferred_language = ext_to_lang[ext]
 
-        return inferred_language
+        # Standardize the inferred language name
+        return GithubVisualizer._standardize_language_name(inferred_language)
 
     @staticmethod
     def _adjust_language_totals(all_languages: dict, total_loc_sum: int, lang_loc_sum: int) -> None:
@@ -336,6 +362,9 @@ class GithubVisualizer:
             # Fallback to the original primary language
             else:
                 language = repo.primary_language or "Unknown"
+                
+            # Standardize the language name
+            language = self._standardize_language_name(language)
 
             # Log individual language decisions
             if repo.primary_language != language:

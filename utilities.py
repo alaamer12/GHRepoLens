@@ -244,13 +244,14 @@ def get_file_language(file_path: str) -> str:
         Inferred programming language name or 'Other'
     """
     ext_to_language = {
-        '.py': 'Python', '.js': 'JavaScript', '.ts': 'TypeScript', '.jsx': 'React', '.tsx': 'React',
+        '.py': 'Python', '.js': 'JavaScript', '.ts': 'TypeScript', '.jsx': 'JavaScript', '.tsx': 'TypeScript',
         '.java': 'Java', '.cpp': 'C++', '.c': 'C', '.cs': 'C#', '.go': 'Go', '.rb': 'Ruby',
         '.php': 'PHP', '.swift': 'Swift', '.m': 'Objective-C', '.rs': 'Rust', '.scala': 'Scala',
         '.kt': 'Kotlin', '.kts': 'Kotlin', '.sh': 'Shell', '.bash': 'Shell', '.html': 'HTML',
         '.css': 'CSS', '.scss': 'SCSS', '.sass': 'SASS', '.less': 'LESS', '.md': 'Markdown',
         '.json': 'JSON', '.yaml': 'YAML', '.yml': 'YAML', '.xml': 'XML', '.sql': 'SQL',
-        '.dart': 'Dart', '.r': 'R', '.lua': 'Lua', '.pl': 'Perl', '.jl': 'Julia'
+        '.dart': 'Dart', '.r': 'R', '.lua': 'Lua', '.pl': 'Perl', '.jl': 'Julia',
+        '.tex': 'LaTeX', '.ltx': 'LaTeX', '.latex': 'LaTeX'
     }
     return ext_to_language.get(Path(file_path).suffix.lower(), 'Other')
 

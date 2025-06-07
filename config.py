@@ -126,7 +126,7 @@ LANGUAGE_EXTENSIONS: Dict[str, str] = {
 
     # Documentation
     '.md': 'Markdown', '.mdx': 'MDX', '.rst': 'reStructuredText',
-    '.tex': 'LaTeX', '.adoc': 'AsciiDoc', '.wiki': 'Wiki',
+    '.tex': 'LaTeX', '.ltx': 'LaTeX', '.latex': 'LaTeX', '.adoc': 'AsciiDoc', '.wiki': 'Wiki',
 
     # Other
     '.csv': 'CSV', '.tsv': 'TSV',

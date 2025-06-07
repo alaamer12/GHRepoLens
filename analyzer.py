@@ -108,11 +108,12 @@ def is_package_file(file_path: str) -> bool:
 
 
 def is_cicd_file(file_path: str) -> bool:
-    """Check if file is related to CI/CD configuration"""
+    """Check if a file is likely related to CI/CD pipelines."""
     file_path_lower = file_path.lower()
 
-    # Check against CICD_FILES patterns
-    for pattern in CICD_FILES:
+    # Check for common CI/CD directory patterns
+    ci_cd_patterns = ['.github/workflows', '.circleci', '.travis', 'jenkins', 'gitlab-ci']
+    for pattern in ci_cd_patterns:
         if pattern in file_path_lower:
             return True
 
@@ -132,71 +133,351 @@ def is_cicd_file(file_path: str) -> bool:
     return False
 
 
-def count_lines_of_code(content: str, file_path: str) -> int:
-    """Count lines of code, excluding empty lines and comments"""
-    if not content:
-        return 0
-
-    # Get file extension to determine comment syntax
-    ext = Path(file_path).suffix.lower()
-
-    lines = content.split('\n')
-    loc = 0
-    in_block_comment = False
-
-    # Define comment patterns based on language
-    if ext in ['.py', '.rb']:
-        line_comment = '#'
-        block_start = '"""'
-        block_end = '"""'
-    elif ext in ['.js', '.ts', '.jsx', '.tsx', '.java', '.c', '.cpp', '.cs', '.go', '.swift', '.kt']:
-        line_comment = '//'
-        block_start = '/*'
-        block_end = '*/'
-    elif ext in ['.html', '.xml']:
-        line_comment = None  # HTML doesn't have line comments
-        block_start = '<!--'
-        block_end = '-->'
-    elif ext in ['.sql']:
-        line_comment = '--'
-        block_start = '/*'
-        block_end = '*/'
-    else:
-        # Default comment syntax
-        line_comment = '#'
-        block_start = '/*'
-        block_end = '*/'
-
-    for line in lines:
-        line = line.strip()
-
-        # Skip empty lines
-        if not line:
-            continue
-
-        # Handle block comments
-        if block_start and block_end:
-            if in_block_comment:
-                if block_end in line:
-                    in_block_comment = False
+class CodeAnalyzer:
+    """
+    A comprehensive class for analyzing code across multiple languages.
+    
+    This class provides methods to count lines of code while handling
+    language-specific comment styles, blank lines, and special file types.
+    """
+    
+    def __init__(self):
+        """Initialize the CodeAnalyzer with language-specific comment patterns."""
+        # Language comment pattern definitions
+        self.language_patterns = {
+            # Python-style
+            'python': {'line_comment': '#', 'block_start': '"""', 'block_end': '"""', 'alt_block_start': "'''", 'alt_block_end': "'''"},
+            'ruby': {'line_comment': '#', 'block_start': '=begin', 'block_end': '=end'},
+            'perl': {'line_comment': '#', 'block_start': '=pod', 'block_end': '=cut'},
+            'r': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'yaml': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'toml': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'shell': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'bash': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'fish': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'zsh': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            'powershell': {'line_comment': '#', 'block_start': '<#', 'block_end': '#>'},
+            'makefile': {'line_comment': '#', 'block_start': None, 'block_end': None},
+            
+            # C-style
+            'c': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'cpp': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'java': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'javascript': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'typescript': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'c#': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'go': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'swift': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'kotlin': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'scala': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'rust': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'dart': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'php': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'css': {'line_comment': None, 'block_start': '/*', 'block_end': '*/'},
+            'scss': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'less': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            'objc': {'line_comment': '//', 'block_start': '/*', 'block_end': '*/'},
+            
+            # HTML/XML style
+            'html': {'line_comment': None, 'block_start': '<!--', 'block_end': '-->'},
+            'xml': {'line_comment': None, 'block_start': '<!--', 'block_end': '-->'},
+            'svg': {'line_comment': None, 'block_start': '<!--', 'block_end': '-->'},
+            
+            # SQL style
+            'sql': {'line_comment': '--', 'block_start': '/*', 'block_end': '*/'},
+            
+            # Lisp style
+            'lisp': {'line_comment': ';', 'block_start': None, 'block_end': None},
+            'clojure': {'line_comment': ';', 'block_start': None, 'block_end': None},
+            
+            # Haskell style
+            'haskell': {'line_comment': '--', 'block_start': '{-', 'block_end': '-}'},
+            
+            # Lua style
+            'lua': {'line_comment': '--', 'block_start': '--[[', 'block_end': ']]'},
+            
+            # Fortran style
+            'fortran': {'line_comment': '!', 'block_start': None, 'block_end': None},
+            
+            # Ada style
+            'ada': {'line_comment': '--', 'block_start': None, 'block_end': None},
+            
+            # LaTeX style
+            'latex': {'line_comment': '%', 'block_start': None, 'block_end': None},
+            
+            # Julia style
+            'julia': {'line_comment': '#', 'block_start': '#=', 'block_end': '=#'},
+            
+            # Other languages
+            'markdown': {'line_comment': None, 'block_start': None, 'block_end': None},
+            'text': {'line_comment': None, 'block_start': None, 'block_end': None},
+        }
+        
+        # Map file extensions to language types
+        self.extension_to_language = {
+            # Python
+            '.py': 'python', '.pyx': 'python', '.pyd': 'python', '.pyi': 'python',
+            '.ipynb': 'jupyter',  # Special handling for Jupyter notebooks
+            
+            # JavaScript/TypeScript
+            '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+            '.ts': 'typescript', '.tsx': 'typescript', '.jsx': 'javascript',
+            
+            # Web
+            '.html': 'html', '.htm': 'html', '.xhtml': 'html',
+            '.css': 'css', '.scss': 'scss', '.sass': 'scss', '.less': 'less',
+            '.svg': 'svg', '.xml': 'xml',
+            
+            # JVM languages
+            '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin',
+            '.scala': 'scala', '.sc': 'scala',
+            '.groovy': 'java', '.clj': 'clojure', '.cljs': 'clojure',
+            
+            # C-family
+            '.c': 'c', '.h': 'c',
+            '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp',
+            '.hpp': 'cpp', '.hxx': 'cpp', '.hh': 'cpp',
+            '.cs': 'c#',
+            
+            # Other programming languages
+            '.rb': 'ruby', '.erb': 'ruby',
+            '.go': 'go',
+            '.rs': 'rust',
+            '.php': 'php', '.phtml': 'php',
+            '.swift': 'swift',
+            '.m': 'objc', '.mm': 'objc',  # Objective-C
+            '.lua': 'lua',
+            '.hs': 'haskell', '.lhs': 'haskell',
+            '.pl': 'perl', '.pm': 'perl',
+            '.jl': 'julia',
+            '.r': 'r', '.rmd': 'r',
+            '.dart': 'dart',
+            
+            # Shell and scripting
+            '.sh': 'shell', '.bash': 'bash', '.zsh': 'zsh', '.fish': 'fish',
+            '.ps1': 'powershell', '.psm1': 'powershell', '.psd1': 'powershell',
+            
+            # Configuration and data
+            '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
+            '.toml': 'toml', '.ini': 'text',
+            '.sql': 'sql',
+            
+            # Documentation
+            '.md': 'markdown', '.markdown': 'markdown',
+            '.tex': 'latex', '.ltx': 'latex', '.latex': 'latex',
+            '.txt': 'text',
+        }
+    
+    def get_language_from_file(self, file_path: str) -> str:
+        """
+        Determine the language type based on file extension.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            The language identifier or 'text' if unknown
+        """
+        ext = Path(file_path).suffix.lower()
+        return self.extension_to_language.get(ext, 'text')
+    
+    def count_lines_of_code(self, content: str, file_path: str) -> int:
+        """
+        Count lines of code, excluding empty lines and comments.
+        
+        Args:
+            content: The content of the file as a string
+            file_path: Path to the file (for language detection)
+            
+        Returns:
+            Number of non-blank, non-comment lines of code
+        """
+        if not content:
+            return 0
+            
+        # Handle binary files
+        if is_binary_file(file_path):
+            return 0
+            
+        # Get language type from file extension
+        language = self.get_language_from_file(file_path)
+        
+        # Special handling for Jupyter notebooks
+        if language == 'jupyter':
+            return self._count_jupyter_notebook_loc(content, file_path)
+            
+        # Regular file handling
+        return self._count_standard_file_loc(content, language)
+    
+    def _count_standard_file_loc(self, content: str, language: str) -> int:
+        """
+        Count lines of code in a standard text-based file.
+        
+        Args:
+            content: File content as string
+            language: The programming language identifier
+            
+        Returns:
+            Number of non-blank, non-comment lines
+        """
+        # Get comment patterns for this language
+        patterns = self.language_patterns.get(language, {'line_comment': None, 'block_start': None, 'block_end': None})
+        
+        lines = content.split('\n')
+        loc = 0
+        in_block_comment = False
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip empty lines
+            if not stripped:
                 continue
-            elif block_start in line:
-                if block_end not in line[line.find(block_start) + len(block_start):]:
+                
+            # Check if we're in a block comment
+            if in_block_comment:
+                if patterns['block_end'] and patterns['block_end'] in stripped:
+                    # Look for the end of the block comment
+                    end_pos = stripped.find(patterns['block_end'])
+                    # If there's code after the block comment on the same line
+                    rest = stripped[end_pos + len(patterns['block_end']):].strip()
+                    in_block_comment = False
+                    
+                    # Count line if there's code after the block comment
+                    if rest and not (patterns['line_comment'] and rest.startswith(patterns['line_comment'])):
+                        loc += 1
+                continue
+                
+            # Check for the start of a block comment
+            if patterns['block_start'] and patterns['block_start'] in stripped:
+                start_pos = stripped.find(patterns['block_start'])
+                
+                # Check if there's code before the comment
+                before = stripped[:start_pos].strip()
+                if before:
+                    loc += 1
+                
+                # Check if the block comment ends on the same line
+                if patterns['block_end'] and patterns['block_end'] in stripped[start_pos + len(patterns['block_start']):]:
+                    end_pos = stripped.find(patterns['block_end'], start_pos + len(patterns['block_start']))
+                    # If there's code after the block comment on the same line
+                    after = stripped[end_pos + len(patterns['block_end']):].strip()
+                    if after and not (patterns['line_comment'] and after.startswith(patterns['line_comment'])):
+                        loc += 1
+                else:
                     in_block_comment = True
                 continue
+                
+            # Check for alternative block comment style (like Python's triple quotes)
+            if 'alt_block_start' in patterns and patterns['alt_block_start'] and patterns['alt_block_start'] in stripped:
+                start_pos = stripped.find(patterns['alt_block_start'])
+                
+                # Check if there's code before the comment
+                before = stripped[:start_pos].strip()
+                if before:
+                    loc += 1
+                
+                # Check if the block comment ends on the same line
+                if patterns['alt_block_end'] and patterns['alt_block_end'] in stripped[start_pos + len(patterns['alt_block_start']):]:
+                    end_pos = stripped.find(patterns['alt_block_end'], start_pos + len(patterns['alt_block_start']))
+                    # If there's code after the block comment on the same line
+                    after = stripped[end_pos + len(patterns['alt_block_end']):].strip()
+                    if after and not (patterns['line_comment'] and after.startswith(patterns['line_comment'])):
+                        loc += 1
+                else:
+                    in_block_comment = True
+                continue
+            
+            # Check for line comments
+            if patterns['line_comment'] and stripped.startswith(patterns['line_comment']):
+                continue
+                
+            # If we reach here, the line contains code
+            loc += 1
+            
+        return loc
+    
+    def _count_jupyter_notebook_loc(self, content: str, file_path: str) -> int:
+        """
+        Count lines of code in a Jupyter notebook.
+        
+        Args:
+            content: File content as string (should be JSON)
+            file_path: Path to the notebook file
+            
+        Returns:
+            Number of actual executable lines of code
+        """
+        try:
+            import json
+            notebook_data = json.loads(content)
+            
+            actual_loc = 0
+            
+            # Process notebook cells
+            cells = notebook_data.get('cells', [])
+            
+            for cell in cells:
+                cell_type = cell.get('cell_type')
+                source = cell.get('source', [])
+                
+                # Only count code cells
+                if cell_type != 'code':
+                    continue
+                
+                # The 'source' can be a list of strings or a single string
+                if isinstance(source, str):
+                    lines = source.splitlines()
+                else:
+                    # Flatten and remove trailing newlines
+                    lines = [line.rstrip('\n') for line in source]
+                
+                # Count non-blank, non-comment lines
+                for line in lines:
+                    stripped_line = line.strip()
+                    if stripped_line and not stripped_line.startswith('#'):
+                        actual_loc += 1
+            
+            return actual_loc
+            
+        except json.JSONDecodeError:
+            # If we can't parse as JSON, fall back to counting Python-style code
+            return self._count_standard_file_loc(content, 'python')
+        except Exception as e:
+            # If any other error occurs, return 0
+            logger.warning(f"Error parsing Jupyter notebook {file_path}: {e}")
+            return 0
 
-        # Handle line comments
-        if line_comment and line.startswith(line_comment):
-            continue
 
-        # Count non-comment lines
-        loc += 1
+# Create a singleton instance of the analyzer
+code_analyzer = CodeAnalyzer()
 
-    return loc
+
+def count_lines_of_code(content: str, file_path: str) -> int:
+    """
+    Count non-blank lines of code in a file.
+    
+    Args:
+        content: File content as string
+        file_path: Path to the file (for language detection)
+        
+    Returns:
+        Number of non-blank lines of code
+    """
+    # Use the code analyzer instance to count lines
+    return code_analyzer.count_lines_of_code(content, file_path)
 
 
 def is_config_file(file_path: str) -> bool:
-    """Check if file is a configuration file"""
+    """
+    Check if a file is likely a configuration file based on its name or extension.
+    
+    Args:
+        file_path: Path to the file to check
+        
+    Returns:
+        True if file is likely a config file, False otherwise
+    """
     filename = Path(file_path).name.lower()
 
     # First check against the CONFIG_FILES set
@@ -368,10 +649,10 @@ class GithubAnalyzer:
                         batch = remaining_repos[:batch_size]
                         remaining_repos = remaining_repos[batch_size:]
 
-                        # Periodically show rate limit status (every 5 repos or after a batch)
+                        # Periodically show rate limit status
                         if repo_counter % 5 == 0 or repo_counter == 1 or len(batch) == batch_size:
                             rprint("\n[bold]--- Current API Rate Status ---[/bold]")
-                            self.rate_display.display_once()  # Use our interactive display
+                            self.rate_display.display_once()
                             rprint("[bold]-------------------------------[/bold]")
 
                         # Check if we need to checkpoint before processing this batch
@@ -445,7 +726,6 @@ class GithubAnalyzer:
             if self.config["ENABLE_CHECKPOINTING"] and not repos_to_analyze:
                 try:
                     Path(self.config["CHECKPOINT_FILE"]).unlink(missing_ok=True)
-                    # logger.info("Removed checkpoint file after successful completion")
                 except:
                     pass  # Silently ignore any issues with checkpoint deletion
 
