@@ -14,7 +14,7 @@ Key components:
 import configparser
 import os
 from pathlib import Path
-from typing import List, TypedDict, Dict, Set
+from typing import List, TypedDict, Dict, Set, Literal
 
 from console import console, logger
 
@@ -34,7 +34,8 @@ class Configuration(TypedDict):
     LARGE_REPO_LOC_THRESHOLD: int
     SKIP_FORKS: bool
     SKIP_ARCHIVED: bool
-    INCLUDE_PRIVATE: bool
+    INCLUDE_PRIVATE: bool  # Legacy option, maintained for backwards compatibility
+    VISIBILITY: Literal["all", "public", "private"]  # New option that supersedes INCLUDE_PRIVATE
     ANALYZE_CLONES: bool
     ENABLE_CHECKPOINTING: bool
     CHECKPOINT_FILE: str
@@ -54,7 +55,8 @@ DEFAULT_CONFIG: Configuration = {
     "LARGE_REPO_LOC_THRESHOLD": 1000,
     "SKIP_FORKS": False,
     "SKIP_ARCHIVED": False,
-    "INCLUDE_PRIVATE": True,
+    "INCLUDE_PRIVATE": True,  # Legacy option, maintained for backwards compatibility
+    "VISIBILITY": "all",  # New option: "all", "public", or "private"
     "ANALYZE_CLONES": False,  # Whether to clone repos for deeper analysis
     "ENABLE_CHECKPOINTING": True,  # Whether to enable checkpoint feature
     "CHECKPOINT_FILE": "github_analyzer_checkpoint.pkl",  # Checkpoint file location
@@ -500,6 +502,10 @@ def load_config_from_file(config_file: str) -> Configuration:
                 config['SKIP_ARCHIVED'] = filters_section.getboolean('skip_archived')
             if 'include_private' in filters_section:
                 config['INCLUDE_PRIVATE'] = filters_section.getboolean('include_private')
+            if 'visibility' in filters_section:
+                visibility_value = filters_section['visibility'].lower()
+                if visibility_value in ["all", "public", "private"]:
+                    config['VISIBILITY'] = visibility_value
             if 'analyze_clones' in filters_section:
                 config['ANALYZE_CLONES'] = filters_section.getboolean('analyze_clones')
             if 'include_orgs' in filters_section:
@@ -557,6 +563,7 @@ def create_sample_config() -> None:
         'skip_forks': 'false',
         'skip_archived': 'false',
         'include_private': 'true',
+        'visibility': 'all',  # "all", "public", or "private"
         'analyze_clones': 'false',
         'include_orgs': ''  # Empty string for no organizations
     }

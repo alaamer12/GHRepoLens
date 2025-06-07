@@ -162,7 +162,15 @@ class GithubLens:
         try:
             user = self.github.get_user()
             username = user.login
-            all_repos = list(user.get_repos())
+            
+            # Use visibility parameter if configured (all, public, or private)
+            visibility = self.config.get("VISIBILITY", "all")
+            
+            # Get repositories using visibility parameter if specified
+            if visibility != "all":
+                all_repos = list(user.get_repos(visibility=visibility))
+            else:
+                all_repos = list(user.get_repos())
             
             # Filter repositories to only include those owned by the user
             personal_repos = [
@@ -188,7 +196,15 @@ class GithubLens:
         """
         try:
             org: Organization = self.github.get_organization(org_name)
-            org_repos = list(org.get_repos())
+            
+            # Use visibility parameter if configured (all, public, or private)
+            visibility = self.config.get("VISIBILITY", "all")
+            
+            # Get repositories using visibility parameter if specified
+            if visibility != "all":
+                org_repos = list(org.get_repos(visibility=visibility))
+            else:
+                org_repos = list(org.get_repos())
             
             logger.info(f"Found {len(org_repos)} repositories in organization {org_name}")
             return org_repos
@@ -225,8 +241,15 @@ class GithubLens:
             if self.config.get("SKIP_ARCHIVED", False) and repo.archived:
                 continue
                 
-            # Skip private repositories if not configured to include them
-            if not self.config.get("INCLUDE_PRIVATE", True) and repo.private:
+            # Apply visibility filter (supersedes INCLUDE_PRIVATE)
+            visibility = self.config.get("VISIBILITY", "all")
+            if visibility != "all":
+                if visibility == "public" and repo.private:
+                    continue
+                if visibility == "private" and not repo.private:
+                    continue
+            # For backwards compatibility, also check INCLUDE_PRIVATE
+            elif not self.config.get("INCLUDE_PRIVATE", True) and repo.private:
                 continue
                 
             filtered_repos.append(repo)

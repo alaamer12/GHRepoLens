@@ -48,6 +48,7 @@ async def run_analysis(
         mode: str = "full",
         config_file: Optional[str] = None,
         include_orgs: Optional[List[str]] = None,
+        visibility: str = "all"
 ) -> None:
     """
     Run GitHub repository analysis for the specified user.
@@ -61,6 +62,7 @@ async def run_analysis(
         mode: Analysis mode ("demo", "full", "test", or "quicktest")
         config_file: Path to custom configuration file (default: None)
         include_orgs: List of organization names to include in analysis (default: None)
+        visibility: Repository visibility option ("all", "public", or "private")
     """
     demo_mode = mode == "demo"
     test_mode = mode == "test"
@@ -81,6 +83,7 @@ async def run_analysis(
 
         config["GITHUB_TOKEN"] = token
         config["USERNAME"] = username
+        config["VISIBILITY"] = visibility
 
         # Update organizations to include if specified
         if include_orgs:
@@ -548,6 +551,14 @@ async def main() -> None:
 
         # Set predefined organizations for quicktest mode
         include_orgs = ["JsonAlchemy", "T2F-Labs"]
+        
+        # Use default visibility (all)
+        visibility = os.environ.get("GITHUB_VISIBILITY", "all")
+        
+        # Validate visibility value
+        if visibility not in ["all", "public", "private"]:
+            print_warning(f"Invalid visibility value '{visibility}', using default 'all'.")
+            visibility = "all"
 
         # Run analysis in quicktest mode
         await run_analysis(
@@ -555,7 +566,8 @@ async def main() -> None:
             username=github_username,
             mode="quicktest",
             config_file=None,
-            include_orgs=include_orgs
+            include_orgs=include_orgs,
+            visibility=visibility
         )
 
         return
@@ -594,6 +606,21 @@ async def main() -> None:
     mode_choice = Prompt.ask("[bold]Choose mode[/bold]", choices=["1", "2", "3"], default="1")
     selected_mode = mode_options[mode_choice]
 
+    # Ask for repository visibility
+    visibility_options = {
+        "1": "all",
+        "2": "public",
+        "3": "private"
+    }
+
+    print_header("Select Repository Visibility")
+    console.print("[1] All - Include both public and private repositories")
+    console.print("[2] Public - Include only public repositories")
+    console.print("[3] Private - Include only private repositories")
+
+    visibility_choice = Prompt.ask("[bold]Choose visibility[/bold]", choices=["1", "2", "3"], default="1")
+    selected_visibility = visibility_options[visibility_choice]
+    
     # Ask for custom config file
     use_config = Confirm.ask("Use custom config file?", default=False)
     config_file = None
@@ -627,7 +654,8 @@ async def main() -> None:
         username=github_username,
         mode=selected_mode,
         config_file=config_file,
-        include_orgs=include_orgs
+        include_orgs=include_orgs,
+        visibility=selected_visibility
     )
 
 
