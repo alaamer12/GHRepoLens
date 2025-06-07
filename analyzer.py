@@ -12,7 +12,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from zipfile import Path
 
 from github.GithubException import GithubException, RateLimitExceededException
 from github.Repository import Repository
