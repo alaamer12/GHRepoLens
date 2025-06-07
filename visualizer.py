@@ -166,6 +166,11 @@ class GithubVisualizer:
         total_loc_sum = sum(stats.total_loc for stats in non_empty_repos)
         logger.info(f"Total LOC across all repositories: {total_loc_sum:,}")
 
+        # Debug output to verify LOC calculations
+        logger.info("DEBUG: Running diagnostic on each repository's LOC calculations")
+        for stats in non_empty_repos:
+            self.debug_print_repo_stats(stats)
+
         # Collect language data more carefully
         all_languages = defaultdict(int)
         # Keep track of repositories that need their primary language changed to "Unknown"
@@ -201,8 +206,8 @@ class GithubVisualizer:
         # Check if repository has any valid language data
         lang_sum = sum(stats.languages.values())
 
-        if lang_sum == 0 or lang_sum > stats.total_loc * 1.1:
-            # Either no language data or inconsistent data (>10% over total)
+        if lang_sum == 0:
+            # No language data
             if stats.total_loc > 0:
                 # Try to infer language from file types
                 inferred_language = self._infer_language_from_file_types(stats)
@@ -220,7 +225,7 @@ class GithubVisualizer:
                 # Zero LOC, just mark as unknown
                 self.repos_with_unknown_language.add(stats.name)
         else:
-            # Repository has consistent language data
+            # Repository has language data
             for lang, loc in stats.languages.items():
                 all_languages[lang] += loc
 
@@ -2321,3 +2326,15 @@ class GithubVisualizer:
         </body>
         </html>"""
         return js_part3
+
+    def debug_print_repo_stats(self, repo_stats: RepoStats) -> None:
+        """Debug method to print detailed information about a repository's LOC calculations"""
+        lang_sum = sum(repo_stats.languages.values())
+        logger.info(f"DEBUG: Repository: {repo_stats.name}")
+        logger.info(f"DEBUG: Languages: {repo_stats.languages}")
+        logger.info(f"DEBUG: Language sum: {lang_sum}")
+        logger.info(f"DEBUG: total_loc: {repo_stats.total_loc}")
+        logger.info(f"DEBUG: Difference: {lang_sum - repo_stats.total_loc}")
+        # Force recalculation
+        repo_stats.code_stats.calculate_primary_language()
+        logger.info(f"DEBUG: After recalculation, total_loc: {repo_stats.total_loc}")

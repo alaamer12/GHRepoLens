@@ -1102,13 +1102,16 @@ class GithubAnalyzer:
             except Exception as e:
                 logger.warning(f"Could not get languages from API for {repo.name}: {e}")
 
-            # Merge file analysis languages with GitHub API languages
+            # Use our file analysis languages instead of merging with GitHub API data
+            # GitHub API returns sizes in bytes, not lines of code, so using these values
+            # as LOC would result in inflated numbers
             combined_languages = dict(file_stats['languages'])
-            for lang, bytes_count in github_languages.items():
-                if lang in combined_languages:
-                    combined_languages[lang] = max(combined_languages[lang], bytes_count)
-                else:
-                    combined_languages[lang] = bytes_count
+            
+            # Log the difference between our analysis and GitHub's for debugging
+            logger.debug(f"File analysis languages: {combined_languages}")
+            logger.debug(f"GitHub API languages (bytes): {github_languages}")
+            
+            # We'll continue using our manually counted LOC
 
             # Calculate estimated test coverage percentage based on test files to total files ratio
             test_coverage_percentage = None
@@ -1149,13 +1152,16 @@ class GithubAnalyzer:
             code_stats = CodeStats(
                 languages=combined_languages,
                 total_files=file_stats['total_files'],
-                total_loc=file_stats['total_loc'],
+                # Let CodeStats calculate total_loc based on languages when calculate_primary_language is called
                 avg_loc_per_file=avg_loc,
                 file_types=dict(file_stats['file_types']),
                 size_kb=repo.size,
                 excluded_file_count=file_stats.get('excluded_file_count', 0),
                 project_structure=file_stats.get('project_structure', {})
             )
+            
+            # Calculate primary language which will also set the correct total_loc
+            code_stats.calculate_primary_language()
 
             # Create quality indicators
             quality = QualityIndicators(
@@ -1226,7 +1232,6 @@ class GithubAnalyzer:
                 repo_stats.add_anomaly("Empty repository with no files")
 
             # Calculate additional derived metrics
-            repo_stats.calculate_primary_language()
             repo_stats.detect_monorepo()
 
             # Identify anomalies

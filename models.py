@@ -71,6 +71,9 @@ class CodeStats:
             self.primary_language = "Unknown"
             return
 
+        # Recalculate total_loc as the sum of all language LOCs
+        self.total_loc = sum(self.languages.values())
+
         # Filter out non-programming languages if there are actual programming languages
         programming_languages = {
             lang: loc for lang, loc in self.languages.items()
@@ -94,8 +97,13 @@ class CodeStats:
         with each having a significant share (>10%) of the codebase.
         """
         if len(self.languages) >= 3:
-            # Calculate distribution of top languages
-            total_loc = sum(self.languages.values())
+            # Ensure total_loc is calculated correctly
+            total_loc = self.total_loc
+            if total_loc == 0:
+                # Recalculate if needed
+                total_loc = sum(self.languages.values())
+                self.total_loc = total_loc
+                
             if total_loc == 0:
                 return
 
