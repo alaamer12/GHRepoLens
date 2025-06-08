@@ -525,12 +525,41 @@ def load_config_from_file(config_file: str) -> Configuration:
             if 'resume_from_checkpoint' in checkpoint_section:
                 config['RESUME_FROM_CHECKPOINT'] = checkpoint_section.getboolean('resume_from_checkpoint')
 
+        # Process the theme section as well
+        if 'theme' in parser:
+            theme_section = parser['theme']
+            # Store theme configuration for later use by DefaultTheme and HTMLVisualizer
+            # We'll store it as a global so it can be accessed by the theme loading function
+            global LOADED_THEME_CONFIG
+            LOADED_THEME_CONFIG = {}
+            
+            # Process all keys in the theme section
+            for key, value in theme_section.items():
+                LOADED_THEME_CONFIG[key] = value
+                
+            # Special handling for JSON fields
+            try:
+                import json
+                if 'skills' in theme_section:
+                    LOADED_THEME_CONFIG['skills'] = json.loads(theme_section['skills'])
+                if 'social_links' in theme_section:
+                    LOADED_THEME_CONFIG['social_links'] = json.loads(theme_section['social_links'])
+                if 'chart_palette' in theme_section:
+                    LOADED_THEME_CONFIG['chart_palette'] = json.loads(theme_section['chart_palette'])
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON in theme section: {e}")
+            
+            logger.info(f"Loaded theme configuration from {config_file}")
+
         logger.info(f"Loaded configuration from {config_file}")
         return config
 
     except Exception as e:
         logger.error(f"Error loading config file {config_file}: {e}")
         return config
+
+# Global variable to store theme configuration loaded from config file
+LOADED_THEME_CONFIG = None
 
 
 def create_sample_config() -> None:
@@ -575,11 +604,63 @@ def create_sample_config() -> None:
         'resume_from_checkpoint': 'true'
     }
 
+    # Add theme configuration section
+    config['theme'] = {
+        # Color Schemes
+        'primary_color': '#4f46e5',
+        'secondary_color': '#8b5cf6',
+        'accent_color': '#f97316',
+        
+        # Light Mode Colors
+        'light_bg_color': '#f9fafb',
+        'light_text_color': '#111827',
+        'light_card_bg': '#ffffff',
+        'light_chart_bg': '#ffffff',
+        
+        # Dark Mode Colors
+        'dark_bg_color': '#111827',
+        'dark_text_color': '#f9fafb',
+        'dark_card_bg': '#1f2937',
+        'dark_chart_bg': '#1f2937',
+        
+        # Typography
+        'font_family': 'Inter, system-ui, sans-serif',
+        'heading_font': 'Inter, system-ui, sans-serif',
+        'code_font': 'Fira Code, monospace',
+        
+        # UI Elements
+        'border_radius': '0.5rem',
+        'shadow_style': '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+        
+        # Header - escape % with %% for ConfigParser
+        'header_gradient': 'linear-gradient(135deg, #4f46e5 0%%, #8b5cf6 50%%, #f97316 100%%)',
+        
+        # Chart palette as JSON array
+        'chart_palette': '["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"]',
+        
+        # User Information
+        'user_avatar': 'static/assets/alaamer.jpg',
+        'user_name': 'Your Name',
+        'user_title': 'Your Title',
+        'user_bio': 'Your short bio here',
+        
+        # Custom HTML Background
+        'background_html_path': '',
+        
+        # The following are JSON-formatted fields that will need to be parsed
+        # Skills: Dictionary of skill name -> URL
+        'skills': '{"Python": "https://www.python.org", "Data Science": "https://en.wikipedia.org/wiki/Data_science"}',
+        
+        # Social links: Dictionary with name -> {url, icon, color}
+        'social_links': '{"GitHub": {"url": "https://github.com/yourusername", "icon": "github", "color": "bg-gray-800"}, "LinkedIn": {"url": "https://www.linkedin.com/in/yourusername/", "icon": "linkedin", "color": "bg-blue-600"}}'
+    }
+
     with open(config_file, 'w') as f:
         config.write(f)
 
     console.print(f"[green]Created sample configuration file: {config_file}[/green]")
     console.print("[yellow]Rename to config.ini and update with your settings.[/yellow]")
+
 
 
 class ThemeConfig(TypedDict, total=False):
@@ -615,6 +696,19 @@ class ThemeConfig(TypedDict, total=False):
 
     # Header gradient
     header_gradient: str  # CSS gradient for header
+    
+    # User information
+    user_avatar: str  # Path to user avatar image
+    user_name: str  # User's name to display
+    user_title: str  # User's title/role
+    user_bio: str  # User's bio
+    
+    # Skills and social media as dictionaries
+    skills: Dict[str, str]  # Dict of skills with name and URL
+    social_links: Dict[str, str]  # Dict of social media links with name and URL
+    
+    # Custom HTML background
+    background_html_path: str  # Path to HTML file for custom background, will be parsed at _html.py
 
 
 class DefaultTheme:
@@ -625,13 +719,13 @@ class DefaultTheme:
         """Return the default theme configuration"""
         return {
             # Color schemes
-            "primary_color": "#4f46e5",  # Indigo
-            "secondary_color": "#7c3aed",  # Violet
-            "accent_color": "#f97316",  # Orange
+            "primary_color": "#6366f1",  # Indigo color
+            "secondary_color": "#a855f7",  # Purple color
+            "accent_color": "#ec4899",  # Pink color
 
             # Light mode colors
             "light_bg_color": "#f9fafb",
-            "light_text_color": "#111827",
+            "light_text_color": "#1f2937",
             "light_card_bg": "#ffffff",
             "light_chart_bg": "#ffffff",
 
@@ -642,23 +736,57 @@ class DefaultTheme:
             "dark_chart_bg": "#1f2937",
 
             # Typography
-            "font_family": "'Inter', sans-serif",
-            "heading_font": "'Inter', sans-serif",
-            "code_font": "'Fira Code', monospace",
+            "font_family": "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            "heading_font": "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            "code_font": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
 
             # UI Elements
-            "border_radius": "0.375rem",
+            "border_radius": "0.75rem",
             "shadow_style": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
 
-            # Chart colors
-            "chart_palette": [
-                "#4f46e5", "#7c3aed", "#f97316", "#06b6d4",
-                "#10b981", "#ec4899", "#f59e0b", "#6366f1",
-                "#ef4444", "#64748b"
-            ],
+            # Chart colors - a pleasant color palette
+            "chart_palette": ["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"],
 
-            # Header gradient
-            "header_gradient": "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #f97316 100%)"
+            # Header gradient - note this is used differently than in the sample config
+            # This is used directly in Python code, not in ConfigParser
+            "header_gradient": "linear-gradient(to right, #6366f1, #a855f7, #ec4899)",
+
+            # Default user information
+            "user_avatar": "static/assets/alaamer.jpg",  # Default avatar
+            "user_name": "Amr Muhamed",  # Default name
+            "user_title": "Full Stack Dev",  # Default title
+            "user_bio": "Creator of GHRepoLens 😄",
+            
+            # Default skills and social links
+            "skills": {
+                "Python": "https://www.python.org",
+                "JavaScript": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+                "React": "https://reactjs.org",
+                "Data Analysis": "https://en.wikipedia.org/wiki/Data_analysis",
+                "ML": "https://en.wikipedia.org/wiki/Machine_learning",
+                "GitHub API": "https://docs.github.com/en/rest"
+            },
+            
+            "social_links": {
+                "GitHub": {
+                    "url": "https://github.com/alaamer12",
+                    "icon": "github", 
+                    "color": "bg-gray-800"
+                },
+                "LinkedIn": {
+                    "url": "https://www.linkedin.com/in/amr-muhamed-0b0709265/",
+                    "icon": "linkedin",
+                    "color": "bg-blue-600"
+                },
+                "Portfolio": {
+                    "url": "https://portfolio-qiw8.vercel.app/",
+                    "icon": "globe",
+                    "color": "bg-emerald-600"
+                }
+            },
+            
+            # Default empty HTML background
+            "background_html_path": "",
         }
 
 
@@ -669,8 +797,85 @@ def load_theme_config() -> ThemeConfig:
     Returns:
         ThemeConfig: A dictionary containing theme configuration settings
     """
-    # TODO: In the future, add functionality to load custom theme from file
-    return DefaultTheme.get_default_theme()
+    # Check if we already loaded the theme config in load_config_from_file
+    global LOADED_THEME_CONFIG
+    if LOADED_THEME_CONFIG is not None:
+        logger.info("Using previously loaded theme configuration")
+        theme = DefaultTheme.get_default_theme()
+        
+        # Update theme with loaded values
+        for key, value in LOADED_THEME_CONFIG.items():
+            if key in theme and isinstance(value, str) and not key in ['skills', 'social_links', 'chart_palette']:
+                theme[key] = value
+        
+        # Handle special fields that should already be parsed
+        for key in ['skills', 'social_links', 'chart_palette']:
+            if key in LOADED_THEME_CONFIG:
+                theme[key] = LOADED_THEME_CONFIG[key]
+                
+        return theme
+    
+    # Fall back to old method if LOADED_THEME_CONFIG is not populated
+    config_file = 'config.ini'
+    theme = DefaultTheme.get_default_theme()
+    
+    if not os.path.exists(config_file):
+        logger.warning(f"Config file {config_file} not found, using default theme")
+        return theme
+        
+    try:
+        parser = configparser.ConfigParser()
+        parser.read(config_file)
+        
+        if 'theme' not in parser:
+            logger.info(f"No theme section in {config_file}, using default theme")
+            return theme
+            
+        theme_section = parser['theme']
+        
+        # Load basic string values
+        for key in ['primary_color', 'secondary_color', 'accent_color',
+                   'light_bg_color', 'light_text_color', 'light_card_bg', 'light_chart_bg',
+                   'dark_bg_color', 'dark_text_color', 'dark_card_bg', 'dark_chart_bg',
+                   'font_family', 'heading_font', 'code_font',
+                   'border_radius', 'shadow_style', 'header_gradient',
+                   'user_avatar', 'user_name', 'user_title', 'user_bio',
+                   'background_html_path']:
+            if key in theme_section:
+                theme[key] = theme_section[key]
+        
+        # Handle JSON fields
+        if 'skills' in theme_section:
+            import json
+            try:
+                skills_json = theme_section['skills']
+                theme['skills'] = json.loads(skills_json)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON for skills in {config_file}, using default skills")
+                
+        if 'social_links' in theme_section:
+            import json
+            try:
+                links_json = theme_section['social_links']
+                theme['social_links'] = json.loads(links_json)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON for social_links in {config_file}, using default social links")
+        
+        # Handle chart_palette list
+        if 'chart_palette' in theme_section:
+            import json
+            try:
+                palette_json = theme_section['chart_palette']
+                theme['chart_palette'] = json.loads(palette_json)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON for chart_palette in {config_file}, using default palette")
+                
+        logger.info(f"Loaded theme configuration from {config_file}")
+        return theme
+        
+    except Exception as e:
+        logger.error(f"Error loading theme from {config_file}: {e}")
+        return theme
 
 
 def get_config() -> configparser.ConfigParser:
