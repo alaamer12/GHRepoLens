@@ -565,7 +565,7 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-content {{
-                   background-color: white;
+                    background-color: white;
                     width: 90%;
                     max-width: 1200px;
                     height: 85vh;
@@ -578,9 +578,10 @@ class GithubVisualizer:
                     transform: scale(0.95);
                     opacity: 0;
                     transition: all 0.3s ease-in-out;
+                    position: relative;
                 }}
                 
-                 .chart-modal.active .chart-modal-content {{
+                .chart-modal.active .chart-modal-content {{
                     transform: scale(1);
                     opacity: 1;
                 }}
@@ -591,15 +592,17 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-iframe-container {{
-                     flex: 1;
+                    flex: 1;
                     overflow-y: auto !important;
                     overflow-x: auto !important;
                     scroll-behavior: smooth;
                     display: block;
+                    min-height: 400px;
+                    height: 75vh;
                 }}
 
                 .chart-modal-iframe {{
-                      width: 100%;
+                    width: 100%;
                     height: 100%;
                     border: none;
                     transition: opacity 0.3s ease;
@@ -633,7 +636,7 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-close:hover {{
-                     transform: scale(1.1) rotate(90deg);
+                    transform: scale(1.1) rotate(90deg);
                     background-color: rgba(255, 255, 255, 0.3);
                 }}
 
@@ -660,7 +663,7 @@ class GithubVisualizer:
                 }}
 
                 .chart-modal-title {{
-                     font-size: 1.5rem;
+                    font-size: 1.5rem;
                     font-weight: 600;
                     margin-bottom: 8px;
                     color: white;
@@ -673,6 +676,18 @@ class GithubVisualizer:
 
                 .dark .chart-modal-description {{
                     color: #9ca3af;
+                }}
+
+                .chart-modal.active .chart-modal-info {{
+                    transform: translateY(0);
+                    opacity: 1;
+                }}
+
+                .chart-modal-image {{
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                    display: block;
                 }}
 
                 /* Custom scrollbar */
@@ -714,6 +729,20 @@ class GithubVisualizer:
 
                 .dark ::-webkit-scrollbar-thumb:hover {{
                     background: linear-gradient(135deg, rgba(79, 70, 229, 1) 0%, rgba(124, 58, 237, 1) 50%, rgba(249, 115, 22, 1) 100%) !important;
+                }}
+
+                /* Additional scrollbar styling for modal in dark mode */
+                .chart-modal.active .chart-modal-content::-webkit-scrollbar,
+                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar {{
+                    width: 14px !important;
+                    display: block !important;
+                }}
+
+                .chart-modal.active .chart-modal-content::-webkit-scrollbar-thumb,
+                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar-thumb {{
+                    background: linear-gradient(135deg, rgba(124, 58, 237, 0.9) 0%, rgba(249, 115, 22, 0.9) 100%) !important;
+                    border: 2px solid #1f2937;
+                    min-height: 50px;
                 }}
                 
                 /* Smooth scrolling for the entire page */
@@ -956,133 +985,11 @@ class GithubVisualizer:
                     50% {{ transform: translateY(-10px); }}
                     100% {{ transform: translateY(0px); }}
                 }}
-
-                /* Chart Modal Styles */
-                .chart-modal {{
-                    display: none;
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.85);
-                    z-index: 1000;
-                    backdrop-filter: blur(5px);
-                    opacity: 0;
-                    transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-                }}
-
-                .chart-modal.active {{
-                   display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    opacity: 1;
-                }}
-
-                .chart-modal-content {{
-                  position: relative;
-                    max-width: 90vw;
-                    max-height: 90vh;
-                    border-radius: 20px;
-                    overflow: hidden;
-                    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-                    transform: scale(0.8) translateY(20px);
-                    opacity: 0;
-                    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-                }}
-
-                .chart-modal.active .chart-modal-content {{
-                    transform: scale(1) translateY(0);
-                    opacity: 1;
-                }}
-
-                .chart-modal-image {{
-                    width: 100%;
-                    height: 100%;
-                    object-fit: contain;
-                    display: block;
-                }}
-
-                .chart-modal-close {{
-                    position: absolute;
-                    top: 20px;
-                    right: 20px;
-                    background: rgba(255,255,255,0.2);
-                    border: none;
-                    color: white;
-                    font-size: 1.5rem;
-                    width: 50px;
-                    height: 50px;
-                    border-radius: 50%;
-                    cursor: pointer;
-                    backdrop-filter: blur(10px);
-                    border: 1px solid rgba(255,255,255,0.3);
-                    transition: all 0.3s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    z-index: 1010;
-                }}
-
-                .chart-modal-close:hover {{
-                    background: rgba(255,255,255,0.3);
-                    transform: scale(1.1);
-                }}
-
-                .chart-modal-info {{
-                    position: absolute;
-                    bottom: 0;
-                    left: 0;
-                    right: 0;
-                    background: linear-gradient(transparent, rgba(0,0,0,0.8));
-                    color: white;
-                    padding: 40px 30px 30px;
-                    text-align: center;
-                    transform: translateY(100%);
-                    opacity: 0;
-                    transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-                }}
-
-                .chart-modal.active .chart-modal-info {{
-                  transform: translateY(0);
-                    opacity: 1;
-                }}
-
-                .chart-modal-title {{
-                    font-size: 1.5rem;
-                    font-weight: 300;
-                    margin-bottom: 0.5rem;
-                }}
-
-                .chart-modal-description {{
-                      opacity: 0.8;
-                    font-size: 0.9rem;
-                }}
                 
                 /* Force scrollbar display for Firefox */
                 * {{
                     scrollbar-width: thin;
                     scrollbar-color: var(--primary) var(--scrollbar-track);
-                }}
-
-                /* Additional scrollbar styling for modal in dark mode */
-                .chart-modal.active .chart-modal-content::-webkit-scrollbar,
-                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar {{
-                    width: 14px !important;
-                    display: block !important;
-                }}
-
-                .chart-modal.active .chart-modal-content::-webkit-scrollbar-thumb,
-                .chart-modal.active .chart-modal-iframe-container::-webkit-scrollbar-thumb {{
-                    background: linear-gradient(135deg, rgba(124, 58, 237, 0.9) 0%, rgba(249, 115, 22, 0.9) 100%) !important;
-                    border: 2px solid #1f2937;
-                    min-height: 50px;
-                }}
-
-                /* Make iframe container take full height */
-                .chart-modal.active .chart-modal-iframe-container {{
-                    min-height: 400px;
-                    height: 75vh;
                 }}
             </style>
         </head>"""
