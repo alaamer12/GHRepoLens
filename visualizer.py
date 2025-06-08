@@ -9,7 +9,7 @@ import os
 import shutil
 from zipfile import Path
 
-from html import HTMLVisualizer
+from _html import HTMLVisualizer
 from models import RepoStats
 from pathlib import Path
 from datetime import datetime, timezone

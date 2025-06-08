@@ -1,13 +1,251 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from config import ThemeConfig, DefaultTheme
 from console import logger
 from repo_analyzer import OrganizationRepoAnalysis, PersonalRepoAnalysis
+import re
+from html.parser import HTMLParser
+import html
+
 
 CHART_NAMES = ["repository_timeline", "repo_creation_timeline", "quality_heatmap",
                "repo_types_distribution", "commit_activity_heatmap", "top_repos_metrics",
                "infrastructure_metrics", "documentation_quality", "active_inactive_age"]
+
+
+class HTMLPruner(HTMLParser):
+    """
+    A robust HTML parser that extracts body content, head styles, and JavaScript.
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.reset_state()
+    
+    def reset_state(self):
+        """Reset the parser state for reuse."""
+        self.in_head = False
+        self.in_body = False
+        self.in_style = False
+        self.in_script = False
+        self.head_content = []
+        self.body_content = []
+        self.javascript_content = []
+        self.current_style = []
+        self.current_script = []
+        self.tag_stack = []
+    
+    def handle_starttag(self, tag, attrs):
+        tag_lower = tag.lower()
+        
+        if tag_lower == 'head':
+            self.in_head = True
+        elif tag_lower == 'body':
+            self.in_body = True
+        elif tag_lower == 'style' and self.in_head:
+            self.in_style = True
+            # Reconstruct the style tag with attributes
+            attrs_str = self._attrs_to_string(attrs)
+            self.current_style.append(f'<{tag}{attrs_str}>')
+        elif tag_lower == 'script':
+            self.in_script = True
+            # Reconstruct the script tag with attributes
+            attrs_str = self._attrs_to_string(attrs)
+            self.current_script.append(f'<{tag}{attrs_str}>')
+        elif self.in_body:
+            # Reconstruct the tag with attributes
+            attrs_str = self._attrs_to_string(attrs)
+            self.body_content.append(f'<{tag}{attrs_str}>')
+            self.tag_stack.append(tag_lower)
+    
+    def handle_endtag(self, tag):
+        tag_lower = tag.lower()
+        
+        if tag_lower == 'head':
+            self.in_head = False
+        elif tag_lower == 'body':
+            self.in_body = False
+        elif tag_lower == 'style' and self.in_style:
+            self.current_style.append(f'</{tag}>')
+            self.head_content.extend(self.current_style)
+            self.current_style = []
+            self.in_style = False
+        elif tag_lower == 'script' and self.in_script:
+            self.current_script.append(f'</{tag}>')
+            self.javascript_content.extend(self.current_script)
+            self.current_script = []
+            self.in_script = False
+        elif self.in_body:
+            self.body_content.append(f'</{tag}>')
+            if self.tag_stack and self.tag_stack[-1] == tag_lower:
+                self.tag_stack.pop()
+    
+    def handle_data(self, data):
+        if self.in_style:
+            self.current_style.append(data)
+        elif self.in_script:
+            self.current_script.append(data)
+        elif self.in_body:
+            self.body_content.append(html.escape(data) if data.strip() else data)
+    
+    def handle_comment(self, data):
+        if self.in_body:
+            self.body_content.append(f'<!--{data}-->')
+    
+    def handle_decl(self, decl):
+        # Handle doctype declarations within body (unusual but possible)
+        if self.in_body:
+            self.body_content.append(f'<!{decl}>')
+    
+    def _attrs_to_string(self, attrs):
+        """Convert attribute list to string format."""
+        if not attrs:
+            return ''
+        attr_strings = []
+        for name, value in attrs:
+            if value is None:
+                attr_strings.append(name)
+            else:
+                # Escape quotes in attribute values
+                escaped_value = html.escape(value, quote=True)
+                attr_strings.append(f'{name}="{escaped_value}"')
+        return ' ' + ' '.join(attr_strings) if attr_strings else ''
+
+
+def prune_html_content(html_content: str) -> Tuple[str, str, str]:
+    """
+    Prune HTML content and extract body content, head styles, and JavaScript.
+    
+    Args:
+        html_content (str): Raw HTML content as string
+        
+    Returns:
+        Tuple[str, str, str]: A tuple containing:
+            - body_content: All content inside <body> tags
+            - head_styles: Content of <style> tags from <head> (empty if no styles)
+            - javascript: Content of all <script> tags (empty if no JavaScript)
+    
+    Examples:
+        >>> html = '''
+        ... <!DOCTYPE html>
+        ... <html>
+        ... <head>
+        ...     <title>Test</title>
+        ...     <style>body { margin: 0; }</style>
+        ...     <script>console.log('hello');</script>
+        ... </head>
+        ... <body>
+        ...     <h1>Hello World</h1>
+        ...     <script>alert('body script');</script>
+        ... </body>
+        ... </html>
+        ... '''
+        >>> body, styles, js = prune_html_content(html)
+        >>> print(body)
+        <h1>Hello World</h1>
+        >>> print(styles)
+        <style>body { margin: 0; }</style>
+        >>> print(js)
+        <script>console.log('hello');</script><script>alert('body script');</script>
+    """
+    
+    # Handle empty or None input
+    if not html_content or not html_content.strip():
+        return ('', '', '')
+    
+    # Clean up the HTML content
+    html_content = html_content.strip()
+    
+    # Handle malformed HTML or fragments
+    try:
+        parser = HTMLPruner()
+        parser.feed(html_content)
+        parser.close()
+        
+        # Join the collected content
+        body_content = ''.join(parser.body_content).strip()
+        head_styles = ''.join(parser.head_content).strip()
+        javascript = ''.join(parser.javascript_content).strip()
+        
+        return (body_content, head_styles, javascript)
+        
+    except Exception as e:
+        # Fallback to regex-based extraction for severely malformed HTML
+        return _fallback_extraction(html_content)
+
+
+def _fallback_extraction(html_content: str) -> Tuple[str, str, str]:
+    """
+    Fallback extraction using regex for malformed HTML.
+    """
+    try:
+        # Extract body content using regex
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', html_content, re.DOTALL | re.IGNORECASE)
+        body_content = body_match.group(1).strip() if body_match else ''
+        
+        # Extract style tags from head using regex
+        head_match = re.search(r'<head[^>]*>(.*?)</head>', html_content, re.DOTALL | re.IGNORECASE)
+        head_styles = ''
+        
+        if head_match:
+            head_content = head_match.group(1)
+            style_matches = re.findall(r'<style[^>]*>.*?</style>', head_content, re.DOTALL | re.IGNORECASE)
+            head_styles = ''.join(style_matches).strip()
+        
+        # Extract all script tags from entire document
+        script_matches = re.findall(r'<script[^>]*>.*?</script>', html_content, re.DOTALL | re.IGNORECASE)
+        javascript = ''.join(script_matches).strip()
+        
+        return (body_content, head_styles, javascript)
+        
+    except Exception:
+        # Ultimate fallback - return original content and empty styles/js
+        return (html_content, '', '')
+
+
+# Additional utility functions
+def prune_html_file(file_path: str) -> Tuple[str, str, str]:
+    """
+    Prune HTML content from a file.
+    
+    Args:
+        file_path (str): Path to the HTML file
+        
+    Returns:
+        Tuple[str, str, str]: Body content, head styles, and JavaScript
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        return prune_html_content(html_content)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"HTML file not found: {file_path}")
+    except Exception as e:
+        raise Exception(f"Error reading HTML file: {str(e)}")
+
+
+def validate_html_structure(html_content: str) -> dict:
+    """
+    Validate basic HTML structure and return information about the content.
+    
+    Args:
+        html_content (str): HTML content to validate
+        
+    Returns:
+        dict: Information about the HTML structure
+    """
+    info = {
+        'has_doctype': bool(re.search(r'<!DOCTYPE', html_content, re.IGNORECASE)),
+        'has_html_tag': bool(re.search(r'<html[^>]*>', html_content, re.IGNORECASE)),
+        'has_head_tag': bool(re.search(r'<head[^>]*>', html_content, re.IGNORECASE)),
+        'has_body_tag': bool(re.search(r'<body[^>]*>', html_content, re.IGNORECASE)),
+        'has_style_tags': bool(re.search(r'<style[^>]*>', html_content, re.IGNORECASE)),
+        'has_script_tags': bool(re.search(r'<script[^>]*>', html_content, re.IGNORECASE)),
+        'style_count': len(re.findall(r'<style[^>]*>', html_content, re.IGNORECASE)),
+        'script_count': len(re.findall(r'<script[^>]*>', html_content, re.IGNORECASE))
+    }
+    return info
 
 
 class HTMLVisualizer:
