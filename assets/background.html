@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Background HTML Test</title>
+    <style>
+        .particles-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+        .particle {
+            position: absolute;
+            background-color: rgba(99, 102, 241, 0.5);
+            border-radius: 50%;
+            animation: float 15s infinite ease-in-out;
+        }
+        @keyframes float {
+            0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0.1; }
+            25% { transform: translateY(-50px) translateX(50px) rotate(90deg); opacity: 0.3; }
+            50% { transform: translateY(-100px) translateX(0) rotate(180deg); opacity: 0.5; }
+            75% { transform: translateY(-50px) translateX(-50px) rotate(270deg); opacity: 0.3; }
+            100% { transform: translateY(0) translateX(0) rotate(360deg); opacity: 0.1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="particles-container" id="particles-container"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('particles-container');
+            const particleCount = 20;
+            
+            // Create particles
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                
+                // Random size between 20px and 100px
+                const size = Math.random() * 80 + 20;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                
+                // Random position
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                
+                // Random animation delay
+                particle.style.animationDelay = `${Math.random() * 15}s`;
+                
+                // Random opacity
+                particle.style.opacity = Math.random() * 0.3 + 0.1;
+                
+                container.appendChild(particle);
+            }
+        });
+    </script>
+</body>
+</html> 
