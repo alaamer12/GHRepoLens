@@ -19,8 +19,9 @@ class HTMLPruner(HTMLParser):
     A robust HTML parser that extracts body content, head styles, and JavaScript.
     """
     
-    def __init__(self):
+    def __init__(self, prune_tags=False):
         super().__init__()
+        self.prune_tags = prune_tags
         self.reset_state()
     
     def reset_state(self):
@@ -45,14 +46,16 @@ class HTMLPruner(HTMLParser):
             self.in_body = True
         elif tag_lower == 'style' and self.in_head:
             self.in_style = True
-            # Reconstruct the style tag with attributes
-            attrs_str = self._attrs_to_string(attrs)
-            self.current_style.append(f'<{tag}{attrs_str}>')
+            # Only add opening tag if not pruning tags
+            if not self.prune_tags:
+                attrs_str = self._attrs_to_string(attrs)
+                self.current_style.append(f'<{tag}{attrs_str}>')
         elif tag_lower == 'script':
             self.in_script = True
-            # Reconstruct the script tag with attributes
-            attrs_str = self._attrs_to_string(attrs)
-            self.current_script.append(f'<{tag}{attrs_str}>')
+            # Only add opening tag if not pruning tags
+            if not self.prune_tags:
+                attrs_str = self._attrs_to_string(attrs)
+                self.current_script.append(f'<{tag}{attrs_str}>')
         elif self.in_body:
             # Reconstruct the tag with attributes
             attrs_str = self._attrs_to_string(attrs)
@@ -67,12 +70,16 @@ class HTMLPruner(HTMLParser):
         elif tag_lower == 'body':
             self.in_body = False
         elif tag_lower == 'style' and self.in_style:
-            self.current_style.append(f'</{tag}>')
+            # Only add closing tag if not pruning tags
+            if not self.prune_tags:
+                self.current_style.append(f'</{tag}>')
             self.head_content.extend(self.current_style)
             self.current_style = []
             self.in_style = False
         elif tag_lower == 'script' and self.in_script:
-            self.current_script.append(f'</{tag}>')
+            # Only add closing tag if not pruning tags
+            if not self.prune_tags:
+                self.current_script.append(f'</{tag}>')
             self.javascript_content.extend(self.current_script)
             self.current_script = []
             self.in_script = False
@@ -113,18 +120,19 @@ class HTMLPruner(HTMLParser):
         return ' ' + ' '.join(attr_strings) if attr_strings else ''
 
 
-def prune_html_content(html_content: str) -> Tuple[str, str, str]:
+def prune_html_content(html_content: str, prune_tags: bool = False) -> Tuple[str, str, str]:
     """
     Prune HTML content and extract body content, head styles, and JavaScript.
     
     Args:
         html_content (str): Raw HTML content as string
+        prune_tags (bool): If True, return only the content inside tags without the tags themselves
         
     Returns:
         Tuple[str, str, str]: A tuple containing:
             - body_content: All content inside <body> tags
-            - head_styles: Content of <style> tags from <head> (empty if no styles)
-            - javascript: Content of all <script> tags (empty if no JavaScript)
+            - head_styles: Content of <style> tags from <head> (with or without tags based on prune_tags)
+            - javascript: Content of all <script> tags (with or without tags based on prune_tags)
     
     Examples:
         >>> html = '''
@@ -141,13 +149,13 @@ def prune_html_content(html_content: str) -> Tuple[str, str, str]:
         ... </body>
         ... </html>
         ... '''
-        >>> body, styles, js = prune_html_content(html)
-        >>> print(body)
-        <h1>Hello World</h1>
-        >>> print(styles)
+        >>> body, styles, js = prune_html_content(html, prune_tags=False)
+        >>> print(styles)  # With tags
         <style>body { margin: 0; }</style>
-        >>> print(js)
-        <script>console.log('hello');</script><script>alert('body script');</script>
+        
+        >>> body, styles, js = prune_html_content(html, prune_tags=True)
+        >>> print(styles)  # Without tags
+        body { margin: 0; }
     """
     
     # Handle empty or None input
@@ -159,7 +167,7 @@ def prune_html_content(html_content: str) -> Tuple[str, str, str]:
     
     # Handle malformed HTML or fragments
     try:
-        parser = HTMLPruner()
+        parser = HTMLPruner(prune_tags=prune_tags)
         parser.feed(html_content)
         parser.close()
         
@@ -172,10 +180,10 @@ def prune_html_content(html_content: str) -> Tuple[str, str, str]:
         
     except Exception as e:
         # Fallback to regex-based extraction for severely malformed HTML
-        return _fallback_extraction(html_content)
+        return _fallback_extraction(html_content, prune_tags)
 
 
-def _fallback_extraction(html_content: str) -> Tuple[str, str, str]:
+def _fallback_extraction(html_content: str, prune_tags: bool = False) -> Tuple[str, str, str]:
     """
     Fallback extraction using regex for malformed HTML.
     """
@@ -190,12 +198,24 @@ def _fallback_extraction(html_content: str) -> Tuple[str, str, str]:
         
         if head_match:
             head_content = head_match.group(1)
-            style_matches = re.findall(r'<style[^>]*>.*?</style>', head_content, re.DOTALL | re.IGNORECASE)
-            head_styles = ''.join(style_matches).strip()
+            if prune_tags:
+                # Extract only the content inside style tags
+                style_matches = re.findall(r'<style[^>]*>(.*?)</style>', head_content, re.DOTALL | re.IGNORECASE)
+                head_styles = ''.join(style_matches).strip()
+            else:
+                # Extract complete style tags
+                style_matches = re.findall(r'<style[^>]*>.*?</style>', head_content, re.DOTALL | re.IGNORECASE)
+                head_styles = ''.join(style_matches).strip()
         
         # Extract all script tags from entire document
-        script_matches = re.findall(r'<script[^>]*>.*?</script>', html_content, re.DOTALL | re.IGNORECASE)
-        javascript = ''.join(script_matches).strip()
+        if prune_tags:
+            # Extract only the content inside script tags
+            script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.DOTALL | re.IGNORECASE)
+            javascript = ''.join(script_matches).strip()
+        else:
+            # Extract complete script tags
+            script_matches = re.findall(r'<script[^>]*>.*?</script>', html_content, re.DOTALL | re.IGNORECASE)
+            javascript = ''.join(script_matches).strip()
         
         return (body_content, head_styles, javascript)
         
@@ -205,12 +225,13 @@ def _fallback_extraction(html_content: str) -> Tuple[str, str, str]:
 
 
 # Additional utility functions
-def prune_html_file(file_path: str) -> Tuple[str, str, str]:
+def prune_html_file(file_path: str, prune_tags: bool = False) -> Tuple[str, str, str]:
     """
     Prune HTML content from a file.
     
     Args:
         file_path (str): Path to the HTML file
+        prune_tags (bool): If True, return only the content inside tags without the tags themselves
         
     Returns:
         Tuple[str, str, str]: Body content, head styles, and JavaScript
@@ -218,7 +239,7 @@ def prune_html_file(file_path: str) -> Tuple[str, str, str]:
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
-        return prune_html_content(html_content)
+        return prune_html_content(html_content, prune_tags)
     except FileNotFoundError:
         raise FileNotFoundError(f"HTML file not found: {file_path}")
     except Exception as e:
@@ -248,6 +269,7 @@ def validate_html_structure(html_content: str) -> dict:
     return info
 
 
+
 class HTMLVisualizer:
     """Class responsible for creating HTML visualizations from repository data"""
 
@@ -256,6 +278,28 @@ class HTMLVisualizer:
         self.username = username
         self.reports_dir = reports_dir
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
+
+    def _load_background_html(self) -> Tuple[str, str, str]:
+        """Load and parse background HTML if specified in theme config"""
+        if not self.theme.get("background_html_path"):
+            return ("", "", "")
+            
+        html_path = self.theme["background_html_path"]
+        try:
+            logger.info(f"Loading background HTML from: {html_path}")
+            if not os.path.exists(html_path):
+                logger.warning(f"Background HTML file not found: {html_path}")
+                return ("", "", "")
+                
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+                
+            body_content, head_styles, javascript = prune_html_content(html_content)
+            logger.info(f"Successfully parsed background HTML: {len(body_content)} chars body, {len(head_styles)} chars CSS")
+            return (body_content, head_styles, javascript)
+        except Exception as e:
+            logger.error(f"Error loading background HTML: {str(e)}")
+            return ("", "", "")
 
     @staticmethod
     def create_chart_modal_container() -> str:
