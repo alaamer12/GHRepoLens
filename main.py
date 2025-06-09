@@ -531,7 +531,8 @@ async def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="GitHub Repository Analyzer")
     parser.add_argument('--quicktest', action='store_true', help='Run quick test with predefined parameters')
-    args = parser.parse_args()
+    # Use parse_known_args to ignore any additional args (important for Google Colab)
+    args, _ = parser.parse_known_args()
 
     # Load environment variables from .env file if present
     dotenv.load_dotenv()
