@@ -424,15 +424,82 @@ class GithubVisualizer:
             # Track languages for later summary
             languages_in_table[repo.name] = language
 
-            repos_table_data.append({
+            # Create a comprehensive dictionary with all available metadata
+            repo_data = {
+                # Basic Info
                 "name": repo.name,
                 "language": language,
+                "description": repo.description,
+                "url": f"https://github.com/{self.username}/{repo.name}",
+                "default_branch": repo.default_branch,
+                "is_fork": repo.is_fork,
+                "is_archived": repo.is_archived,
+                "is_template": repo.is_template,
+                "homepage": repo.homepage,
+                
+                # Stats
                 "stars": repo.stars,
+                "forks": repo.forks,
+                "watchers": repo.watchers,
                 "loc": repo.total_loc,
+                "size_kb": repo.size_kb,
+                "total_files": repo.total_files,
+                "avg_loc_per_file": round(repo.avg_loc_per_file, 2),
+                "open_issues": repo.open_issues,
+                "closed_issues": repo.closed_issues,
+                "open_prs": repo.open_prs,
+                
+                # Dates
+                "created_at": repo.created_at.isoformat() if repo.created_at else None,
+                "updated_at": repo.last_pushed.isoformat() if repo.last_pushed else None,
+                "last_commit_date": repo.last_commit_date.isoformat() if repo.last_commit_date else None,
+                
+                # Development
+                "primary_language": repo.primary_language,
+                "file_types": repo.file_types,
+                "project_structure": repo.project_structure,
+                "is_monorepo": repo.is_monorepo,
+                "contributors_count": repo.contributors_count,
+                "commit_frequency": repo.commit_frequency,
+                "commits_last_month": repo.commits_last_month,
+                "commits_last_year": repo.commits_last_year,
+                
+                # Quality
+                "has_ci": repo.has_cicd,
+                "has_tests": repo.has_tests,
+                "test_files_count": repo.test_files_count,
+                "test_coverage_percentage": repo.test_coverage_percentage,
+                "has_docs": repo.has_docs,
+                "docs_files_count": repo.docs_files_count,
+                "docs_size_category": repo.docs_size_category,
+                "readme_comprehensiveness": repo.readme_comprehensiveness,
+                "readme_line_count": repo.readme_line_count,
+                
+                # Infrastructure
+                "has_deployments": repo.has_deployments,
+                "deployment_files": repo.deployment_files,
+                "has_packages": repo.has_packages,
+                "package_files": repo.package_files,
+                "has_releases": repo.has_releases,
+                "release_count": repo.release_count,
+                "dependency_files": repo.dependency_files,
+                "cicd_files": repo.cicd_files,
+                
+                # Community
+                "license_name": repo.license_name,
+                "license_spdx_id": repo.license_spdx_id,
+                "topics": repo.topics,
+                
+                # Scores
                 "is_active": repo.is_active,
                 "maintenance": f"{repo.maintenance_score:.1f}",
-                "url": f"https://github.com/{self.username}/{repo.name}"  # Add GitHub URL
-            })
+                "code_quality_score": round(repo.code_quality_score, 2),
+                "documentation_score": round(repo.documentation_score, 2),
+                "popularity_score": round(repo.popularity_score, 2),
+                "anomalies": repo.anomalies
+            }
+            
+            repos_table_data.append(repo_data)
 
         return repos_table_data, languages_in_table
 

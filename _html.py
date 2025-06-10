@@ -906,6 +906,62 @@ class HTMLVisualizer:
                     scrollbar-width: thin;
                     scrollbar-color: var(--primary) var(--scrollbar-track);
                 }}
+
+                /* Repository metadata section styles */
+                .metadata-row {{
+                    transition: all 0.3s ease-out;
+                }}
+                
+                .metadata-row.hidden {{
+                    display: none;
+                }}
+                
+                .toggle-metadata-btn {{
+                    cursor: pointer;
+                }}
+                
+                .metadata-arrow {{
+                    transition: transform 0.3s ease;
+                }}
+                
+                .metadata-container {{
+                    transform-origin: top center;
+                    max-height: 0;
+                    opacity: 0;
+                    animation: none;
+                }}
+                
+                .metadata-container.animate-chart-enter {{
+                    animation: metadataSlideDown 0.3s ease forwards;
+                }}
+                
+                @keyframes metadataSlideDown {{
+                    from {{
+                        max-height: 0;
+                        opacity: 0;
+                        transform: translateY(-10px);
+                    }}
+                    to {{
+                        max-height: 2000px;
+                        opacity: 1;
+                        transform: translateY(0);
+                    }}
+                }}
+                
+                .metadata-item {{
+                    border-left: 3px solid rgba(79, 70, 229, 0.5);
+                    transition: all 0.2s ease;
+                }}
+                
+                .metadata-item:hover {{
+                    border-left-color: rgb(79, 70, 229);
+                    transform: translateX(3px);
+                }}
+                
+                .stack-badge {{
+                    position: relative;
+                    overflow: hidden;
+                }}
             </style>
         </head>"""
 
@@ -1687,12 +1743,19 @@ class HTMLVisualizer:
 
                         row.innerHTML = `
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">
-                                <a href="${{repo.url}}" target="_blank" class="hover:underline hover:text-primary-dark transition-colors duration-200 flex items-center">
-                                    ${{repo.name}}
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
+                                <div class="flex items-center justify-between">
+                                    <a href="${{repo.url}}" target="_blank" class="hover:underline hover:text-primary-dark transition-colors duration-200 flex items-center mr-2">
+                                        ${{repo.name}}
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-70" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </a>
+                                    <button class="toggle-metadata-btn p-1 rounded-full hover:bg-primary/10 transition-colors">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform transition-transform metadata-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                 ${{repo.language}}
@@ -1717,6 +1780,205 @@ class HTMLVisualizer:
                         `;
 
                         tableBody.appendChild(row);
+                        
+                        // Create metadata row (initially hidden)
+                        const metadataRow = document.createElement('tr');
+                        metadataRow.className = 'metadata-row hidden';
+                        
+                        // Get all available metadata keys - include ALL keys
+                        const metadataKeys = Object.keys(repo);
+                        
+                        // Group metadata into categories for better organization
+                        const metadataCategories = {{
+                            'Basic Info': ['name', 'description', 'url', 'default_branch', 'is_fork', 'is_archived', 'is_template', 'homepage'],
+                            'Stats': ['stars', 'forks', 'watchers', 'size_kb', 'total_files', 'avg_loc_per_file', 'open_issues', 'closed_issues', 'open_prs'],
+                            'Dates': ['created_at', 'updated_at', 'pushed_at', 'last_commit_date'],
+                            'Development': ['primary_language', 'file_types', 'project_structure', 'is_monorepo', 'contributors_count', 'commit_frequency', 'commits_last_month', 'commits_last_year'],
+                            'Quality': ['has_ci', 'has_tests', 'test_files_count', 'test_coverage_percentage', 'has_docs', 'docs_files_count', 'docs_size_category', 'readme_comprehensiveness', 'readme_line_count'],
+                            'Infrastructure': ['has_deployments', 'deployment_files', 'has_packages', 'package_files', 'has_releases', 'release_count', 'dependency_files', 'cicd_files'],
+                            'Community': ['license_name', 'license_spdx_id', 'topics'],
+                            'Scores': ['code_quality_score', 'documentation_score', 'popularity_score', 'anomalies'],
+                            'Other': []
+                        }};
+                        
+                        // Exclude redundant keys that are already visible in the main table
+                        const redundantKeys = ['language', 'loc', 'is_active', 'maintenance'];
+                        
+                        // Categorize metadata keys
+                        let categorizedKeys = {{}};
+                        metadataKeys.forEach(key => {{
+                            // Skip redundant keys
+                            if (redundantKeys.includes(key)) {{
+                                return;
+                            }}
+                            
+                            let placed = false;
+                            
+                            // Check if key belongs to a predefined category
+                            for (const category in metadataCategories) {{
+                                if (metadataCategories[category].includes(key)) {{
+                                    if (!categorizedKeys[category]) categorizedKeys[category] = [];
+                                    categorizedKeys[category].push(key);
+                                    placed = true;
+                                    break;
+                                }}
+                            }}
+                            
+                            // If key doesn't match any predefined category, check by name patterns
+                            if (!placed) {{
+                                if (key.includes('date') || key.includes('time')) {{
+                                    if (!categorizedKeys['Dates']) categorizedKeys['Dates'] = [];
+                                    categorizedKeys['Dates'].push(key);
+                                }} else if (key.includes('count') || key.includes('number') || key.includes('size')) {{
+                                    if (!categorizedKeys['Stats']) categorizedKeys['Stats'] = [];
+                                    categorizedKeys['Stats'].push(key);
+                                }} else if (key.includes('has_') || key.includes('is_') || key.includes('quality') || key.includes('score')) {{
+                                    if (!categorizedKeys['Quality']) categorizedKeys['Quality'] = [];
+                                    categorizedKeys['Quality'].push(key);
+                                }} else if (key.includes('language') || key.includes('code')) {{
+                                    if (!categorizedKeys['Development']) categorizedKeys['Development'] = [];
+                                    categorizedKeys['Development'].push(key);
+                                }} else if (key.includes('file') || key.includes('deploy') || key.includes('ci') || key.includes('package')) {{
+                                    if (!categorizedKeys['Infrastructure']) categorizedKeys['Infrastructure'] = [];
+                                    categorizedKeys['Infrastructure'].push(key);
+                                }} else {{
+                                    if (!categorizedKeys['Other']) categorizedKeys['Other'] = [];
+                                    categorizedKeys['Other'].push(key);
+                                }}
+                            }}
+                        }});
+                        
+                        // Create metadata row content
+                        const metadataCell = document.createElement('td');
+                        metadataCell.setAttribute('colspan', '6');
+                        metadataCell.className = 'px-0 py-0';
+                        
+                        const metadataContainer = document.createElement('div');
+                        metadataContainer.className = 'metadata-container bg-gray-50 dark:bg-gray-800/50 rounded-lg m-2 p-4 shadow-inner overflow-auto transition-all duration-500';
+                        
+                        if (metadataKeys.length > 0) {{
+                            // We have metadata to display
+                            const categoriesContainer = document.createElement('div');
+                            categoriesContainer.className = 'space-y-4';
+                            
+                            // Create sections for each category
+                            for (const category in categorizedKeys) {{
+                                if (categorizedKeys[category] && categorizedKeys[category].length > 0) {{
+                                    // Create category heading
+                                    const categoryHeading = document.createElement('h3');
+                                    categoryHeading.className = 'text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 border-b border-gray-200 dark:border-gray-700 pb-1';
+                                    categoryHeading.textContent = category;
+                                    
+                                    // Create grid for this category
+                                    const metadataGrid = document.createElement('div');
+                                    metadataGrid.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4';
+                                    
+                                    // Add each metadata item in this category
+                                    categorizedKeys[category].forEach(key => {{
+                                        const metadataItem = document.createElement('div');
+                                        metadataItem.className = 'metadata-item p-3 bg-white/50 dark:bg-gray-700/50 rounded-lg shadow-sm hover:shadow-md transition-shadow';
+                                        
+                                        const metadataLabel = document.createElement('div');
+                                        metadataLabel.className = 'text-xs font-medium text-gray-500 dark:text-gray-400 mb-1';
+                                        metadataLabel.textContent = key.replace(/_/g, ' ').toUpperCase();
+                                        
+                                        const metadataValue = document.createElement('div');
+                                        metadataValue.className = 'font-mono text-sm text-gray-800 dark:text-gray-200';
+                                        
+                                        // Format value based on metadata type
+                                        if (key.includes('date') || key.includes('created_at') || key.includes('updated_at')) {{
+                                            // Format dates nicely
+                                            try {{
+                                                const date = new Date(repo[key]);
+                                                metadataValue.textContent = date.toLocaleDateString(undefined, {{ 
+                                                    year: 'numeric', 
+                                                    month: 'short', 
+                                                    day: 'numeric'
+                                                }});
+                                                // Add time icon
+                                                metadataValue.innerHTML = `<span class="inline-flex items-center"><svg class="w-3 h-3 mr-1 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>${{metadataValue.textContent}}</span>`;
+                                            }} catch (e) {{
+                                                metadataValue.textContent = repo[key];
+                                            }}
+                                        }} else if (key.includes('url') || key.includes('link')) {{
+                                            // Format URLs as clickable links
+                                            metadataValue.innerHTML = `<a href="${{repo[key]}}" target="_blank" class="text-primary hover:underline flex items-center">
+                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                                ${{ repo[key].length > 30 ? repo[key].substring(0, 30) + '...' : repo[key] }}
+                                            </a>`;
+                                        }} else if (key.includes('count') || key.includes('size') || key.includes('number') || key === 'stars' || key === 'loc' || key === 'forks' || key === 'issues') {{
+                                            // Format numeric values
+                                            metadataValue.innerHTML = `<span class="font-semibold">${{Number(repo[key]).toLocaleString()}}</span>`;
+                                        }} else if (key.includes('percentage') || key.includes('ratio') || key.includes('score') || key === 'maintenance') {{
+                                            // Format percentages with a progress bar
+                                            const value = parseFloat(repo[key]);
+                                            const color = value > 75 ? 'bg-green-500' : value > 50 ? 'bg-yellow-500' : 'bg-red-500';
+                                            metadataValue.innerHTML = `
+                                                <div class="flex items-center">
+                                                    <span class="mr-2 font-semibold">${{value}}%</span>
+                                                    <div class="flex-grow bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
+                                                        <div class="${{color}} h-2 rounded-full" style="width: ${{value}}%"></div>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }} else if (typeof repo[key] === 'boolean' || key === 'is_active' || key === 'has_docs') {{
+                                            // Format boolean values
+                                            if (repo[key] === true || repo[key] === 'Yes' || repo[key] === 'yes' || repo[key] === 'true' || repo[key] === 'True') {{
+                                                metadataValue.innerHTML = '<span class="inline-flex items-center text-green-600 dark:text-green-400"><svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Yes</span>';
+                                            }} else {{
+                                                metadataValue.innerHTML = '<span class="inline-flex items-center text-red-600 dark:text-red-400"><svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>No</span>';
+                                            }}
+                                        }} else if (Array.isArray(repo[key])) {{
+                                            // Format arrays as comma-separated lists with badges
+                                            if (repo[key].length === 0) {{
+                                                metadataValue.innerHTML = '<span class="text-gray-400 italic">None</span>';
+                                            }} else {{
+                                                metadataValue.innerHTML = `<div class="flex flex-wrap gap-1">
+                                                    ${{repo[key].map(item => `<span class="px-2 py-0.5 rounded-full bg-primary/10 text-xs">${{item}}</span>`).join('')}}
+                                                </div>`;
+                                            }}
+                                        }} else {{
+                                            // Default formatting
+                                            metadataValue.textContent = repo[key];
+                                        }}
+                                        
+                                        metadataItem.appendChild(metadataLabel);
+                                        metadataItem.appendChild(metadataValue);
+                                        metadataGrid.appendChild(metadataItem);
+                                    }});
+                                    
+                                    // Add category and its metadata to the container
+                                    categoriesContainer.appendChild(categoryHeading);
+                                    categoriesContainer.appendChild(metadataGrid);
+                                }}
+                            }}
+                            
+                            metadataContainer.appendChild(categoriesContainer);
+                        }} else {{
+                            // No metadata available
+                            const noMetadataMsg = document.createElement('p');
+                            noMetadataMsg.className = 'text-center text-gray-500 dark:text-gray-400 italic';
+                            noMetadataMsg.textContent = 'No repository data available';
+                            metadataContainer.appendChild(noMetadataMsg);
+                        }}
+                        
+                        metadataCell.appendChild(metadataContainer);
+                        metadataRow.appendChild(metadataCell);
+                        tableBody.appendChild(metadataRow);
+                        
+                        // Add click event to toggle button
+                        const toggleBtn = row.querySelector('.toggle-metadata-btn');
+                        toggleBtn.addEventListener('click', (e) => {{
+                            e.preventDefault();
+                            const arrow = toggleBtn.querySelector('.metadata-arrow');
+                            arrow.classList.toggle('rotate-180');
+                            metadataRow.classList.toggle('hidden');
+                            
+                            // Add animation class if showing
+                            if (!metadataRow.classList.contains('hidden')) {{
+                                metadataContainer.classList.add('animate-chart-enter');
+                            }}
+                        }});
                     }});
 
                     // Update pagination info

@@ -24,6 +24,7 @@ from utilities import Checkpoint
 from visualizer import GithubVisualizer
 
 
+# noinspection PyTypeChecker,PyArgumentList
 class GithubLens:
     """
     Main analyzer class for GitHub repositories with comprehensive analysis capabilities.

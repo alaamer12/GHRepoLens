@@ -16,7 +16,7 @@ from typing import Dict, List, Any, Optional
 from github.GithubException import GithubException, RateLimitExceededException
 from github.Repository import Repository
 from tqdm.auto import tqdm
-
+import json
 from config import BINARY_EXTENSIONS, CICD_FILES, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, \
     SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration
 from console import rprint, logger, RateLimitDisplay
@@ -409,7 +409,6 @@ class CodeAnalyzer:
             Number of actual executable lines of code
         """
         try:
-            import json
             notebook_data = json.loads(content)
             
             actual_loc = 0
