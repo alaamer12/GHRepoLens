@@ -9,14 +9,16 @@ and logging throughout the application. It configures and exports:
 - Custom progress bars and status displays
 """
 
-from pathlib import Path
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Any
 
-from rich.console import Console
+from rich import box
 from rich import print as rich_print
+from rich.console import Console
 from rich.logging import RichHandler
+from rich.panel import Panel
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -27,9 +29,7 @@ from rich.progress import (
     TaskProgressColumn
 )
 from rich.text import Text
-from rich.panel import Panel
 from rich.theme import Theme
-from rich import box
 
 # Custom theme with consistent color scheme
 CONSOLE_THEME = Theme({

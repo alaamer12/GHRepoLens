@@ -1,11 +1,13 @@
-from models import RepoStats
-from datetime import datetime, timezone
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import List, Optional, Dict
+
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
 from config import ThemeConfig, DefaultTheme
 from console import logger
+from models import RepoStats
 
 
 class PersonalRepoAnalysis:

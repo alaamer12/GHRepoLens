@@ -6,9 +6,9 @@ This module provides a simple interface for running the GitHub Repository Analyz
 It automatically installs required dependencies and handles Colab-specific configurations.
 """
 
+import asyncio
 import os
 import sys
-import asyncio
 
 
 def setup_environment():
@@ -30,10 +30,10 @@ def setup_environment():
         else:
             import subprocess
             subprocess.check_call([sys.executable, "-m", "pip", "install", "nest-asyncio", "PyGithub", "rich"])
-        
+
         # Import after installation
         import nest_asyncio
-    
+
     # Apply nest_asyncio to allow nested event loops in notebooks
     nest_asyncio.apply()
 
@@ -49,20 +49,22 @@ async def run_analyzer(github_token=None, github_username=None, mode="quicktest"
     """
     # Import main module
     from main import run_analysis
-    
+
     # Use provided token or get from environment
     token = github_token or os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise ValueError("GitHub token is required. Set GITHUB_TOKEN environment variable or provide it as a parameter.")
-    
+        raise ValueError(
+            "GitHub token is required. Set GITHUB_TOKEN environment variable or provide it as a parameter.")
+
     # Use provided username or get from environment
     username = github_username or os.environ.get("GITHUB_USERNAME")
     if not username:
-        raise ValueError("GitHub username is required. Set GITHUB_USERNAME environment variable or provide it as a parameter.")
-    
+        raise ValueError(
+            "GitHub username is required. Set GITHUB_USERNAME environment variable or provide it as a parameter.")
+
     # Define organizations to include based on mode
     include_orgs = ["JsonAlchemy", "T2F-Labs"] if mode == "quicktest" else None
-    
+
     # Run the analyzer
     await run_analysis(
         token=token,
@@ -85,7 +87,7 @@ def run_colab(github_token=None, github_username=None, mode="quicktest"):
     """
     # Set up environment
     setup_environment()
-    
+
     # Run the analyzer
     asyncio.run(run_analyzer(github_token, github_username, mode))
 
@@ -96,5 +98,5 @@ if __name__ == "__main__":
         mode = sys.argv[1]
     else:
         mode = "quicktest"
-    
-    run_colab(mode=mode) 
+
+    run_colab(mode=mode)

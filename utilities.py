@@ -10,13 +10,14 @@ Key components:
 - File operations: Functions for file type detection and analysis
 """
 
-import time
 import pickle
-from pathlib import Path
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from tqdm.auto import tqdm
+
 from console import logger
 
 

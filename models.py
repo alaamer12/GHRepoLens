@@ -103,7 +103,7 @@ class CodeStats:
                 # Recalculate if needed
                 total_loc = sum(self.languages.values())
                 self.total_loc = total_loc
-                
+
             if total_loc == 0:
                 return
 

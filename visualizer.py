@@ -5,24 +5,25 @@ This module generates interactive visualizations and dashboards for repository a
 It creates HTML reports with charts, graphs, and insights from repository data.
 """
 
+import json
 import os
 import shutil
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, NamedTuple, Optional, Dict
 from zipfile import Path
+
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import seaborn as sns
 
 from _html import HTMLVisualizer
 from _js import JSCreator
-from models import RepoStats
-from pathlib import Path
-from datetime import datetime, timezone
-from collections import defaultdict
-from typing import List, NamedTuple, Optional, Dict
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.graph_objects as go
-import json
+from charts import CreateDetailedCharts
 from config import ThemeConfig, DefaultTheme
 from console import logger
-from charts import CreateDetailedCharts
+from models import RepoStats
 from repo_analyzer import PersonalRepoAnalysis, OrganizationRepoAnalysis
 
 
@@ -437,7 +438,7 @@ class GithubVisualizer:
                 "is_archived": repo.is_archived,
                 "is_template": repo.is_template,
                 "homepage": repo.homepage,
-                
+
                 # Stats
                 "stars": repo.stars,
                 "forks": repo.forks,
@@ -449,12 +450,12 @@ class GithubVisualizer:
                 "open_issues": repo.open_issues,
                 "closed_issues": repo.closed_issues,
                 "open_prs": repo.open_prs,
-                
+
                 # Dates
                 "created_at": repo.created_at.isoformat() if repo.created_at else None,
                 "updated_at": repo.last_pushed.isoformat() if repo.last_pushed else None,
                 "last_commit_date": repo.last_commit_date.isoformat() if repo.last_commit_date else None,
-                
+
                 # Development
                 "primary_language": repo.primary_language,
                 "file_types": repo.file_types,
@@ -464,7 +465,7 @@ class GithubVisualizer:
                 "commit_frequency": repo.commit_frequency,
                 "commits_last_month": repo.commits_last_month,
                 "commits_last_year": repo.commits_last_year,
-                
+
                 # Quality
                 "has_ci": repo.has_cicd,
                 "has_tests": repo.has_tests,
@@ -475,7 +476,7 @@ class GithubVisualizer:
                 "docs_size_category": repo.docs_size_category,
                 "readme_comprehensiveness": repo.readme_comprehensiveness,
                 "readme_line_count": repo.readme_line_count,
-                
+
                 # Infrastructure
                 "has_deployments": repo.has_deployments,
                 "deployment_files": repo.deployment_files,
@@ -485,12 +486,12 @@ class GithubVisualizer:
                 "release_count": repo.release_count,
                 "dependency_files": repo.dependency_files,
                 "cicd_files": repo.cicd_files,
-                
+
                 # Community
                 "license_name": repo.license_name,
                 "license_spdx_id": repo.license_spdx_id,
                 "topics": repo.topics,
-                
+
                 # Scores
                 "is_active": repo.is_active,
                 "maintenance": f"{repo.maintenance_score:.1f}",
@@ -499,7 +500,7 @@ class GithubVisualizer:
                 "popularity_score": round(repo.popularity_score, 2),
                 "anomalies": repo.anomalies
             }
-            
+
             repos_table_data.append(repo_data)
 
         return repos_table_data, languages_in_table

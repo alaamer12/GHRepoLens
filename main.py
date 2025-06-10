@@ -16,24 +16,23 @@ Main features:
 - Checkpoint functionality to resume interrupted analysis
 """
 
-import os
-import atexit
-import asyncio
 import argparse
-from pathlib import Path
+import asyncio
+import atexit
+import os
 import random
+from pathlib import Path
 from typing import List, Optional
 
 import dotenv
-from rich.prompt import Prompt, Confirm
-from rich.panel import Panel
-
 from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
 
+from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, shutdown_logging
 from console import console, rprint, logger, print_header, print_info, print_warning, print_error, print_success, \
     create_progress_bar
-from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, shutdown_logging
 from lens import GithubLens
 from models import RepoStats
 
@@ -551,10 +550,10 @@ async def main() -> None:
 
         # Set predefined organizations for quicktest mode
         include_orgs = ["JsonAlchemy", "T2F-Labs"]
-        
+
         # Use default visibility (all)
         visibility = os.environ.get("GITHUB_VISIBILITY", "all")
-        
+
         # Validate visibility value
         if visibility not in ["all", "public", "private"]:
             print_warning(f"Invalid visibility value '{visibility}', using default 'all'.")
@@ -620,7 +619,7 @@ async def main() -> None:
 
     visibility_choice = Prompt.ask("[bold]Choose visibility[/bold]", choices=["1", "2", "3"], default="1")
     selected_visibility = visibility_options[visibility_choice]
-    
+
     # Ask for custom config file
     use_config = Confirm.ask("Use custom config file?", default=False)
     config_file = None

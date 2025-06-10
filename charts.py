@@ -7,22 +7,22 @@ code quality metrics, and project trends.
 """
 
 import os
-from pathlib import Path
+import tempfile
+from collections import defaultdict, Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict, Optional
 
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import numpy as np
+import plotly.graph_objects as go
+from PIL import Image
+from plotly.subplots import make_subplots
+from wordcloud import WordCloud
 
+from config import ThemeConfig
 from console import logger
 from models import RepoStats
 from utilities import ensure_utc
-from collections import defaultdict, Counter
-from wordcloud import WordCloud
-from PIL import Image
-import tempfile
-from config import ThemeConfig
 
 
 def save_figure(fig, filename, reports_dir: Path) -> None:

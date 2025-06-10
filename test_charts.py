@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from console import console, print_header
 
 # Define the reports directory
@@ -29,4 +30,5 @@ for chart_name in chart_names:
 # Report summary
 print_header("\nSummary:")
 console.print(f"Reports directory exists: {reports_dir.exists()}")
-console.print(f"Total chart files found: {sum(1 for name in chart_names if (reports_dir / f'{name}.png').exists())}/{len(chart_names)}")
+console.print(
+    f"Total chart files found: {sum(1 for name in chart_names if (reports_dir / f'{name}.png').exists())}/{len(chart_names)}")
