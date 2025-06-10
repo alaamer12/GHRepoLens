@@ -10,6 +10,7 @@ import shutil
 from zipfile import Path
 
 from _html import HTMLVisualizer
+from _js import JSCreator
 from models import RepoStats
 from pathlib import Path
 from datetime import datetime, timezone
@@ -535,18 +536,19 @@ class GithubVisualizer:
     def _build_html_content(self, fig, timestamp, stats, repos_json):
         """Build the complete HTML content for the dashboard"""
         html_visualizer = HTMLVisualizer(self.username, self.reports_dir, self.theme)
-
+        js_creator = JSCreator(self.theme, html_visualizer.bg_html_js)
         # Create JavaScript sections
-        js_part2 = html_visualizer.create_js_part2(
+        js_part2 = js_creator.create_js_part2(
             fig,
             stats["total_repos"],
             stats["total_loc"],
             stats["total_stars"],
             stats["active_repos"]
         )
-        repo_table_js = html_visualizer.create_repo_table_js(repos_json)
-        repo_tabs_js = html_visualizer.create_repo_tabs_js(self.has_org_repos)
-        js_part3 = html_visualizer.create_js_part3(repo_table_js, repo_tabs_js)
+        js_part1 = js_creator.create_js_part1()
+        repo_table_js = js_creator.create_repo_table_js(repos_json)
+        repo_tabs_js = js_creator.create_repo_tabs_js(self.has_org_repos)
+        js_part3 = js_creator.create_js_part3(repo_table_js, repo_tabs_js)
 
         # Create HTML content as named tuple
         html_content = HtmlContent(
@@ -560,7 +562,7 @@ class GithubVisualizer:
             additional_charts_section=html_visualizer.create_additional_charts_section(),
             chart_modal_container=html_visualizer.create_chart_modal_container(),
             footer_section=html_visualizer.create_footer_section(timestamp),
-            js_part1=html_visualizer.create_js_part1(),
+            js_part1=js_part1,
             js_part2=js_part2,
             js_part3=js_part3
         )
