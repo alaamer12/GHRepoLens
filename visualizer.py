@@ -12,7 +12,6 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Dict
-from zipfile import Path
 
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
