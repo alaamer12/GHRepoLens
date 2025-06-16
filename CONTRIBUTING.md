@@ -1,87 +1,251 @@
-# Contributing to GHRepoLens
+# 🤝 Contributing to GHRepoLens
 
-Thank you for considering contributing to GHRepoLens! This document provides guidelines and instructions for contributing to this project.
+Thank you for your interest in contributing to GHRepoLens! This guide will help you get started with contributing to the project.
 
-## How Can I Contribute?
+## 🎯 Ways to Contribute
 
-### Reporting Bugs
+### 🐛 Bug Reports
+- Use the GitHub Issues page to report bugs
+- Include detailed steps to reproduce
+- Add system information and logs
+- Tag with appropriate labels
 
-Before creating bug reports, please check the issue list as you might find that the bug has already been reported. When you are creating a bug report, please include as many details as possible:
+### 💡 Feature Requests
+- Check existing issues first
+- Describe the feature clearly
+- Explain the use case
+- Provide examples if possible
 
-- **Use a clear and descriptive title** for the issue
-- **Describe the exact steps which reproduce the problem**
-- **Provide specific examples** to demonstrate the steps
-- **Describe the behavior you observed**
-- **Explain the behavior you expected to see**
-- **Include screenshots or animated GIFs** if possible
-- **Include your environment details** (OS, Python version, etc.)
+### 📝 Code Contributions
+- Fork the repository
+- Create a feature branch
+- Write clean, documented code
+- Submit a pull request
 
-### Suggesting Enhancements
+## 🚀 Development Setup
 
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion:
+### 1️⃣ Environment Setup
+```bash
+# Clone your fork
+git clone https://github.com/yourusername/GHRepoLens.git
+cd GHRepoLens
 
-- **Use a clear and descriptive title**
-- **Provide a detailed description of the suggested enhancement**
-- **Explain why this enhancement would be useful**
-- **Include mockups or examples** if applicable
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-### Pull Requests
+# Install dependencies
+pip install -r requirements.txt
+```
 
-- Fill in the required PR template
-- Follow the Python style guide (PEP 8)
-- Include appropriate tests
-- Update documentation if needed
-- End all files with a newline
-- Make sure your code passes all tests and linting
+### 2️⃣ Development Dependencies
+```bash
+pip install -r requirements-dev.txt
+```
 
-## Development Workflow
+## 💻 Development Workflow
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Set up your development environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt  # Development dependencies
-   ```
-5. Commit your changes following the [conventional commits](https://www.conventionalcommits.org/) standard
-6. Push to your branch
-7. Create a Pull Request
+### 1. Create a Branch
+```bash
+git checkout -b feature/amazing-feature
+```
 
-## Coding Standards
+### 2. Make Changes
+- Follow coding standards
+- Add/update tests
+- Update documentation
 
-- Follow PEP 8 style guidelines
-- Write docstrings for all functions, classes, and methods
-- Include type hints for function parameters and return values
-- Write unit tests for new functionality
-- Keep functions focused and small (preferably < 20 lines)
-- Use descriptive variable names
+### 3. Test Changes
+```bash
+# Run test suite
+python -m pytest
 
-## Git Commit Messages
+# Run specific test
+python -m pytest tests/test_specific.py
+```
 
-- Use the present tense ("Add feature" not "Added feature")
-- Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Limit the first line to 72 characters or less
-- Reference issues and pull requests after the first line
-- Follow the [conventional commits](https://www.conventionalcommits.org/) format:
-  - `feat`: A new feature
-  - `fix`: A bug fix
-  - `docs`: Documentation only changes
-  - `style`: Changes that do not affect the meaning of the code
-  - `refactor`: A code change that neither fixes a bug nor adds a feature
-  - `perf`: A code change that improves performance
-  - `test`: Adding missing tests or correcting existing tests
-  - `chore`: Changes to the build process or auxiliary tools
+### 4. Commit Changes
+```bash
+git add .
+git commit -m "feat: add amazing feature"
+```
 
-## Documentation
+Use conventional commit messages:
+- `feat:` New feature
+- `fix:` Bug fix
+- `docs:` Documentation
+- `test:` Tests
+- `refactor:` Code refactoring
+- `style:` Code style
+- `chore:` Maintenance
 
-- Update README.md with details of changes to the interface
-- Update the documentation when you change functionality
-- Maintain the project structure documentation
+### 5. Push Changes
+```bash
+git push origin feature/amazing-feature
+```
 
-## Questions?
+### 6. Submit Pull Request
+- Fill out PR template
+- Link related issues
+- Add screenshots if relevant
+- Request review
 
-Feel free to contact the project maintainers if you have any questions or need help with the contribution process.
+## 📋 Code Standards
 
-Thank you for contributing to GHRepoLens! 
+### Python Style Guide
+- Follow PEP 8
+- Use type hints
+- Maximum line length: 88 characters
+- Use f-strings for formatting
+
+### Documentation
+- Update README.md if needed
+- Add docstrings to functions
+- Keep docs consistent with code
+- Follow documentation style guide
+
+### Testing
+- Write unit tests for new features
+- Maintain test coverage
+- Test edge cases
+- Update test documentation
+
+## 🔍 Code Review Process
+
+### Reviewer Guidelines
+- Check code style
+- Verify test coverage
+- Validate documentation
+- Test functionality
+
+### Author Guidelines
+- Respond to feedback promptly
+- Make requested changes
+- Update based on reviews
+- Keep PR up to date
+
+## 🏗️ Project Structure
+
+### Core Modules
+```
+GHRepoLens/
+├── analyzer.py      # Repository analysis
+├── config.py       # Configuration handling
+├── console.py      # Terminal interface
+├── lens.py         # Core functionality
+├── models.py       # Data models
+├── reporter.py     # Report generation
+└── utilities.py    # Helper functions
+```
+
+### Documentation
+```
+docs/
+├── QUICK_START.md     # Getting started guide
+├── THEME_CONFIG.md    # Theme customization
+├── CHANGES.md         # Change log
+└── COLAB_USAGE.md     # Google Colab guide
+```
+
+### Visualization
+```
+visualize/
+├── charts.py          # Chart generation
+├── repo_analyzer.py   # Data analysis
+├── visualizer.py      # HTML generation
+└── static/           # Static assets
+```
+
+## 🎨 Style Guide
+
+### Code Formatting
+```python
+# Good
+def calculate_metrics(repo: Repository) -> Dict[str, float]:
+    """Calculate repository metrics.
+    
+    Args:
+        repo: Repository object to analyze
+        
+    Returns:
+        Dictionary of calculated metrics
+    """
+    metrics = {}
+    return metrics
+
+# Bad
+def calculate_metrics(repo):
+    metrics = {}
+    return metrics
+```
+
+### Documentation Style
+```python
+# Good
+class RepoAnalyzer:
+    """Repository analysis functionality.
+    
+    Provides methods for analyzing GitHub repositories and generating
+    metrics about code quality, activity, and structure.
+    
+    Attributes:
+        client: GitHub API client instance
+        config: Analysis configuration
+    """
+
+# Bad
+class RepoAnalyzer:
+    # Analyze repos
+    pass
+```
+
+## 📦 Release Process
+
+### Version Numbering
+- Follow Semantic Versioning
+- Format: MAJOR.MINOR.PATCH
+- Update version in setup.py
+
+### Release Steps
+1. Update CHANGES.md
+2. Create release branch
+3. Update version number
+4. Create GitHub release
+5. Publish to PyPI
+
+## ⚡ Performance Tips
+
+### Optimization
+- Use async/await for I/O
+- Implement caching
+- Optimize database queries
+- Profile slow operations
+
+### Memory Usage
+- Close file handles
+- Use generators for large data
+- Implement cleanup handlers
+- Monitor memory usage
+
+## 🤝 Community
+
+### Communication
+- GitHub Issues for bugs
+- Discussions for questions
+- Pull Requests for changes
+- Wiki for documentation
+
+### Code of Conduct
+We follow the [Contributor Covenant](https://www.contributor-covenant.org/):
+- Be respectful and inclusive
+- Accept constructive criticism
+- Focus on what is best for the community
+- Show empathy towards others
+
+## 📜 License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.
+
+---
+
+Thank you for contributing to GHRepoLens! 🚀

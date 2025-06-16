@@ -1,126 +1,202 @@
-# Using GitHub Repository Analyzer in Google Colab
+# 🌟 Google Colab Integration Guide
 
-This guide explains how to run the GitHub Repository Analyzer in Google Colab.
+Welcome to the Google Colab integration guide for GHRepoLens. This guide explains how to run repository analysis in Google's cloud environment.
 
-## Setup Instructions
+## 🚀 Quick Setup
 
-1. **Upload Project Files to Google Colab**
-
-   You need to upload the project files to Google Colab. You can do this in two ways:
-
-   - **Option 1**: Upload the files directly from your computer
-   - **Option 2**: Clone the repository from GitHub
-
-   For Option 2, run the following in a Colab cell:
-   ```python
-   !git clone https://github.com/your-username/GHRepoLens.git
-   %cd GHRepoLens
-   ```
-
-2. **Set GitHub Token and Username**
-
-   Set your GitHub token and username as environment variables:
-   ```python
-   import os
-   os.environ["GITHUB_TOKEN"] = "your-github-token"
-   os.environ["GITHUB_USERNAME"] = "your-github-username"
-   ```
-
-## Running the Analyzer
-
-### Quick Method (Recommended)
-
-Use the `colab_runner.py` script which handles all the necessary setup:
-
+### 1️⃣ Option 1: Direct Repository Clone
 ```python
-from colab_runner import run_colab
-
-# Run with environment variables
-run_colab()
-
-# Or provide token and username directly
-run_colab(
-    github_token="your-github-token",
-    github_username="your-github-username",
-    mode="quicktest"  # Choose from: "quicktest", "test", "demo", "full"
-)
-```
-
-### Alternative Method
-
-If you prefer to run the analyzer directly:
-
-```python
-# Install required dependencies
-!pip install nest-asyncio PyGithub rich
-
-# Import necessary modules
-from main import run_analysis
-import asyncio
-import nest_asyncio
-import os
-
-# Apply nest_asyncio to avoid event loop issues
-nest_asyncio.apply()
-
-# Set GitHub credentials
-github_token = "your-github-token"  # or use os.environ.get("GITHUB_TOKEN")
-github_username = "your-github-username"  # or use os.environ.get("GITHUB_USERNAME")
-
-# Run the analyzer
-asyncio.run(
-    run_analysis(
-        token=github_token,
-        username=github_username,
-        mode="quicktest",  # Choose from: "quicktest", "test", "demo", "full" 
-        include_orgs=["JsonAlchemy", "T2F-Labs"],  # Optional: organizations to include
-        visibility="all"  # Choose from: "all", "public", "private"
-    )
-)
-```
-
-## Analysis Modes
-
-- **`quicktest`**: Analyzes 1 personal repository and 1 repository from each predefined organization
-- **`test`**: Analyzes a single repository
-- **`demo`**: Analyzes up to 10 repositories
-- **`full`**: Analyzes all available repositories (may take time)
-
-## Troubleshooting
-
-If you encounter any issues:
-
-1. **Make sure you have a valid GitHub token** with appropriate permissions
-2. **Check if the GitHub username exists** and is spelled correctly
-3. **Verify network connectivity** in the Colab environment
-4. **Check for rate limiting** - GitHub API has usage limits
-5. **Look for error messages** in the output for specific issues
-
-## Sample Notebook
-
-Here's a minimal example to run the analyzer:
-
-```python
-# Install dependencies if not already installed
-try:
-    import nest_asyncio
-    import github
-    from rich.console import Console
-except ImportError:
-    !pip install nest-asyncio PyGithub rich
-
-# Clone repository if needed
-!git clone https://github.com/your-username/GHRepoLens.git
+# Clone the repository
+!git clone https://github.com/alaamer12/GHRepoLens.git
 %cd GHRepoLens
 
-# Import runner and run analysis
-from colab_runner import run_colab
+# Install dependencies
+!pip install -q nest-asyncio PyGithub rich python-dotenv
 
-# Set GitHub credentials
+# Set credentials
 import os
 os.environ["GITHUB_TOKEN"] = "your-github-token"
 os.environ["GITHUB_USERNAME"] = "your-github-username"
 
-# Run the analyzer in quicktest mode
+# Import and run
+from colab_runner import run_colab
 run_colab(mode="quicktest")
-``` 
+```
+
+### 2️⃣ Option 2: Upload Project Files
+1. Download GHRepoLens from GitHub
+2. Upload essential files to Colab:
+   - `colab_runner.py`
+   - `requirements.txt`
+   - Core Python modules
+
+## 🔧 Configuration Options
+
+### Basic Configuration
+```python
+run_colab(
+    github_token="your-token",      # GitHub personal access token
+    github_username="your-username", # GitHub username
+    mode="demo",                    # Analysis mode
+    include_orgs=["org1", "org2"],  # Optional: organizations to analyze
+    visibility="all"                # Repository visibility filter
+)
+```
+
+### Analysis Modes
+```python
+# Demo Mode (10 repos max)
+run_colab(mode="demo")
+
+# Quick Test (1 repo)
+run_colab(mode="quicktest")
+
+# Full Analysis
+run_colab(mode="full")
+
+# Test Mode
+run_colab(mode="test")
+```
+
+## 📊 Available Features
+
+### Core Features
+- ✅ Repository analysis
+- ✅ Language statistics
+- ✅ Commit history analysis
+- ✅ Code quality metrics
+
+### Colab-Specific Features
+- 🔄 Automatic dependency installation
+- 💾 Persistent storage support
+- 📈 Interactive visualizations
+- 🔌 Google Drive integration
+
+### Limitations
+- ⚠️ Runtime restrictions
+- ⚠️ Memory constraints
+- ⚠️ Storage limitations
+- ⚠️ API rate limits
+
+## 🛠️ Advanced Usage
+
+### Custom Configuration
+```python
+from colab_runner import run_colab
+import json
+
+# Custom analysis configuration
+config = {
+    "REPORTS_DIR": "/content/reports",
+    "MAX_WORKERS": 4,
+    "SKIP_FORKS": True,
+    "ANALYZE_CLONES": False
+}
+
+# Run with custom config
+run_colab(
+    config=config,
+    mode="full",
+    visibility="public"
+)
+```
+
+### Google Drive Integration
+```python
+from google.colab import drive
+
+# Mount Google Drive
+drive.mount('/content/drive')
+
+# Set custom reports directory
+run_colab(
+    reports_dir="/content/drive/MyDrive/GHRepoLens/reports",
+    mode="full"
+)
+```
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+#### 1. Memory Errors
+```python
+# Reduce memory usage
+run_colab(
+    mode="demo",
+    max_workers=2,
+    skip_forks=True
+)
+```
+
+#### 2. Runtime Disconnection
+- Save progress frequently
+- Use checkpointing
+- Reduce analysis scope
+
+#### 3. Rate Limiting
+- Use token with higher limits
+- Enable checkpointing
+- Resume from last checkpoint
+
+## 💡 Best Practices
+
+### Performance Optimization
+1. **Resource Management**
+   - Clear output cells regularly
+   - Restart runtime if memory high
+   - Use appropriate batch sizes
+
+2. **Storage Handling**
+   - Clean up temporary files
+   - Use Google Drive for persistence
+   - Compress results when possible
+
+3. **API Usage**
+   - Monitor rate limits
+   - Use incremental analysis
+   - Enable caching when possible
+
+### Example Notebook
+```python
+# Complete example with all features
+from colab_runner import run_colab
+from google.colab import drive
+import os
+
+# Setup
+drive.mount('/content/drive')
+!git clone https://github.com/alaamer12/GHRepoLens.git
+%cd GHRepoLens
+!pip install -r requirements.txt
+
+# Configuration
+os.environ["GITHUB_TOKEN"] = "your-token"
+os.environ["GITHUB_USERNAME"] = "your-username"
+
+# Run analysis
+run_colab(
+    mode="demo",
+    reports_dir="/content/drive/MyDrive/GHRepoLens/reports",
+    include_orgs=["your-org"],
+    visibility="public",
+    max_workers=2
+)
+```
+
+## 📚 Additional Resources
+
+- [Colab Documentation](https://colab.research.google.com/)
+- [GitHub API Docs](https://docs.github.com/en/rest)
+- [GHRepoLens Wiki](docs/QUICK_START.md)
+
+## 🤝 Support
+
+For issues and questions:
+1. Check the [troubleshooting](#-troubleshooting) section
+2. Visit our [GitHub Issues](https://github.com/alaamer12/GHRepoLens/issues)
+3. Join our [Community Discussions](https://github.com/alaamer12/GHRepoLens/discussions)
+
+---
+
+Happy analyzing in the cloud! 🚀
