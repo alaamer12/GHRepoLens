@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghrepolens"
-version = "0.3.0b3"
+version = "0.4.0"
 description = "Powerful GitHub repository analysis and visualization tool"
 readme = "README.md"
 authors = [
