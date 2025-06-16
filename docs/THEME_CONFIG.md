@@ -232,7 +232,6 @@ To add more icons:
    - Test in multiple browsers
 
 ## 📚 Related Documentation
-- [Quick Start Guide](QUICK_START.md)
 - [Colab Usage](COLAB_USAGE.md)
 - [Recent Changes](CHANGES.md)
 

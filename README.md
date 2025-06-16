@@ -187,10 +187,9 @@ python main.py --resume  # Resume from checkpoint
 
 ## 📚 Documentation
 
-* [Quick Start Guide](docs/QUICK_START.md) - Get up and running
+* [Detailed Usage Guide](docs/USAGE.md) - Comprehensive usage instructions
 * [Theme Configuration](docs/THEME_CONFIG.md) - Customize appearance
 * [Recent Changes](docs/CHANGES.md) - Latest updates
-* [Colab Usage](docs/COLAB_USAGE.md) - Use in Google Colab
 
 ## 🤝 Contributing
 

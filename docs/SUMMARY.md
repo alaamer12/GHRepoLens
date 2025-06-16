@@ -4,7 +4,6 @@
 
 ### 🚀 Getting Started
 * [Introduction](../README.md)
-* [Quick Start Guide](QUICK_START.md)
 * [Contributing Guide](../CONTRIBUTING.md)
 
 ### 🛠️ Configuration
@@ -20,10 +19,6 @@
   * [Technical Features](../README.md#-technical-features)
 * [Advanced Usage](../README.md#%EF%B8%8F-advanced-usage)
 * [Generated Reports](../README.md#-generated-reports)
-
-### 🌟 Special Use Cases
-* [Google Colab Usage](COLAB_USAGE.md)
-* [Recent Changes](CHANGES.md)
 
 ### 🔧 Development
 * [Project Structure](../CONTRIBUTING.md#%EF%B8%8F-project-structure)
