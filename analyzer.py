@@ -162,7 +162,70 @@ class CodeAnalyzer:
     def __init__(self):
         """Initialize the CodeAnalyzer with language-specific comment patterns."""
         # Language comment pattern definitions
-        self.language_patterns = {
+        self.language_patterns = self._get_language_patterns()
+        # Map file extensions to language types
+        self.extension_to_language = self._get_extension_to_language()
+
+    def _get_extension_to_language(self) -> Dict[str, str]:
+        """Get mapping of file extensions to language types"""
+        return {
+            # Python
+            '.py': 'python', '.pyx': 'python', '.pyd': 'python', '.pyi': 'python',
+            '.ipynb': 'jupyter',  # Special handling for Jupyter notebooks
+
+            # JavaScript/TypeScript
+            '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+            '.ts': 'typescript', '.tsx': 'typescript', '.jsx': 'javascript',
+
+            # Web
+            '.html': 'html', '.htm': 'html', '.xhtml': 'html',
+            '.css': 'css', '.scss': 'scss', '.sass': 'scss', '.less': 'less',
+            '.svg': 'svg', '.xml': 'xml',
+
+            # JVM languages
+            '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin',
+            '.scala': 'scala', '.sc': 'scala',
+            '.groovy': 'java', '.clj': 'clojure', '.cljs': 'clojure',
+
+            # C-family
+            '.c': 'c', '.h': 'c',
+            '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp',
+            '.hpp': 'cpp', '.hxx': 'cpp', '.hh': 'cpp',
+            '.cs': 'c#',
+
+            # Other programming languages
+            '.rb': 'ruby', '.erb': 'ruby',
+            '.go': 'go',
+            '.rs': 'rust',
+            '.php': 'php', '.phtml': 'php',
+            '.swift': 'swift',
+            '.m': 'objc', '.mm': 'objc',  # Objective-C
+            '.lua': 'lua',
+            '.hs': 'haskell', '.lhs': 'haskell',
+            '.pl': 'perl', '.pm': 'perl',
+            '.jl': 'julia',
+            '.r': 'r', '.rmd': 'r',
+            '.dart': 'dart',
+
+            # Shell and scripting
+            '.sh': 'shell', '.bash': 'bash', '.zsh': 'zsh', '.fish': 'fish',
+            '.ps1': 'powershell', '.psm1': 'powershell', '.psd1': 'powershell',
+
+            # Configuration and data
+            '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
+            '.toml': 'toml', '.ini': 'text',
+            '.sql': 'sql',
+
+            # Documentation
+            '.md': 'markdown', '.markdown': 'markdown',
+            '.tex': 'latex', '.ltx': 'latex', '.latex': 'latex',
+            '.txt': 'text',
+        }
+        
+
+    def _get_language_patterns(self) -> Dict[str, Dict[str, str]]:
+        """Get language patterns for comment styles"""
+        return {
             # Python-style
             'python': {'line_comment': '#', 'block_start': '"""', 'block_end': '"""', 'alt_block_start': "'''",
                        'alt_block_end': "'''"},
@@ -232,60 +295,7 @@ class CodeAnalyzer:
             'text': {'line_comment': None, 'block_start': None, 'block_end': None},
         }
 
-        # Map file extensions to language types
-        self.extension_to_language = {
-            # Python
-            '.py': 'python', '.pyx': 'python', '.pyd': 'python', '.pyi': 'python',
-            '.ipynb': 'jupyter',  # Special handling for Jupyter notebooks
-
-            # JavaScript/TypeScript
-            '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
-            '.ts': 'typescript', '.tsx': 'typescript', '.jsx': 'javascript',
-
-            # Web
-            '.html': 'html', '.htm': 'html', '.xhtml': 'html',
-            '.css': 'css', '.scss': 'scss', '.sass': 'scss', '.less': 'less',
-            '.svg': 'svg', '.xml': 'xml',
-
-            # JVM languages
-            '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin',
-            '.scala': 'scala', '.sc': 'scala',
-            '.groovy': 'java', '.clj': 'clojure', '.cljs': 'clojure',
-
-            # C-family
-            '.c': 'c', '.h': 'c',
-            '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp',
-            '.hpp': 'cpp', '.hxx': 'cpp', '.hh': 'cpp',
-            '.cs': 'c#',
-
-            # Other programming languages
-            '.rb': 'ruby', '.erb': 'ruby',
-            '.go': 'go',
-            '.rs': 'rust',
-            '.php': 'php', '.phtml': 'php',
-            '.swift': 'swift',
-            '.m': 'objc', '.mm': 'objc',  # Objective-C
-            '.lua': 'lua',
-            '.hs': 'haskell', '.lhs': 'haskell',
-            '.pl': 'perl', '.pm': 'perl',
-            '.jl': 'julia',
-            '.r': 'r', '.rmd': 'r',
-            '.dart': 'dart',
-
-            # Shell and scripting
-            '.sh': 'shell', '.bash': 'bash', '.zsh': 'zsh', '.fish': 'fish',
-            '.ps1': 'powershell', '.psm1': 'powershell', '.psd1': 'powershell',
-
-            # Configuration and data
-            '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
-            '.toml': 'toml', '.ini': 'text',
-            '.sql': 'sql',
-
-            # Documentation
-            '.md': 'markdown', '.markdown': 'markdown',
-            '.tex': 'latex', '.ltx': 'latex', '.latex': 'latex',
-            '.txt': 'text',
-        }
+    
 
     def get_language_from_file(self, file_path: str) -> str:
         """
@@ -311,11 +321,17 @@ class CodeAnalyzer:
         Returns:
             Number of non-blank, non-comment lines of code
         """
+        # Skip empty content
         if not content:
             return 0
 
         # Handle binary files
         if is_binary_file(file_path):
+            return 0
+            
+        # Skip meta files, .gitkeep files and other excluded files
+        filename = Path(file_path).name.lower()
+        if filename == '.gitkeep' or filename == '.gitignore' or filename.endswith('.meta'):
             return 0
 
         # Get language type from file extension
@@ -485,28 +501,7 @@ def count_lines_of_code(content: str, file_path: str) -> int:
     Returns:
         Number of non-blank lines of code
     """
-    # Skip empty content
-    if not content:
-        return 0
-
-    # Handle binary files
-    if is_binary_file(file_path):
-        return 0
-        
-    # Skip meta files, .gitkeep files and other excluded files
-    filename = Path(file_path).name.lower()
-    if filename == '.gitkeep' or filename == '.gitignore' or filename.endswith('.meta'):
-        return 0
-
-    # Get language type from file extension
-    language = code_analyzer.get_language_from_file(file_path)
-
-    # Special handling for Jupyter notebooks
-    if language.lower() == 'jupyter':
-        return code_analyzer._count_jupyter_notebook_loc(content, file_path)
-
-    # Regular file handling
-    return code_analyzer._count_standard_file_loc(content, language)
+    return code_analyzer.count_lines_of_code(content, file_path)
 
 
 def is_config_file(file_path: str) -> bool:
