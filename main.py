@@ -174,7 +174,8 @@ async def _run_quicktest_mode(
         return []
 
     # Just pick the first repository for simplicity in quicktest mode
-    selected_repos = [repos[0]]
+    drum_verse = [repo for repo in repos if repo.name == "DrumVerse"]
+    selected_repos = drum_verse
 
     print_header(f"Running quicktest analysis on one personal repository: {selected_repos[0].name}")
     rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
@@ -198,7 +199,7 @@ async def _run_quicktest_mode(
                 continue
 
     # Use predefined organizations for quicktest mode
-    predefined_orgs = ["JsonAlchemy", "T2F-lab"]
+    predefined_orgs = [""]
     org_repos = {}
 
     print_header(f"Analyzing organization repositories (one per org)")

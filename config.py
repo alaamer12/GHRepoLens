@@ -14,7 +14,7 @@ Key components:
 import configparser
 import os
 from pathlib import Path
-from typing import List, TypedDict, Dict, Set, Literal
+from typing import List, TypedDict, Dict, Set, Literal, Any
 
 from console import console, logger
 
@@ -233,7 +233,9 @@ SPECIAL_FILENAMES: Dict[str, str] = {
     'CODEOWNERS': 'Text',
     '.mailmap': 'Text',
     '.htaccess': 'Apache',
-    'Procfile': 'YAML'
+    'Procfile': 'YAML',
+
+ 
 }
 
 CONFIG_FILES: Set[str] = {
@@ -449,6 +451,123 @@ RELEASE_FILES: Set[str] = {
     'RELEASES.md', 'RELEASES', 'VERSION', 'version.txt',
     'semver.txt', 'semantic-release.config.js'
 }
+
+# Game engine binary files and formats to help identify game repositories
+GAME_ENGINE_FILES: Set[str] = {
+    # Unity
+    '.unity', '.unitypackage', '.asset', '.prefab', '.mat', '.meta',
+    '.cubemap', '.flare', '.fontsettings', '.guiskin', 
+    '.physicMaterial', '.physicsMaterial2D', '.renderTexture',
+    '.mixer', '.shadervariants', '.spriteatlas', '.terrainlayer',
+     
+    # Godot
+    '.pck', '.gdc', '.res', '.scn', '.godot',
+    
+    # Unreal Engine
+    '.pak', '.ubulk', '.uexp', '.umeta',
+    
+    # Other game engines and formats
+    '.bsp', '.vtf', '.vmt', '.vpk', '.pgm', '.dem',
+    '.sav', '.lmp', '.bik', '.smk', '.usm',
+    '.fnt', '.ttarch', '.pbb', '.lvl'
+}
+
+# Common game engine directories
+GAME_ENGINE_DIRECTORIES: Set[str] = {
+    # Unity
+    'Assets', 'ProjectSettings', 'Packages', 'Library/PackageCache',
+    
+    # Unreal Engine
+    'Content', 'Config', 'Binaries', 'Intermediate', 'Saved',
+    
+    # Godot
+    '.godot', 'addons', 'bin', 'scenes'
+}
+
+def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) -> Dict[str, Any]:
+    """
+    Determine if a repository is likely a game project and which engine it uses.
+    
+    Args:
+        file_types: Dictionary of file extensions with counts
+        project_structure: Dictionary of top-level directories with counts
+        
+    Returns:
+        Dictionary with game repository information: {
+            'is_game_repo': bool,
+            'engine_type': str,  # 'Unity', 'Unreal Engine', 'Godot', or 'Other/Unknown'
+            'confidence': float  # 0.0-1.0
+        }
+    """
+    result = {
+        'is_game_repo': False,
+        'engine_type': 'Other/Unknown',
+        'confidence': 0.0
+    }
+    
+    # Check for game engine file extensions
+    game_file_count = 0
+    total_files = sum(file_types.values())
+    
+    if total_files == 0:
+        return result
+    
+    # Count game files by extension
+    for ext, count in file_types.items():
+        if ext.lower() in GAME_ENGINE_FILES:
+            game_file_count += count
+    
+    # Check directory structure
+    unity_dirs = 0
+    unreal_dirs = 0
+    godot_dirs = 0
+    
+    for directory in project_structure:
+        dir_lower = directory.lower()
+        # Unity-specific directories
+        if directory in ['Assets', 'ProjectSettings', 'Packages']:
+            unity_dirs += 1
+        # Unreal Engine-specific directories
+        elif directory in ['Content', 'Config', 'Binaries', 'Intermediate', 'Saved']:
+            unreal_dirs += 1
+        # Godot-specific directories
+        elif directory in ['.godot', 'addons'] or dir_lower.endswith('.godot'):
+            godot_dirs += 1
+    
+    # Calculate confidence based on file types and directory structure
+    game_file_ratio = game_file_count / total_files if total_files > 0 else 0
+    
+    # Determine engine type based on strongest signals
+    if unity_dirs >= 2:
+        result['engine_type'] = 'Unity'
+        result['confidence'] = 0.7 + (unity_dirs * 0.1) + (game_file_ratio * 0.2)
+    elif unreal_dirs >= 2:
+        result['engine_type'] = 'Unreal Engine'
+        result['confidence'] = 0.7 + (unreal_dirs * 0.1) + (game_file_ratio * 0.2)
+    elif godot_dirs >= 1:
+        result['engine_type'] = 'Godot'
+        result['confidence'] = 0.7 + (godot_dirs * 0.15) + (game_file_ratio * 0.2)
+    else:
+        # Check for engines based primarily on file types
+        unity_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.unity', '.prefab', '.asset', '.meta'])
+        unreal_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
+        godot_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
+        
+        if unity_files > unreal_files and unity_files > godot_files and unity_files > 5:
+            result['engine_type'] = 'Unity'
+            result['confidence'] = 0.5 + (unity_files / total_files * 0.5)
+        elif unreal_files > unity_files and unreal_files > godot_files and unreal_files > 5:
+            result['engine_type'] = 'Unreal Engine'
+            result['confidence'] = 0.5 + (unreal_files / total_files * 0.5)
+        elif godot_files > unity_files and godot_files > unreal_files and godot_files > 3:
+            result['engine_type'] = 'Godot'
+            result['confidence'] = 0.5 + (godot_files / total_files * 0.5)
+    
+    # Make final determination
+    result['is_game_repo'] = result['confidence'] > 0.5
+    result['confidence'] = min(1.0, result['confidence'])  # Cap at 1.0
+    
+    return result
 
 
 def load_config_from_file(config_file: str) -> Configuration:

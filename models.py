@@ -59,6 +59,11 @@ class CodeStats:
     primary_language: Optional[str] = None
     project_structure: Dict[str, int] = field(default_factory=dict)
     is_monorepo: bool = False
+    
+    # Game repository information
+    is_game_repo: bool = False
+    game_engine: str = "None"  # Unity, Unreal Engine, Godot, or Other/Unknown
+    game_confidence: float = 0.0  # Confidence level 0.0-1.0
 
     def calculate_primary_language(self) -> None:
         """
@@ -290,6 +295,21 @@ class RepoStats:
     def is_monorepo(self) -> bool:
         """Whether the repository is detected as a monorepo."""
         return self.code_stats.is_monorepo
+
+    @property
+    def is_game_repo(self) -> bool:
+        """Whether the repository is detected as a game project."""
+        return self.code_stats.is_game_repo
+
+    @property
+    def game_engine(self) -> str:
+        """The detected game engine (Unity, Unreal Engine, Godot, or Other/Unknown)."""
+        return self.code_stats.game_engine
+
+    @property
+    def game_confidence(self) -> float:
+        """Confidence level (0.0-1.0) in the game repository detection."""
+        return self.code_stats.game_confidence
 
     @property
     def last_commit_date(self) -> Optional[datetime]:

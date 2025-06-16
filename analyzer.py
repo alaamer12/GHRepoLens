@@ -19,7 +19,7 @@ from github.Repository import Repository
 from tqdm.auto import tqdm
 
 from config import BINARY_EXTENSIONS, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, \
-    SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration
+    SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration, is_game_repo
 from console import rprint, logger, RateLimitDisplay
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, \
     AnalysisScores
@@ -851,7 +851,12 @@ class GithubAnalyzer:
             'docs_files': [],
             'readme_file': None,
             'readme_content': None,
-            'readme_line_count': 0
+            'readme_line_count': 0,
+            
+            # Game repo detection
+            'is_game_repo': False,
+            'game_engine': 'None',
+            'game_confidence': 0.0
         }
 
         try:
@@ -1033,6 +1038,13 @@ class GithubAnalyzer:
 
             # Clean up large content we don't need to keep
             stats.pop('readme_content', None)
+
+            # After processing all files
+            # Process additional metadata like game repository detection
+            game_repo_info = is_game_repo(stats['file_types'], stats['project_structure'])
+            stats['is_game_repo'] = game_repo_info['is_game_repo']
+            stats['game_engine'] = game_repo_info['engine_type']
+            stats['game_confidence'] = game_repo_info['confidence']
 
         except RateLimitExceededException:
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")
@@ -1441,7 +1453,10 @@ class GithubAnalyzer:
                 file_types=dict(file_stats['file_types']),
                 size_kb=repo.size,
                 excluded_file_count=file_stats.get('excluded_file_count', 0),
-                project_structure=file_stats.get('project_structure', {})
+                project_structure=file_stats.get('project_structure', {}),
+                is_game_repo=file_stats.get('is_game_repo', False),
+                game_engine=file_stats.get('game_engine', 'None'),
+                game_confidence=file_stats.get('game_confidence', 0.0)
             )
 
             # Calculate primary language which will also set the correct total_loc
@@ -1599,6 +1614,10 @@ class GithubAnalyzer:
 
             if years_since_created > 3 and months_since_last_commit > 12:
                 repo_stats.add_anomaly("Old repository without updates in over a year")
+
+        # Add game repository anomaly if it's a game repo
+        if repo_stats.code_stats.is_game_repo:
+            repo_stats.add_anomaly(f"Game repository detected ({repo_stats.code_stats.game_engine})")
 
     @staticmethod
     def is_excluded_path(file_path: str) -> bool:
