@@ -19,10 +19,12 @@ from github.Repository import Repository
 from tqdm.auto import tqdm
 
 from config import BINARY_EXTENSIONS, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, \
-    SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration, is_game_repo
+    SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration, is_game_repo, \
+    MEDIA_FILE_EXTENSIONS, get_media_type, AUDIO_FILE_EXTENSIONS, IMAGE_FILE_EXTENSIONS, \
+    VIDEO_FILE_EXTENSIONS, MODEL_3D_FILE_EXTENSIONS
 from console import rprint, logger, RateLimitDisplay
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, \
-    AnalysisScores
+    AnalysisScores, MediaMetrics
 from utilities import ensure_utc
 
 # Initialize the rate limit display
@@ -32,7 +34,7 @@ rate_display = RateLimitDisplay()
 def is_binary_file(file_path: str) -> bool:
     """Check if file is binary"""
     ext = Path(file_path).suffix.lower()
-    return ext in BINARY_EXTENSIONS
+    return ext in BINARY_EXTENSIONS or ext in MEDIA_FILE_EXTENSIONS
 
 
 def is_deployment_file(file_path: str) -> bool:
@@ -891,7 +893,25 @@ class GithubAnalyzer:
             # Game repo detection
             'is_game_repo': False,
             'game_engine': 'None',
-            'game_confidence': 0.0
+            'game_confidence': 0.0,
+            
+            # Media files tracking
+            'media_metrics': {
+                'image_count': 0,
+                'audio_count': 0,
+                'video_count': 0,
+                'model_3d_count': 0,
+                'image_files': [],
+                'audio_files': [],
+                'video_files': [],
+                'model_3d_files': [],
+                'image_size_kb': 0,
+                'audio_size_kb': 0,
+                'video_size_kb': 0,
+                'model_3d_size_kb': 0
+            },
+            # Add explicit flag for media presence
+            'has_media': False
         }
 
         try:
@@ -936,11 +956,27 @@ class GithubAnalyzer:
                     if is_excluded_file(file_content.path):
                         stats['excluded_file_count'] += 1
                         logger.debug(f"Skipping excluded file: {file_content.path}")
+                        
+                        # Even though we skip the file for code analysis, check if it's a media file to track it
+                        media_type = get_media_type(file_content.path)
+                        if media_type:
+                            # Calculate size in KB
+                            size_kb = file_content.size // 1024 if file_content.size else 0
+                            
+                            # Track the media file in its category
+                            stats['media_metrics'][f'{media_type}_count'] += 1
+                            stats['media_metrics'][f'{media_type}_files'].append(file_content.path)
+                            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+                            
+                            logger.debug(f"Detected {media_type} file: {file_content.path} ({size_kb} KB)")
+                        
                         continue
 
                     files_to_process.append(file_content)
 
             # Process files with progress bar
+            all_file_extensions = set()
+            
             for file_content in tqdm(files_to_process,
                                      desc=f"Analyzing {repo.name} files",
                                      leave=False,
@@ -948,7 +984,29 @@ class GithubAnalyzer:
                 try:
                     file_path = file_content.path
                     stats['total_files'] += 1
+                    
+                    # Track all file extensions for debugging
+                    ext = Path(file_path).suffix.lower()
+                    if ext:
+                        all_file_extensions.add(ext)
 
+                    # Add special debug for DrumVerse audio files
+                    if repo.name == "DrumVerse" and ext in AUDIO_FILE_EXTENSIONS:
+                        logger.info(f"Found audio file in DrumVerse: {file_path}")
+                        
+                    # Direct media detection regardless of other checks
+                    media_type = get_media_type(file_path)
+                    if media_type:
+                        # Calculate size in KB
+                        size_kb = file_content.size // 1024 if file_content.size else 0
+                        
+                        # Track the media file in its category
+                        stats['media_metrics'][f'{media_type}_count'] += 1
+                        stats['media_metrics'][f'{media_type}_files'].append(file_path)
+                        stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+                        
+                        logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
+                    
                     # Check for documentation
                     is_doc = False
                     if ('readme' in file_path.lower() or
@@ -1005,6 +1063,20 @@ class GithubAnalyzer:
                     # Skip binary files for LOC counting
                     if is_binary_file(file_path):
                         stats['file_types']['Binary'] += 1
+                        
+                        # Even if binary, check if it's a media file to track it
+                        media_type = get_media_type(file_path)
+                        if media_type:
+                            # Calculate size in KB
+                            size_kb = file_content.size // 1024 if file_content.size else 0
+                            
+                            # Track the media file in its category
+                            stats['media_metrics'][f'{media_type}_count'] += 1
+                            stats['media_metrics'][f'{media_type}_files'].append(file_path)
+                            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+                            
+                            logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
+                        
                         continue
 
                     # Determine language and file type
@@ -1102,6 +1174,52 @@ class GithubAnalyzer:
                 stats['is_game_repo'] = False
                 stats['game_engine'] = 'None'
                 stats['game_confidence'] = 0.0
+                
+            # Set has_media flag based on totals
+            media_metrics = stats['media_metrics']
+            stats['has_media'] = (
+                media_metrics['image_count'] > 0 or 
+                media_metrics['audio_count'] > 0 or 
+                media_metrics['video_count'] > 0 or 
+                media_metrics['model_3d_count'] > 0
+            )
+            
+            # Log media file summary if present
+            if stats['has_media']:
+                logger.info(f"Repository {repo.name} contains media files:")
+                
+                if media_metrics['image_count'] > 0:
+                    logger.info(f"  Images: {media_metrics['image_count']} files, {media_metrics['image_size_kb']/1024:.2f} MB")
+                    
+                if media_metrics['audio_count'] > 0:
+                    logger.info(f"  Audio: {media_metrics['audio_count']} files, {media_metrics['audio_size_kb']/1024:.2f} MB")
+                    # Log some audio files for debugging
+                    audio_examples = media_metrics['audio_files'][:min(5, len(media_metrics['audio_files']))]
+                    logger.debug(f"  Audio file examples: {audio_examples}")
+                    
+                if media_metrics['video_count'] > 0:
+                    logger.info(f"  Video: {media_metrics['video_count']} files, {media_metrics['video_size_kb']/1024:.2f} MB")
+                    
+                if media_metrics['model_3d_count'] > 0:
+                    logger.info(f"  3D Models: {media_metrics['model_3d_count']} files, {media_metrics['model_3d_size_kb']/1024:.2f} MB")
+
+            # Log all file extensions found for debugging
+            logger.debug(f"All file extensions found in {repo.name}: {sorted(all_file_extensions)}")
+            
+            # Special logging for DrumVerse to check for audio files
+            if repo.name == "DrumVerse":
+                logger.info(f"DrumVerse analysis summary:")
+                logger.info(f"  Total files: {stats['total_files']}")
+                logger.info(f"  Extensions found: {sorted(all_file_extensions)}")
+                logger.info(f"  Has media: {stats['has_media']}")
+                logger.info(f"  Media metrics: {stats['media_metrics']}")
+                
+                # Check audio extensions
+                audio_extensions = sorted(AUDIO_FILE_EXTENSIONS)
+                logger.info(f"  Looking for audio extensions: {audio_extensions}")
+
+            # Clean up large content we don't need to keep
+            stats.pop('readme_content', None)
 
         except RateLimitExceededException:
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")
@@ -1573,6 +1691,22 @@ class GithubAnalyzer:
                 documentation_score=scores['documentation_score']
             )
 
+            # Create a media metrics object
+            media = MediaMetrics(
+                image_count=file_stats.get('media_metrics', {}).get('image_count', 0),
+                audio_count=file_stats.get('media_metrics', {}).get('audio_count', 0),
+                video_count=file_stats.get('media_metrics', {}).get('video_count', 0),
+                model_3d_count=file_stats.get('media_metrics', {}).get('model_3d_count', 0),
+                image_files=file_stats.get('media_metrics', {}).get('image_files', []),
+                audio_files=file_stats.get('media_metrics', {}).get('audio_files', []),
+                video_files=file_stats.get('media_metrics', {}).get('video_files', []),
+                model_3d_files=file_stats.get('media_metrics', {}).get('model_3d_files', []),
+                image_size_kb=file_stats.get('media_metrics', {}).get('image_size_kb', 0),
+                audio_size_kb=file_stats.get('media_metrics', {}).get('audio_size_kb', 0),
+                video_size_kb=file_stats.get('media_metrics', {}).get('video_size_kb', 0),
+                model_3d_size_kb=file_stats.get('media_metrics', {}).get('model_3d_size_kb', 0)
+            )
+
             # Create RepoStats object
             repo_stats = RepoStats(
                 base_info=base_info,
@@ -1580,7 +1714,8 @@ class GithubAnalyzer:
                 quality=quality,
                 activity=activity,
                 community=community,
-                scores=scores_obj
+                scores=scores_obj,
+                media=media
             )
 
             # Add anomaly for empty repository
@@ -1659,6 +1794,33 @@ class GithubAnalyzer:
         # Missing CI/CD in active project
         if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_cicd:
             repo_stats.add_anomaly("Active project without CI/CD configuration")
+            
+        # Media heavy repositories
+        if repo_stats.total_media_count > 0:
+            if repo_stats.total_media_size_kb > 100000:  # More than 100MB
+                repo_stats.add_anomaly(f"Very large media files ({repo_stats.total_media_size_kb // 1024} MB)")
+            
+            # Check if the repository is dominated by media files
+            if (repo_stats.total_media_count > repo_stats.code_stats.total_files * 0.5 and 
+                repo_stats.code_stats.total_files > 10):
+                repo_stats.add_anomaly("Repository contains more media files than code files")
+                
+            # Check for specific media types
+            if repo_stats.image_count > 100:
+                repo_stats.add_anomaly(f"Repository contains {repo_stats.image_count} images")
+                
+            if repo_stats.video_count > 10:
+                repo_stats.add_anomaly(f"Repository contains {repo_stats.video_count} video files")
+                
+            if repo_stats.audio_count > 20:
+                repo_stats.add_anomaly(f"Repository contains {repo_stats.audio_count} audio files")
+                
+            if repo_stats.model_3d_count > 10:
+                repo_stats.add_anomaly(f"Repository contains {repo_stats.model_3d_count} 3D model files")
+
+        # Add game repository anomaly if it's a game repo
+        if repo_stats.code_stats.is_game_repo:
+            repo_stats.add_anomaly(f"Game repository detected ({repo_stats.code_stats.game_engine})")
 
         # Old repository without recent activity
         if repo_stats.base_info.created_at and repo_stats.activity.last_commit_date:
@@ -1671,10 +1833,6 @@ class GithubAnalyzer:
 
             if years_since_created > 3 and months_since_last_commit > 12:
                 repo_stats.add_anomaly("Old repository without updates in over a year")
-
-        # Add game repository anomaly if it's a game repo
-        if repo_stats.code_stats.is_game_repo:
-            repo_stats.add_anomaly(f"Game repository detected ({repo_stats.code_stats.game_engine})")
 
     @staticmethod
     def is_excluded_path(file_path: str) -> bool:

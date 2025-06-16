@@ -14,7 +14,7 @@ Key components:
 import configparser
 import os
 from pathlib import Path
-from typing import List, TypedDict, Dict, Set, Literal, Any
+from typing import List, TypedDict, Dict, Set, Literal, Any, Optional
 
 from console import console, logger
 
@@ -515,6 +515,56 @@ GAME_ENGINE_DIRECTORIES: Set[str] = {
     # Godot
     '.godot', 'addons', 'bin', 'scenes'
 }
+
+# Media file extensions for specific media types
+IMAGE_FILE_EXTENSIONS: Set[str] = {
+    # Common image formats
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp', '.tiff', '.tif',
+    '.psd', '.ai', '.eps', '.indd', '.raw', '.cr2', '.nef', '.heif', '.heic', '.exr',
+    '.hdr', '.dds', '.ktx', '.astc'
+}
+
+AUDIO_FILE_EXTENSIONS: Set[str] = {
+    # Common audio formats
+    '.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.aiff', '.alac',
+    '.opus', '.midi', '.mid', '.mod', '.xm', '.it', '.s3m', '.voc', '.adpcm',
+    '.aif', '.aifc', '.amr',
+    
+    # Game-specific audio formats
+    '.bank', '.bnk', '.sound', '.snd', '.sfx', '.cue', '.wem', '.fsb',
+    '.audio', '.msadpcm', '.dls', '.sf2', '.sfz', 
+    
+    # Unity specific audio formats
+    '.asset_audio', '.audioclip',
+    
+    # Audio metadata formats
+    '.mtb', '.cue',
+    
+    # Raw audio data
+    '.pcm', '.raw', '.smp'
+}
+
+VIDEO_FILE_EXTENSIONS: Set[str] = {
+    # Common video formats
+    '.mp4', '.avi', '.mov', '.wmv', '.mkv', '.webm', '.flv', '.m4v', '.mpg', '.mpeg',
+    '.3gp', '.ogv', '.vob', '.divx', '.xvid', '.asf', '.m2v', '.m2ts', '.mts',
+    '.rmvb', '.ts', '.yuv'
+}
+
+MODEL_3D_FILE_EXTENSIONS: Set[str] = {
+    # Common 3D model formats
+    '.fbx', '.obj', '.blend', '.3ds', '.max', '.c4d', '.maya', '.ma', '.mb',
+    '.stl', '.dae', '.glb', '.gltf', '.ply', '.x3d', '.abc', '.wrl', '.vrml', '.usd',
+    '.usda', '.usdc'
+}
+
+# Combined set of all media file extensions
+MEDIA_FILE_EXTENSIONS: Set[str] = (
+    IMAGE_FILE_EXTENSIONS | 
+    AUDIO_FILE_EXTENSIONS | 
+    VIDEO_FILE_EXTENSIONS | 
+    MODEL_3D_FILE_EXTENSIONS
+)
 
 def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) -> Dict[str, Any]:
     """
@@ -1139,3 +1189,27 @@ def shutdown_logging() -> None:
     """
     # Nothing to do, just import to ensure proper references
     pass
+
+
+def get_media_type(file_path: str) -> Optional[str]:
+    """
+    Determine the type of media file based on its extension.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        Media type as string ('image', 'audio', 'video', 'model_3d') or None if not a media file
+    """
+    ext = Path(file_path).suffix.lower()
+    
+    if ext in IMAGE_FILE_EXTENSIONS:
+        return 'image'
+    elif ext in AUDIO_FILE_EXTENSIONS:
+        return 'audio'
+    elif ext in VIDEO_FILE_EXTENSIONS:
+        return 'video'
+    elif ext in MODEL_3D_FILE_EXTENSIONS:
+        return 'model_3d'
+    
+    return None

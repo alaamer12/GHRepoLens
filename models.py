@@ -14,6 +14,7 @@ Key components:
 - CommunityMetrics: Community engagement metrics
 - AnalysisScores: Calculated scores and anomaly detection
 - RepoStats: Comprehensive repository statistics (composition of above classes)
+- MediaMetrics: Media file metrics for a repository
 """
 
 from dataclasses import dataclass, field
@@ -215,6 +216,76 @@ class AnalysisScores:
 
 
 @dataclass
+class MediaMetrics:
+    """
+    Media file metrics for a repository.
+    
+    Tracks the presence and quantity of different types of media files
+    like images, audio, video, and 3D models.
+    """
+    # Counters for different media types
+    image_count: int = 0
+    audio_count: int = 0
+    video_count: int = 0
+    model_3d_count: int = 0
+    
+    # File paths by category
+    image_files: List[str] = field(default_factory=list)
+    audio_files: List[str] = field(default_factory=list)
+    video_files: List[str] = field(default_factory=list)
+    model_3d_files: List[str] = field(default_factory=list)
+    
+    # Total size in KB by category
+    image_size_kb: int = 0
+    audio_size_kb: int = 0
+    video_size_kb: int = 0
+    model_3d_size_kb: int = 0
+    
+    # Summary properties
+    @property
+    def has_media(self) -> bool:
+        """Whether the repository has any media files."""
+        return (self.image_count > 0 or self.audio_count > 0 or 
+                self.video_count > 0 or self.model_3d_count > 0)
+    
+    @property
+    def total_media_count(self) -> int:
+        """Total number of media files."""
+        return self.image_count + self.audio_count + self.video_count + self.model_3d_count
+    
+    @property
+    def total_media_size_kb(self) -> int:
+        """Total size of media files in KB."""
+        return self.image_size_kb + self.audio_size_kb + self.video_size_kb + self.model_3d_size_kb
+    
+    def add_media_file(self, file_path: str, media_type: str, size_kb: int) -> None:
+        """
+        Add a media file to the appropriate category.
+        
+        Args:
+            file_path: Path to the media file
+            media_type: Type of media ('image', 'audio', 'video', 'model_3d')
+            size_kb: Size of the file in KB
+        """
+        if media_type == 'image':
+            self.image_count += 1
+            self.image_files.append(file_path)
+            self.image_size_kb += size_kb
+        elif media_type == 'audio':
+            self.audio_count += 1
+            self.audio_files.append(file_path)
+            self.audio_size_kb += size_kb
+        elif media_type == 'video':
+            self.video_count += 1
+            self.video_files.append(file_path)
+            self.video_size_kb += size_kb
+        elif media_type == 'model_3d':
+            self.model_3d_count += 1
+            self.model_3d_files.append(file_path)
+            self.model_3d_size_kb += size_kb
+
+
+@dataclass
 class RepoStats:
     """
     Data class to hold comprehensive repository statistics.
@@ -229,6 +300,7 @@ class RepoStats:
     activity: ActivityMetrics = field(default_factory=ActivityMetrics)
     community: CommunityMetrics = field(default_factory=CommunityMetrics)
     scores: AnalysisScores = field(default_factory=AnalysisScores)
+    media: MediaMetrics = field(default_factory=MediaMetrics)
 
     # Convenience properties to maintain backward compatibility
     @property
@@ -530,6 +602,41 @@ class RepoStats:
     def readme_line_count(self) -> int:
         """Line count of README file."""
         return self.quality.readme_line_count
+
+    @property
+    def has_media(self) -> bool:
+        """Whether the repository has any media files."""
+        return self.media.has_media
+    
+    @property
+    def image_count(self) -> int:
+        """Number of image files in the repository."""
+        return self.media.image_count
+    
+    @property
+    def audio_count(self) -> int:
+        """Number of audio files in the repository."""
+        return self.media.audio_count
+    
+    @property
+    def video_count(self) -> int:
+        """Number of video files in the repository."""
+        return self.media.video_count
+    
+    @property
+    def model_3d_count(self) -> int:
+        """Number of 3D model files in the repository."""
+        return self.media.model_3d_count
+    
+    @property
+    def total_media_count(self) -> int:
+        """Total number of media files."""
+        return self.media.total_media_count
+    
+    @property
+    def total_media_size_kb(self) -> int:
+        """Total size of media files in KB."""
+        return self.media.total_media_size_kb
 
     def add_anomaly(self, anomaly: str) -> None:
         """
