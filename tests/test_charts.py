@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from console import console, print_header
 

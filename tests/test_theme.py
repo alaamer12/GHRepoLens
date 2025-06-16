@@ -7,6 +7,8 @@ to customize the visualization dashboard.
 """
 
 from pathlib import Path
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from config import DefaultTheme
 

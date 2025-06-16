@@ -6,6 +6,8 @@ This script tests the HTML background parsing functionality in _html.py
 """
 
 from pathlib import Path
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from _html import prune_html_content
 

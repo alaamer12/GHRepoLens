@@ -4,6 +4,8 @@ Test script for verifying file extension handling
 """
 
 import logging
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from config import LANGUAGE_EXTENSIONS
 from utilities import get_file_language

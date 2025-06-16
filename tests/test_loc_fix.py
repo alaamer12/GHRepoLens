@@ -5,6 +5,8 @@ Test script for verifying the fix for Lines of Code (LOC) calculation
 
 import logging
 from datetime import datetime
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from models import CodeStats, RepoStats, BaseRepoInfo, ActivityMetrics, QualityIndicators, CommunityMetrics, \
     AnalysisScores
