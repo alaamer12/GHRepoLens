@@ -134,6 +134,21 @@ def is_cicd_file(file_path: str) -> bool:
     return False
 
 
+def is_excluded_file(file_path: str) -> bool:
+    """Check if file should be excluded from analysis"""
+    
+    # Skip .gitkeep files
+    filename = Path(file_path).name.lower()
+    if filename == '.gitkeep' or filename == '.gitignore':
+        return True
+        
+    # Check if it's a binary file
+    if is_binary_file(file_path):
+        return True
+        
+    return False
+
+
 class CodeAnalyzer:
     """
     A comprehensive class for analyzing code across multiple languages.
@@ -468,8 +483,28 @@ def count_lines_of_code(content: str, file_path: str) -> int:
     Returns:
         Number of non-blank lines of code
     """
-    # Use the code analyzer instance to count lines
-    return code_analyzer.count_lines_of_code(content, file_path)
+    # Skip empty content
+    if not content:
+        return 0
+
+    # Handle binary files
+    if is_binary_file(file_path):
+        return 0
+        
+    # Skip meta files, .gitkeep files and other excluded files
+    filename = Path(file_path).name.lower()
+    if filename == '.gitkeep' or filename == '.gitignore' or filename.endswith('.meta'):
+        return 0
+
+    # Get language type from file extension
+    language = code_analyzer.get_language_from_file(file_path)
+
+    # Special handling for Jupyter notebooks
+    if language.lower() == 'jupyter':
+        return code_analyzer._count_jupyter_notebook_loc(content, file_path)
+
+    # Regular file handling
+    return code_analyzer._count_standard_file_loc(content, language)
 
 
 def is_config_file(file_path: str) -> bool:
@@ -897,6 +932,12 @@ class GithubAnalyzer:
                         logger.debug(f"Skipping file in excluded path: {file_content.path}")
                         continue
 
+                    # Skip excluded files like .gitkeep and binary files
+                    if is_excluded_file(file_content.path):
+                        stats['excluded_file_count'] += 1
+                        logger.debug(f"Skipping excluded file: {file_content.path}")
+                        continue
+
                     files_to_process.append(file_content)
 
             # Process files with progress bar
@@ -973,6 +1014,11 @@ class GithubAnalyzer:
                     path_obj = Path(file_path)
                     filename = path_obj.name
                     ext = path_obj.suffix.lower()
+                    
+                    # Skip counting LOC for meta files but still record them
+                    if ext == '.meta' or filename == '.gitkeep':
+                        stats['file_types'][ext if ext else filename] += 1
+                        continue
 
                     # Record file type - either by extension or special filename
                     if ext:
@@ -1041,10 +1087,21 @@ class GithubAnalyzer:
 
             # After processing all files
             # Process additional metadata like game repository detection
-            game_repo_info = is_game_repo(stats['file_types'], stats['project_structure'])
-            stats['is_game_repo'] = game_repo_info['is_game_repo']
-            stats['game_engine'] = game_repo_info['engine_type']
-            stats['game_confidence'] = game_repo_info['confidence']
+            try:
+                game_repo_info = is_game_repo(stats['file_types'], stats['project_structure'])
+                stats['is_game_repo'] = game_repo_info['is_game_repo']
+                stats['game_engine'] = game_repo_info['engine_type']
+                stats['game_confidence'] = game_repo_info['confidence']
+                
+                # If it's a game repo with high confidence, log it
+                if stats['is_game_repo'] and stats['game_confidence'] > 0.7:
+                    logger.info(f"Detected game repository using {stats['game_engine']} engine (confidence: {stats['game_confidence']:.2f})")
+            except Exception as e:
+                # Ensure game detection doesn't break the entire analysis
+                logger.error(f"Error during game repository detection: {e}")
+                stats['is_game_repo'] = False
+                stats['game_engine'] = 'None'
+                stats['game_confidence'] = 0.0
 
         except RateLimitExceededException:
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")

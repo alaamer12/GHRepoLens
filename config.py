@@ -166,6 +166,15 @@ BINARY_EXTENSIONS: Set[str] = {
     # Fonts
     '.ttf', '.otf', '.woff', '.woff2', '.eot',
 
+    # Game engine specific binary and meta files
+    '.meta', '.uasset', '.asset', '.unity', '.unitypackage', '.prefab',
+    '.controller', '.anim', '.physicMaterial', '.physicsMaterial2D',
+    '.mat', '.fbx', '.blend', '.3ds', '.max', '.dae', '.mb', '.ma',
+    '.tga', '.cubemap', '.rendertexture', '.spriteatlas',
+    '.umap', '.uproject', '.upk', '.pak', '.ubulk', '.uexp', '.umeta',
+    '.scn', '.res', '.tres', '.tscn', '.material', '.shader',
+    '.pck', '.gdc', '.import',
+    
     # Other binary formats
     '.blend', '.fbx', '.3ds', '.obj', '.stl', '.glb', '.gltf',
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
@@ -376,6 +385,29 @@ EXCLUDED_DIRECTORIES: Set[str] = {
 
     # Unity specific
     'Library', 'Temp', 'Obj', 'Logs', 'UserSettings',
+    'ProjectSettings', 'AssetBundles', 'Builds', 'Assets/Plugins',
+    'Assets/StreamingAssets', 'Assets/Editor', 'Assets/ThirdParty',
+    
+    # Unity specific third-party SDKs
+    'Assets/Oculus', 'Assets/MetaQuest', 'Assets/Meta', 'Assets/FacebookSDK', 
+    'Assets/Firebase', 'Assets/GooglePlayPlugins', 'Assets/Plugins/Demigiant',
+    'Assets/TextMesh Pro', 'Assets/Plugins/DOTween', 'Assets/Plugins/FMOD',
+    'Assets/Photon', 'Assets/Gizmosplus', 'Assets/AmplifyShaderEditor',
+    
+    # Common Unity asset store plugins
+    'Assets/Plugins/CW', 'Assets/Assets/JMO Assets', 'Assets/PuppetMaster',
+    'Assets/ProCore', 'Assets/AssetStoreTools',
+
+    # Unreal Engine specific
+    'Saved', 'Intermediate', 'Binaries', 'DerivedDataCache', 
+    'Build', 'Plugins/*/Intermediate', 'Plugins/*/Binaries',
+    
+    # Unreal specific third-party SDKs
+    'Plugins/Online', 'Plugins/FMODStudio', 'Plugins/Wwise',
+    'Plugins/Runtime/Oculus', 'Plugins/Runtime/Meta',
+    
+    # Godot specific
+    '.import', 'addons', '.godot',
 
     # Custom
     'Dependencies', 'dependencies', 'deps',
@@ -512,9 +544,11 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
     if total_files == 0:
         return result
     
-    # Count game files by extension
+    # Count game files by extension but exclude meta files from the count
+    game_file_extensions = {ext for ext in GAME_ENGINE_FILES if ext != '.meta'}
+    
     for ext, count in file_types.items():
-        if ext.lower() in GAME_ENGINE_FILES:
+        if ext.lower() in game_file_extensions:
             game_file_count += count
     
     # Check directory structure
@@ -522,6 +556,24 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
     unreal_dirs = 0
     godot_dirs = 0
     
+    # Check for specific files that are strong indicators
+    has_unity_project = False
+    has_unreal_project = False
+    has_godot_project = False
+    
+    # Unity-specific project files
+    if '.unity' in file_types or '.asmdef' in file_types or '.meta' in file_types:
+        has_unity_project = True
+        
+    # Unreal-specific project files
+    if '.uproject' in file_types or '.uplugin' in file_types:
+        has_unreal_project = True
+        
+    # Godot-specific project files
+    if '.godot' in file_types or '.tscn' in file_types or '.gd' in file_types:
+        has_godot_project = True
+    
+    # Check project structure
     for directory in project_structure:
         dir_lower = directory.lower()
         # Unity-specific directories
@@ -535,33 +587,74 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
             godot_dirs += 1
     
     # Calculate confidence based on file types and directory structure
-    game_file_ratio = game_file_count / total_files if total_files > 0 else 0
+    game_file_ratio = game_file_count / max(1, total_files)
     
     # Determine engine type based on strongest signals
-    if unity_dirs >= 2:
+    if (unity_dirs >= 2) or has_unity_project:
         result['engine_type'] = 'Unity'
         result['confidence'] = 0.7 + (unity_dirs * 0.1) + (game_file_ratio * 0.2)
-    elif unreal_dirs >= 2:
+        
+        # Boost confidence if specific Unity project files are found
+        if has_unity_project:
+            result['confidence'] += 0.2
+            
+    elif (unreal_dirs >= 2) or has_unreal_project:
         result['engine_type'] = 'Unreal Engine'
         result['confidence'] = 0.7 + (unreal_dirs * 0.1) + (game_file_ratio * 0.2)
-    elif godot_dirs >= 1:
+        
+        # Boost confidence if specific Unreal project files are found
+        if has_unreal_project:
+            result['confidence'] += 0.2
+            
+    elif (godot_dirs >= 1) or has_godot_project:
         result['engine_type'] = 'Godot'
         result['confidence'] = 0.7 + (godot_dirs * 0.15) + (game_file_ratio * 0.2)
+        
+        # Boost confidence if specific Godot project files are found
+        if has_godot_project:
+            result['confidence'] += 0.2
+            
     else:
         # Check for engines based primarily on file types
-        unity_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.unity', '.prefab', '.asset', '.meta'])
-        unreal_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
-        godot_files = sum(count for ext, count in file_types.items() if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
+        unity_files = sum(count for ext, count in file_types.items() 
+                          if ext.lower() in ['.unity', '.prefab', '.asset', '.asmdef'])
+        unreal_files = sum(count for ext, count in file_types.items() 
+                          if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
+        godot_files = sum(count for ext, count in file_types.items() 
+                         if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
         
-        if unity_files > unreal_files and unity_files > godot_files and unity_files > 5:
+        # Exclude .meta files from consideration as they are too generic and common
+        if '.meta' in file_types:
+            meta_count = file_types['.meta']
+            # If meta files make up more than 50% of the files, they might skew results
+            if meta_count > total_files * 0.5:
+                # Ignore meta files in the confidence calculation
+                pass
+        
+        if unity_files > unreal_files and unity_files > godot_files and unity_files > 3:
             result['engine_type'] = 'Unity'
-            result['confidence'] = 0.5 + (unity_files / total_files * 0.5)
-        elif unreal_files > unity_files and unreal_files > godot_files and unreal_files > 5:
+            result['confidence'] = 0.5 + (unity_files / max(1, total_files - meta_count if '.meta' in file_types else total_files) * 0.5)
+        elif unreal_files > unity_files and unreal_files > godot_files and unreal_files > 3:
             result['engine_type'] = 'Unreal Engine'
-            result['confidence'] = 0.5 + (unreal_files / total_files * 0.5)
-        elif godot_files > unity_files and godot_files > unreal_files and godot_files > 3:
+            result['confidence'] = 0.5 + (unreal_files / max(1, total_files) * 0.5)
+        elif godot_files > unity_files and godot_files > unreal_files and godot_files > 2:
             result['engine_type'] = 'Godot'
-            result['confidence'] = 0.5 + (godot_files / total_files * 0.5)
+            result['confidence'] = 0.5 + (godot_files / max(1, total_files) * 0.5)
+    
+    # Check for common game development languages with high representation
+    csharp_percentage = 0
+    cpp_percentage = 0
+    if 'C#' in file_types and total_files > 0:
+        csharp_percentage = file_types['C#'] / total_files
+        if csharp_percentage > 0.2 and result['engine_type'] == 'Unity':
+            # Boost confidence for C# in Unity projects
+            result['confidence'] += 0.1
+    
+    if 'C++' in file_types and total_files > 0:
+        cpp_percentage = file_types['C++'] / total_files
+        if cpp_percentage > 0.2 and result['engine_type'] == 'Unreal Engine':
+            # Boost confidence for C++ in Unreal projects
+            result['confidence'] += 0.1
     
     # Make final determination
     result['is_game_repo'] = result['confidence'] > 0.5
