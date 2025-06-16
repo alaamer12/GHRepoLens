@@ -435,7 +435,7 @@ class GithubVisualizer:
                 "is_fork": repo.is_fork,
                 "is_archived": repo.is_archived,
                 "is_template": repo.is_template,
-                "homepage": repo.homepage,
+                "homepage": repo.homepage if repo.homepage else f"[Auto-generated] https://github.com/{self.username}/{repo.name}",
 
                 # Stats
                 "stars": repo.stars,
@@ -456,8 +456,8 @@ class GithubVisualizer:
 
                 # Development
                 "primary_language": repo.primary_language,
-                "file_types": repo.file_types,
-                "project_structure": repo.project_structure,
+                "file_types": json.dumps(repo.file_types),  # Convert dict to JSON string
+                "project_structure": json.dumps(repo.project_structure),  # Convert dict to JSON string
                 "is_monorepo": repo.is_monorepo,
                 "contributors_count": repo.contributors_count,
                 "commit_frequency": repo.commit_frequency,
@@ -471,8 +471,8 @@ class GithubVisualizer:
                 "test_coverage_percentage": repo.test_coverage_percentage,
                 "has_docs": repo.has_docs,
                 "docs_files_count": repo.docs_files_count,
-                "docs_size_category": repo.docs_size_category,
-                "readme_comprehensiveness": repo.readme_comprehensiveness,
+                "docs_size_category": str(repo.docs_size_category) if repo.docs_size_category is not None else "None",  # Ensure string conversion
+                "readme_comprehensiveness": str(repo.readme_comprehensiveness) if repo.readme_comprehensiveness is not None else "None",  # Ensure string conversion
                 "readme_line_count": repo.readme_line_count,
 
                 # Infrastructure
