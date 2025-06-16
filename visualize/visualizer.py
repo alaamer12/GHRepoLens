@@ -17,13 +17,12 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import seaborn as sns
 
-from _html import HTMLVisualizer
-from _js import JSCreator
-from charts import CreateDetailedCharts
+from visualize.static import HTMLVisualizer
+from visualize.static import JSCreator
 from config import ThemeConfig, DefaultTheme
 from console import logger
 from models import RepoStats
-from repo_analyzer import PersonalRepoAnalysis, OrganizationRepoAnalysis
+from visualize import PersonalRepoAnalysis, OrganizationRepoAnalysis, CreateDetailedCharts
 
 
 class HtmlContent(NamedTuple):
@@ -125,7 +124,7 @@ class GithubVisualizer:
         self.all_stats: Optional[List[RepoStats]] = None
         self.username = username
         self.reports_dir = reports_dir
-        self.assets_dir = Path("assets")  # Changed from Path("static") / "assets" to just "assets"
+        self.assets_dir = Path(__file__).resolve().parent.parent / "assets"  # Changed from Path("static") / "assets" to just "assets"
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
         self.prepo_analysis = PersonalRepoAnalysis(username, theme)
         # Initialize the organization repo analysis (will be used only if org repos are included)

@@ -9,7 +9,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from config import LANGUAGE_EXTENSIONS
 from utilities import get_file_language
-from visualizer import GithubVisualizer
+from visualize.visualizer import GithubVisualizer
 
 # Configure logging
 logging.basicConfig(

@@ -21,7 +21,7 @@ from console import logger, RateLimitDisplay
 from models import RepoStats
 from reporter import GithubReporter
 from utilities import Checkpoint
-from visualizer import GithubVisualizer
+from visualize import GithubVisualizer
 
 
 # noinspection PyTypeChecker,PyArgumentList

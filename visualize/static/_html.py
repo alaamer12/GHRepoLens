@@ -4,10 +4,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional, Tuple, Dict
 
-from _css import CSSCreator
+from visualize.static import CSSCreator
 from config import ThemeConfig, DefaultTheme
 from console import logger
-from repo_analyzer import OrganizationRepoAnalysis, PersonalRepoAnalysis
+from visualize.repo_analyzer import OrganizationRepoAnalysis, PersonalRepoAnalysis
 
 CHART_NAMES = ["repository_timeline", "repo_creation_timeline", "quality_heatmap",
                "repo_types_distribution", "commit_activity_heatmap", "top_repos_metrics",
