@@ -144,3 +144,5 @@ cython_debug/
 
 # VS Code
 .vscode/
+reports/
+temp_repos/
