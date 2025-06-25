@@ -18,7 +18,8 @@ class PersonalRepoAnalysis:
         self.username = username
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
 
-    def create_charts_section(self) -> str:
+    @staticmethod
+    def create_charts_section() -> str:
         """Create the charts section of the HTML file"""
         charts_section = """<!-- Charts section with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme mb-10 transform hover:shadow-2xl transition-all duration-300">
@@ -369,7 +370,8 @@ class PersonalRepoAnalysis:
                 row=1, col=1
             )
 
-    def _add_repo_size_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_repo_size_chart(fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
         """Add repository size distribution chart to the figure"""
         repo_sizes = [stats.total_loc for stats in non_empty_repos if stats.total_loc > 0]
         if repo_sizes:
@@ -378,7 +380,8 @@ class PersonalRepoAnalysis:
                 row=1, col=2
             )
 
-    def _add_file_type_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_file_type_chart(fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
         """Add file type distribution chart to the figure"""
         all_file_types = defaultdict(int)
         for stats in non_empty_repos:
@@ -395,7 +398,8 @@ class PersonalRepoAnalysis:
                 row=2, col=1
             )
 
-    def _add_activity_timeline_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_activity_timeline_chart(fig: go.Figure, chart_colors: list,
                                      non_empty_repos: List[RepoStats]) -> None:
         """Add activity timeline chart to the figure"""
         commit_dates = [stats.last_commit_date for stats in non_empty_repos if stats.last_commit_date]
@@ -417,7 +421,8 @@ class PersonalRepoAnalysis:
                     row=2, col=2
                 )
 
-    def _add_stars_vs_loc_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_stars_vs_loc_chart(fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
         """Add stars vs LOC correlation chart to the figure"""
         stars = [stats.stars for stats in non_empty_repos]
         locs = [stats.total_loc for stats in non_empty_repos]
@@ -431,7 +436,8 @@ class PersonalRepoAnalysis:
             row=3, col=1
         )
 
-    def _add_maintenance_score_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_maintenance_score_chart(fig: go.Figure, chart_colors: list,
                                      non_empty_repos: List[RepoStats]) -> None:
         """Add maintenance score distribution chart to the figure"""
         maintenance_scores = [stats.maintenance_score for stats in non_empty_repos]
@@ -441,7 +447,8 @@ class PersonalRepoAnalysis:
                 row=3, col=2
             )
 
-    def _add_repo_age_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_repo_age_chart(fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
         """Add repository age distribution chart to the figure"""
         ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in
                 non_empty_repos]
@@ -451,7 +458,8 @@ class PersonalRepoAnalysis:
                 row=4, col=1
             )
 
-    def _add_quality_metrics_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_quality_metrics_chart(fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
         """Add quality metrics overview chart to the figure"""
         quality_metrics = {
             'Has Documentation': sum(1 for s in non_empty_repos if s.has_docs),
@@ -466,7 +474,8 @@ class PersonalRepoAnalysis:
             row=4, col=2
         )
 
-    def _update_axis_labels(self, fig: go.Figure) -> None:
+    @staticmethod
+    def _update_axis_labels(fig: go.Figure) -> None:
         """Update axis labels for all subplots"""
         fig.update_xaxes(title_text="Language", row=1, col=1)
         fig.update_yaxes(title_text="Lines of Code", row=1, col=1)
@@ -503,7 +512,8 @@ class OrganizationRepoAnalysis:
         # All languages aggregated
         self.all_languages = defaultdict(int)
 
-    def create_charts_section(self) -> str:
+    @staticmethod
+    def create_charts_section() -> str:
         """Create the charts section of the HTML file for organization repositories"""
         return """<!-- Organization Charts section with enhanced animations -->
                 <div data-aos="fade-up" data-aos-duration="800" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-theme mb-10 transform hover:shadow-2xl transition-all duration-300">
@@ -742,7 +752,8 @@ class OrganizationRepoAnalysis:
                 row=1, col=1
             )
 
-    def _add_org_repo_count_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_org_repo_count_chart(fig: go.Figure, chart_colors: list,
                                   org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add organization repository count pie chart"""
         if org_repos:
@@ -785,7 +796,8 @@ class OrganizationRepoAnalysis:
             # Set barmode to stack for this subplot
             fig.update_layout(barmode='stack')
 
-    def _add_repo_size_by_org_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_repo_size_by_org_chart(fig: go.Figure, chart_colors: list,
                                     org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add repository size boxplot by organization"""
         if org_repos:
@@ -820,7 +832,8 @@ class OrganizationRepoAnalysis:
                         row=2, col=2
                     )
 
-    def _add_stars_by_org_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_stars_by_org_chart(fig: go.Figure, chart_colors: list,
                                 org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add stars distribution by organization"""
         if org_repos:
@@ -841,7 +854,8 @@ class OrganizationRepoAnalysis:
                 row=3, col=1
             )
 
-    def _add_activity_status_chart(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_activity_status_chart(fig: go.Figure, chart_colors: list,
                                    org_repos: Dict[str, List[RepoStats]]) -> None:
         """Add active vs inactive repositories by organization"""
         if org_repos:
@@ -877,7 +891,8 @@ class OrganizationRepoAnalysis:
             # Set barmode to group for this subplot only
             fig.update_layout(barmode='group')
 
-    def _add_org_repo_age_chart(self, fig: go.Figure, chart_colors: list, all_org_repos: List[RepoStats]) -> None:
+    @staticmethod
+    def _add_org_repo_age_chart(fig: go.Figure, chart_colors: list, all_org_repos: List[RepoStats]) -> None:
         """Add repository age distribution chart for all organization repos"""
         ages = [(datetime.now().replace(tzinfo=timezone.utc) - stats.created_at).days / 365.25 for stats in
                 all_org_repos]
@@ -887,7 +902,8 @@ class OrganizationRepoAnalysis:
                 row=4, col=1
             )
 
-    def _add_org_contribution_timeline(self, fig: go.Figure, chart_colors: list,
+    @staticmethod
+    def _add_org_contribution_timeline(fig: go.Figure, chart_colors: list,
                                        all_org_repos: List[RepoStats]) -> None:
         """Add organization contribution timeline chart"""
         # Group repos by creation year

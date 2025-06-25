@@ -15,7 +15,7 @@ import configparser
 import os
 from pathlib import Path
 from typing import List, TypedDict, Dict, Set, Literal, Any, Optional
-
+import json
 from console import console, logger
 
 
@@ -180,7 +180,7 @@ BINARY_EXTENSIONS: Set[str] = {
     '.umap', '.uproject', '.upk', '.pak', '.ubulk', '.uexp', '.umeta',
     '.scn', '.res', '.tres', '.tscn', '.material', '.shader',
     '.pck', '.gdc', '.import',
-    
+
     # Other binary formats
     '.blend', '.fbx', '.3ds', '.obj', '.stl', '.glb', '.gltf',
     '.swf', '.fla', '.xcf', '.sketch', '.fig'
@@ -250,7 +250,6 @@ SPECIAL_FILENAMES: Dict[str, str] = {
     '.htaccess': 'Apache',
     'Procfile': 'YAML',
 
- 
 }
 
 CONFIG_FILES: Set[str] = {
@@ -393,25 +392,25 @@ EXCLUDED_DIRECTORIES: Set[str] = {
     'Library', 'Temp', 'Obj', 'Logs', 'UserSettings',
     'ProjectSettings', 'AssetBundles', 'Builds', 'Assets/Plugins',
     'Assets/StreamingAssets', 'Assets/Editor', 'Assets/ThirdParty',
-    
+
     # Unity specific third-party SDKs
-    'Assets/Oculus', 'Assets/MetaQuest', 'Assets/Meta', 'Assets/FacebookSDK', 
+    'Assets/Oculus', 'Assets/MetaQuest', 'Assets/Meta', 'Assets/FacebookSDK',
     'Assets/Firebase', 'Assets/GooglePlayPlugins', 'Assets/Plugins/Demigiant',
     'Assets/TextMesh Pro', 'Assets/Plugins/DOTween', 'Assets/Plugins/FMOD',
     'Assets/Photon', 'Assets/Gizmosplus', 'Assets/AmplifyShaderEditor',
-    
+
     # Common Unity asset store plugins
     'Assets/Plugins/CW', 'Assets/Assets/JMO Assets', 'Assets/PuppetMaster',
     'Assets/ProCore', 'Assets/AssetStoreTools',
 
     # Unreal Engine specific
-    'Saved', 'Intermediate', 'Binaries', 'DerivedDataCache', 
+    'Saved', 'Intermediate', 'Binaries', 'DerivedDataCache',
     'Build', 'Plugins/*/Intermediate', 'Plugins/*/Binaries',
-    
+
     # Unreal specific third-party SDKs
     'Plugins/Online', 'Plugins/FMODStudio', 'Plugins/Wwise',
     'Plugins/Runtime/Oculus', 'Plugins/Runtime/Meta',
-    
+
     # Godot specific
     '.import', 'addons', '.godot',
 
@@ -494,16 +493,16 @@ RELEASE_FILES: Set[str] = {
 GAME_ENGINE_FILES: Set[str] = {
     # Unity
     '.unity', '.unitypackage', '.asset', '.prefab', '.mat', '.meta',
-    '.cubemap', '.flare', '.fontsettings', '.guiskin', 
+    '.cubemap', '.flare', '.fontsettings', '.guiskin',
     '.physicMaterial', '.physicsMaterial2D', '.renderTexture',
     '.mixer', '.shadervariants', '.spriteatlas', '.terrainlayer',
-     
+
     # Godot
     '.pck', '.gdc', '.res', '.scn', '.godot',
-    
+
     # Unreal Engine
     '.pak', '.ubulk', '.uexp', '.umeta',
-    
+
     # Other game engines and formats
     '.bsp', '.vtf', '.vmt', '.vpk', '.pgm', '.dem',
     '.sav', '.lmp', '.bik', '.smk', '.usm',
@@ -514,10 +513,10 @@ GAME_ENGINE_FILES: Set[str] = {
 GAME_ENGINE_DIRECTORIES: Set[str] = {
     # Unity
     'Assets', 'ProjectSettings', 'Packages', 'Library/PackageCache',
-    
+
     # Unreal Engine
     'Content', 'Config', 'Binaries', 'Intermediate', 'Saved',
-    
+
     # Godot
     '.godot', 'addons', 'bin', 'scenes'
 }
@@ -535,17 +534,17 @@ AUDIO_FILE_EXTENSIONS: Set[str] = {
     '.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.aiff', '.alac',
     '.opus', '.midi', '.mid', '.mod', '.xm', '.it', '.s3m', '.voc', '.adpcm',
     '.aif', '.aifc', '.amr',
-    
+
     # Game-specific audio formats
     '.bank', '.bnk', '.sound', '.snd', '.sfx', '.cue', '.wem', '.fsb',
-    '.audio', '.msadpcm', '.dls', '.sf2', '.sfz', 
-    
+    '.audio', '.msadpcm', '.dls', '.sf2', '.sfz',
+
     # Unity specific audio formats
     '.asset_audio', '.audioclip',
-    
+
     # Audio metadata formats
     '.mtb', '.cue',
-    
+
     # Raw audio data
     '.pcm', '.raw', '.smp'
 }
@@ -566,11 +565,12 @@ MODEL_3D_FILE_EXTENSIONS: Set[str] = {
 
 # Combined set of all media file extensions
 MEDIA_FILE_EXTENSIONS: Set[str] = (
-    IMAGE_FILE_EXTENSIONS | 
-    AUDIO_FILE_EXTENSIONS | 
-    VIDEO_FILE_EXTENSIONS | 
-    MODEL_3D_FILE_EXTENSIONS
+        IMAGE_FILE_EXTENSIONS |
+        AUDIO_FILE_EXTENSIONS |
+        VIDEO_FILE_EXTENSIONS |
+        MODEL_3D_FILE_EXTENSIONS
 )
+
 
 def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) -> Dict[str, Any]:
     """
@@ -592,43 +592,43 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
         'engine_type': 'Other/Unknown',
         'confidence': 0.0
     }
-    
+
     # Check for game engine file extensions
     game_file_count = 0
     total_files = sum(file_types.values())
-    
+
     if total_files == 0:
         return result
-    
+
     # Count game files by extension but exclude meta files from the count
     game_file_extensions = {ext for ext in GAME_ENGINE_FILES if ext != '.meta'}
-    
+
     for ext, count in file_types.items():
         if ext.lower() in game_file_extensions:
             game_file_count += count
-    
+
     # Check directory structure
     unity_dirs = 0
     unreal_dirs = 0
     godot_dirs = 0
-    
+
     # Check for specific files that are strong indicators
     has_unity_project = False
     has_unreal_project = False
     has_godot_project = False
-    
+
     # Unity-specific project files
     if '.unity' in file_types or '.asmdef' in file_types or '.meta' in file_types:
         has_unity_project = True
-        
+
     # Unreal-specific project files
     if '.uproject' in file_types or '.uplugin' in file_types:
         has_unreal_project = True
-        
+
     # Godot-specific project files
     if '.godot' in file_types or '.tscn' in file_types or '.gd' in file_types:
         has_godot_project = True
-    
+
     # Check project structure
     for directory in project_structure:
         dir_lower = directory.lower()
@@ -641,44 +641,44 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
         # Godot-specific directories
         elif directory in ['.godot', 'addons'] or dir_lower.endswith('.godot'):
             godot_dirs += 1
-    
+
     # Calculate confidence based on file types and directory structure
     game_file_ratio = game_file_count / max(1, total_files)
-    
+
     # Determine engine type based on strongest signals
     if (unity_dirs >= 2) or has_unity_project:
         result['engine_type'] = 'Unity'
         result['confidence'] = 0.7 + (unity_dirs * 0.1) + (game_file_ratio * 0.2)
-        
+
         # Boost confidence if specific Unity project files are found
         if has_unity_project:
             result['confidence'] += 0.2
-            
+
     elif (unreal_dirs >= 2) or has_unreal_project:
         result['engine_type'] = 'Unreal Engine'
         result['confidence'] = 0.7 + (unreal_dirs * 0.1) + (game_file_ratio * 0.2)
-        
+
         # Boost confidence if specific Unreal project files are found
         if has_unreal_project:
             result['confidence'] += 0.2
-            
+
     elif (godot_dirs >= 1) or has_godot_project:
         result['engine_type'] = 'Godot'
         result['confidence'] = 0.7 + (godot_dirs * 0.15) + (game_file_ratio * 0.2)
-        
+
         # Boost confidence if specific Godot project files are found
         if has_godot_project:
             result['confidence'] += 0.2
-            
+
     else:
         # Check for engines based primarily on file types
-        unity_files = sum(count for ext, count in file_types.items() 
+        unity_files = sum(count for ext, count in file_types.items()
                           if ext.lower() in ['.unity', '.prefab', '.asset', '.asmdef'])
-        unreal_files = sum(count for ext, count in file_types.items() 
-                          if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
-        godot_files = sum(count for ext, count in file_types.items() 
-                         if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
-        
+        unreal_files = sum(count for ext, count in file_types.items()
+                           if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
+        godot_files = sum(count for ext, count in file_types.items()
+                          if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
+
         # Exclude .meta files from consideration as they are too generic and common
         if '.meta' in file_types:
             meta_count = file_types['.meta']
@@ -686,17 +686,18 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
             if meta_count > total_files * 0.5:
                 # Ignore meta files in the confidence calculation
                 pass
-        
+
         if unity_files > unreal_files and unity_files > godot_files and unity_files > 3:
             result['engine_type'] = 'Unity'
-            result['confidence'] = 0.5 + (unity_files / max(1, total_files - meta_count if '.meta' in file_types else total_files) * 0.5)
+            result['confidence'] = 0.5 + (
+                        unity_files / max(1, total_files - meta_count if '.meta' in file_types else total_files) * 0.5)
         elif unreal_files > unity_files and unreal_files > godot_files and unreal_files > 3:
             result['engine_type'] = 'Unreal Engine'
             result['confidence'] = 0.5 + (unreal_files / max(1, total_files) * 0.5)
         elif godot_files > unity_files and godot_files > unreal_files and godot_files > 2:
             result['engine_type'] = 'Godot'
             result['confidence'] = 0.5 + (godot_files / max(1, total_files) * 0.5)
-    
+
     # Check for common game development languages with high representation
     csharp_percentage = 0
     cpp_percentage = 0
@@ -705,17 +706,17 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
         if csharp_percentage > 0.2 and result['engine_type'] == 'Unity':
             # Boost confidence for C# in Unity projects
             result['confidence'] += 0.1
-    
+
     if 'C++' in file_types and total_files > 0:
         cpp_percentage = file_types['C++'] / total_files
         if cpp_percentage > 0.2 and result['engine_type'] == 'Unreal Engine':
             # Boost confidence for C++ in Unreal projects
             result['confidence'] += 0.1
-    
+
     # Make final determination
     result['is_game_repo'] = result['confidence'] > 0.5
     result['confidence'] = min(1.0, result['confidence'])  # Cap at 1.0
-    
+
     return result
 
 
@@ -724,10 +725,10 @@ class ConfigLoader:
     Class responsible for loading configuration from files and handling configuration errors.
     Follows Single Responsibility Principle by focusing only on configuration loading.
     """
-    
+
     def __init__(self):
         self.logger = logger
-        
+
     def load(self, config_file: str) -> Configuration:
         """
         Load configuration from a file and return as Configuration dict.
@@ -742,29 +743,31 @@ class ConfigLoader:
         try:
             cp.read(config_file)
             config: Configuration = DEFAULT_CONFIG.copy()
-            
+
             self._process_github_settings(cp, config)
             self._process_analysis_settings(cp, config)
             self._process_filter_settings(cp, config)
             self._process_checkpointing_settings(cp, config)
             self._process_iframe_settings(cp, config)
             self._process_theme_settings(cp, config_file)
-            
+
             self.logger.info(f"Configuration loaded from {config_file}")
             return config
-            
+
         except (configparser.Error, IOError) as e:
             return self._handle_config_error(config_file, e)
-    
-    def _process_github_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+
+    @staticmethod
+    def _process_github_settings(cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process GitHub related settings from config parser"""
         if "github" in cp:
             if "token" in cp["github"]:
                 config["GITHUB_TOKEN"] = cp["github"]["token"]
             if "username" in cp["github"]:
                 config["USERNAME"] = cp["github"]["username"]
-    
-    def _process_analysis_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+
+    @staticmethod
+    def _process_analysis_settings(cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process analysis related settings from config parser"""
         if "analysis" in cp:
             if "reports_dir" in cp["analysis"]:
@@ -777,7 +780,7 @@ class ConfigLoader:
                 config["INACTIVE_THRESHOLD_DAYS"] = cp["analysis"].getint("inactive_threshold_days")
             if "large_repo_loc_threshold" in cp["analysis"]:
                 config["LARGE_REPO_LOC_THRESHOLD"] = cp["analysis"].getint("large_repo_loc_threshold")
-    
+
     def _process_filter_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process filter related settings from config parser"""
         if "filters" in cp:
@@ -791,24 +794,27 @@ class ConfigLoader:
                 config["ANALYZE_CLONES"] = cp["filters"].getboolean("analyze_clones")
             if "include_orgs" in cp["filters"]:
                 self._process_orgs_setting(cp, config)
-    
+
     def _process_visibility_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process visibility setting with validation"""
         visibility = cp["filters"]["visibility"].lower()
         if visibility in ["all", "public", "private"]:
+            # noinspection PyTypedDict
             config["VISIBILITY"] = visibility
             # For backward compatibility
             config["INCLUDE_PRIVATE"] = visibility in ["all", "private"]
         else:
             self.logger.warning(f"Invalid visibility value: {visibility}. Using default: all")
-    
-    def _process_orgs_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+
+    @staticmethod
+    def _process_orgs_setting(cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process organizations list setting"""
         org_list = cp["filters"]["include_orgs"].strip()
         if org_list:
             config["INCLUDE_ORGS"] = [o.strip() for o in org_list.split(",") if o.strip()]
-    
-    def _process_checkpointing_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+
+    @staticmethod
+    def _process_checkpointing_settings(cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process checkpointing related settings from config parser"""
         if "checkpointing" in cp:
             if "enable_checkpointing" in cp["checkpointing"]:
@@ -819,7 +825,7 @@ class ConfigLoader:
                 config["CHECKPOINT_THRESHOLD"] = cp["checkpointing"].getint("checkpoint_threshold")
             if "resume_from_checkpoint" in cp["checkpointing"]:
                 config["RESUME_FROM_CHECKPOINT"] = cp["checkpointing"].getboolean("resume_from_checkpoint")
-    
+
     def _process_iframe_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process iframe embedding related settings from config parser"""
         if "iframe" in cp:
@@ -829,15 +835,16 @@ class ConfigLoader:
                 config["VERCEL_TOKEN"] = cp["iframe"]["vercel_token"]
             if "vercel_project_name" in cp["iframe"]:
                 config["VERCEL_PROJECT_NAME"] = cp["iframe"]["vercel_project_name"]
-    
+
     def _process_iframe_embedding_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process iframe embedding setting with validation"""
         embedding_mode = cp["iframe"]["iframe_embedding"].lower()
         if embedding_mode in ["disabled", "partial", "full"]:
+            # noinspection PyTypedDict
             config["IFRAME_EMBEDDING"] = embedding_mode
         else:
             self.logger.warning(f"Invalid iframe_embedding value: {embedding_mode}. Using default: disabled")
-    
+
     def _process_theme_settings(self, cp: configparser.ConfigParser, config_file: str) -> None:
         """Process theme related settings from config parser"""
         if 'theme' in cp:
@@ -852,18 +859,17 @@ class ConfigLoader:
 
             self._process_json_theme_fields(theme_section)
             self.logger.info(f"Loaded theme configuration from {config_file}")
-    
+
     def _process_json_theme_fields(self, theme_section: configparser.SectionProxy) -> None:
         """Process JSON fields in theme section"""
         try:
-            import json
             json_fields = ['skills', 'social_links', 'chart_palette']
             for field in json_fields:
                 if field in theme_section:
                     LOADED_THEME_CONFIG[field] = json.loads(theme_section[field])
         except json.JSONDecodeError as e:
             self.logger.error(f"Error parsing JSON in theme section: {e}")
-    
+
     def _handle_config_error(self, config_file: str, error: Exception) -> Configuration:
         """Handle configuration loading errors"""
         self.logger.error(f"Error loading configuration from {config_file}: {str(error)}")
@@ -888,7 +894,7 @@ def load_config_from_file(config_file: str) -> Configuration:
 
 
 # Global variable to store theme configuration loaded from config file
-LOADED_THEME_CONFIG = None
+LOADED_THEME_CONFIG: Optional[dict] = None
 
 
 def create_sample_config() -> None:
@@ -1129,7 +1135,7 @@ def load_theme_config() -> ThemeConfig:
     global LOADED_THEME_CONFIG
     if LOADED_THEME_CONFIG is not None:
         logger.info("Using previously loaded theme configuration")
-        theme = DefaultTheme.get_default_theme()
+        theme: dict = DefaultTheme.get_default_theme()
 
         # Update theme with loaded values
         for key, value in LOADED_THEME_CONFIG.items():
@@ -1268,7 +1274,7 @@ def get_media_type(file_path: str) -> Optional[str]:
         Media type as string ('image', 'audio', 'video', 'model_3d') or None if not a media file
     """
     ext = Path(file_path).suffix.lower()
-    
+
     if ext in IMAGE_FILE_EXTENSIONS:
         return 'image'
     elif ext in AUDIO_FILE_EXTENSIONS:
@@ -1277,5 +1283,5 @@ def get_media_type(file_path: str) -> Optional[str]:
         return 'video'
     elif ext in MODEL_3D_FILE_EXTENSIONS:
         return 'model_3d'
-    
+
     return None

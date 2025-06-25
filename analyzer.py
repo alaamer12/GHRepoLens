@@ -20,8 +20,7 @@ from tqdm.auto import tqdm
 
 from config import BINARY_EXTENSIONS, CONFIG_FILES, EXCLUDED_DIRECTORIES, LANGUAGE_EXTENSIONS, \
     SPECIAL_FILENAMES, PACKAGE_FILES, DEPLOYMENT_FILES, RELEASE_FILES, Configuration, is_game_repo, \
-    MEDIA_FILE_EXTENSIONS, get_media_type, AUDIO_FILE_EXTENSIONS, IMAGE_FILE_EXTENSIONS, \
-    VIDEO_FILE_EXTENSIONS, MODEL_3D_FILE_EXTENSIONS
+    MEDIA_FILE_EXTENSIONS, get_media_type, AUDIO_FILE_EXTENSIONS
 from console import rprint, logger, RateLimitDisplay
 from models import RepoStats, BaseRepoInfo, CodeStats, QualityIndicators, ActivityMetrics, CommunityMetrics, \
     AnalysisScores, MediaMetrics
@@ -138,16 +137,16 @@ def is_cicd_file(file_path: str) -> bool:
 
 def is_excluded_file(file_path: str) -> bool:
     """Check if file should be excluded from analysis"""
-    
+
     # Skip .gitkeep files
     filename = Path(file_path).name.lower()
     if filename == '.gitkeep' or filename == '.gitignore':
         return True
-        
+
     # Check if it's a binary file
     if is_binary_file(file_path):
         return True
-        
+
     return False
 
 
@@ -166,7 +165,8 @@ class CodeAnalyzer:
         # Map file extensions to language types
         self.extension_to_language = self._get_extension_to_language()
 
-    def _get_extension_to_language(self) -> Dict[str, str]:
+    @staticmethod
+    def _get_extension_to_language() -> Dict[str, str]:
         """Get mapping of file extensions to language types"""
         return {
             # Python
@@ -221,9 +221,9 @@ class CodeAnalyzer:
             '.tex': 'latex', '.ltx': 'latex', '.latex': 'latex',
             '.txt': 'text',
         }
-        
 
-    def _get_language_patterns(self) -> Dict[str, Dict[str, str]]:
+    @staticmethod
+    def _get_language_patterns() -> Dict[str, Dict[str, str]]:
         """Get language patterns for comment styles"""
         return {
             # Python-style
@@ -295,8 +295,6 @@ class CodeAnalyzer:
             'text': {'line_comment': None, 'block_start': None, 'block_end': None},
         }
 
-    
-
     def get_language_from_file(self, file_path: str) -> str:
         """
         Determine the language type based on file extension.
@@ -328,7 +326,7 @@ class CodeAnalyzer:
         # Handle binary files
         if is_binary_file(file_path):
             return 0
-            
+
         # Skip meta files, .gitkeep files and other excluded files
         filename = Path(file_path).name.lower()
         if filename == '.gitkeep' or filename == '.gitignore' or filename.endswith('.meta'):
@@ -884,12 +882,12 @@ class GithubAnalyzer:
             'readme_file': None,
             'readme_content': None,
             'readme_line_count': 0,
-            
+
             # Game repo detection
             'is_game_repo': False,
             'game_engine': 'None',
             'game_confidence': 0.0,
-            
+
             # Media files tracking
             'media_metrics': {
                 'image_count': 0,
@@ -951,27 +949,27 @@ class GithubAnalyzer:
                     if is_excluded_file(file_content.path):
                         stats['excluded_file_count'] += 1
                         logger.debug(f"Skipping excluded file: {file_content.path}")
-                        
+
                         # Even though we skip the file for code analysis, check if it's a media file to track it
                         media_type = get_media_type(file_content.path)
                         if media_type:
                             # Calculate size in KB
                             size_kb = file_content.size // 1024 if file_content.size else 0
-                            
+
                             # Track the media file in its category
                             stats['media_metrics'][f'{media_type}_count'] += 1
                             stats['media_metrics'][f'{media_type}_files'].append(file_content.path)
                             stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
-                            
+
                             logger.debug(f"Detected {media_type} file: {file_content.path} ({size_kb} KB)")
-                        
+
                         continue
 
                     files_to_process.append(file_content)
 
             # Process files with progress bar
             all_file_extensions = set()
-            
+
             for file_content in tqdm(files_to_process,
                                      desc=f"Analyzing {repo.name} files",
                                      leave=False,
@@ -979,7 +977,7 @@ class GithubAnalyzer:
                 try:
                     file_path = file_content.path
                     stats['total_files'] += 1
-                    
+
                     # Track all file extensions for debugging
                     ext = Path(file_path).suffix.lower()
                     if ext:
@@ -988,20 +986,20 @@ class GithubAnalyzer:
                     # Add special debug for DrumVerse audio files
                     if repo.name == "DrumVerse" and ext in AUDIO_FILE_EXTENSIONS:
                         logger.info(f"Found audio file in DrumVerse: {file_path}")
-                        
+
                     # Direct media detection regardless of other checks
                     media_type = get_media_type(file_path)
                     if media_type:
                         # Calculate size in KB
                         size_kb = file_content.size // 1024 if file_content.size else 0
-                        
+
                         # Track the media file in its category
                         stats['media_metrics'][f'{media_type}_count'] += 1
                         stats['media_metrics'][f'{media_type}_files'].append(file_path)
                         stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
-                        
+
                         logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
-                    
+
                     # Check for documentation
                     is_doc = False
                     if ('readme' in file_path.lower() or
@@ -1058,20 +1056,20 @@ class GithubAnalyzer:
                     # Skip binary files for LOC counting
                     if is_binary_file(file_path):
                         stats['file_types']['Binary'] += 1
-                        
+
                         # Even if binary, check if it's a media file to track it
                         media_type = get_media_type(file_path)
                         if media_type:
                             # Calculate size in KB
                             size_kb = file_content.size // 1024 if file_content.size else 0
-                            
+
                             # Track the media file in its category
                             stats['media_metrics'][f'{media_type}_count'] += 1
                             stats['media_metrics'][f'{media_type}_files'].append(file_path)
                             stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
-                            
+
                             logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
-                        
+
                         continue
 
                     # Determine language and file type
@@ -1081,7 +1079,7 @@ class GithubAnalyzer:
                     path_obj = Path(file_path)
                     filename = path_obj.name
                     ext = path_obj.suffix.lower()
-                    
+
                     # Skip counting LOC for meta files but still record them
                     if ext == '.meta' or filename == '.gitkeep':
                         stats['file_types'][ext if ext else filename] += 1
@@ -1159,48 +1157,53 @@ class GithubAnalyzer:
                 stats['is_game_repo'] = game_repo_info['is_game_repo']
                 stats['game_engine'] = game_repo_info['engine_type']
                 stats['game_confidence'] = game_repo_info['confidence']
-                
+
                 # If it's a game repo with high confidence, log it
                 if stats['is_game_repo'] and stats['game_confidence'] > 0.7:
-                    logger.info(f"Detected game repository using {stats['game_engine']} engine (confidence: {stats['game_confidence']:.2f})")
+                    logger.info(
+                        f"Detected game repository using {stats['game_engine']} engine (confidence: {stats['game_confidence']:.2f})")
             except Exception as e:
                 # Ensure game detection doesn't break the entire analysis
                 logger.error(f"Error during game repository detection: {e}")
                 stats['is_game_repo'] = False
                 stats['game_engine'] = 'None'
                 stats['game_confidence'] = 0.0
-                
+
             # Set has_media flag based on totals
             media_metrics = stats['media_metrics']
             stats['has_media'] = (
-                media_metrics['image_count'] > 0 or 
-                media_metrics['audio_count'] > 0 or 
-                media_metrics['video_count'] > 0 or 
-                media_metrics['model_3d_count'] > 0
+                    media_metrics['image_count'] > 0 or
+                    media_metrics['audio_count'] > 0 or
+                    media_metrics['video_count'] > 0 or
+                    media_metrics['model_3d_count'] > 0
             )
-            
+
             # Log media file summary if present
             if stats['has_media']:
                 logger.info(f"Repository {repo.name} contains media files:")
-                
+
                 if media_metrics['image_count'] > 0:
-                    logger.info(f"  Images: {media_metrics['image_count']} files, {media_metrics['image_size_kb']/1024:.2f} MB")
-                    
+                    logger.info(
+                        f"  Images: {media_metrics['image_count']} files, {media_metrics['image_size_kb'] / 1024:.2f} MB")
+
                 if media_metrics['audio_count'] > 0:
-                    logger.info(f"  Audio: {media_metrics['audio_count']} files, {media_metrics['audio_size_kb']/1024:.2f} MB")
+                    logger.info(
+                        f"  Audio: {media_metrics['audio_count']} files, {media_metrics['audio_size_kb'] / 1024:.2f} MB")
                     # Log some audio files for debugging
                     audio_examples = media_metrics['audio_files'][:min(5, len(media_metrics['audio_files']))]
                     logger.debug(f"  Audio file examples: {audio_examples}")
-                    
+
                 if media_metrics['video_count'] > 0:
-                    logger.info(f"  Video: {media_metrics['video_count']} files, {media_metrics['video_size_kb']/1024:.2f} MB")
-                    
+                    logger.info(
+                        f"  Video: {media_metrics['video_count']} files, {media_metrics['video_size_kb'] / 1024:.2f} MB")
+
                 if media_metrics['model_3d_count'] > 0:
-                    logger.info(f"  3D Models: {media_metrics['model_3d_count']} files, {media_metrics['model_3d_size_kb']/1024:.2f} MB")
+                    logger.info(
+                        f"  3D Models: {media_metrics['model_3d_count']} files, {media_metrics['model_3d_size_kb'] / 1024:.2f} MB")
 
             # Log all file extensions found for debugging
             logger.debug(f"All file extensions found in {repo.name}: {sorted(all_file_extensions)}")
-            
+
             # Special logging for DrumVerse to check for audio files
             if repo.name == "DrumVerse":
                 logger.info(f"DrumVerse analysis summary:")
@@ -1208,7 +1211,7 @@ class GithubAnalyzer:
                 logger.info(f"  Extensions found: {sorted(all_file_extensions)}")
                 logger.info(f"  Has media: {stats['has_media']}")
                 logger.info(f"  Media metrics: {stats['media_metrics']}")
-                
+
                 # Check audio extensions
                 audio_extensions = sorted(AUDIO_FILE_EXTENSIONS)
                 logger.info(f"  Looking for audio extensions: {audio_extensions}")
@@ -1789,27 +1792,27 @@ class GithubAnalyzer:
         # Missing CI/CD in active project
         if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_cicd:
             repo_stats.add_anomaly("Active project without CI/CD configuration")
-            
+
         # Media heavy repositories
         if repo_stats.total_media_count > 0:
             if repo_stats.total_media_size_kb > 100000:  # More than 100MB
                 repo_stats.add_anomaly(f"Very large media files ({repo_stats.total_media_size_kb // 1024} MB)")
-            
+
             # Check if the repository is dominated by media files
-            if (repo_stats.total_media_count > repo_stats.code_stats.total_files * 0.5 and 
-                repo_stats.code_stats.total_files > 10):
+            if (repo_stats.total_media_count > repo_stats.code_stats.total_files * 0.5 and
+                    repo_stats.code_stats.total_files > 10):
                 repo_stats.add_anomaly("Repository contains more media files than code files")
-                
+
             # Check for specific media types
             if repo_stats.image_count > 100:
                 repo_stats.add_anomaly(f"Repository contains {repo_stats.image_count} images")
-                
+
             if repo_stats.video_count > 10:
                 repo_stats.add_anomaly(f"Repository contains {repo_stats.video_count} video files")
-                
+
             if repo_stats.audio_count > 20:
                 repo_stats.add_anomaly(f"Repository contains {repo_stats.audio_count} audio files")
-                
+
             if repo_stats.model_3d_count > 10:
                 repo_stats.add_anomaly(f"Repository contains {repo_stats.model_3d_count} 3D model files")
 
