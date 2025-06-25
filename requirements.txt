@@ -9,3 +9,4 @@ scipy
 kaleido
 python-dotenv
 rich
+beautifulsoup4

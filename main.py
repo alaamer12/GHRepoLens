@@ -35,6 +35,7 @@ from console import console, rprint, logger, print_header, print_info, print_war
     create_progress_bar, configure_logging
 from lens import GithubLens
 from models import RepoStats
+from visualize import validate_and_deploy_charts
 
 # Register shutdown_logging to be called when the program exits
 atexit.register(shutdown_logging)
@@ -46,7 +47,10 @@ async def run_analysis(
         mode: str = "full",
         config_file: Optional[str] = None,
         include_orgs: Optional[List[str]] = None,
-        visibility: str = "all"
+        visibility: str = "all",
+        iframe_mode: str = "disabled",
+        vercel_token: str = "",
+        vercel_project_name: str = ""
 ) -> None:
     """
     Run GitHub repository analysis for the specified user.
@@ -61,6 +65,9 @@ async def run_analysis(
         config_file: Path to custom configuration file (default: None)
         include_orgs: List of organization names to include in analysis (default: None)
         visibility: Repository visibility option ("all", "public", or "private")
+        iframe_mode: Mode for iframe embedding ("disabled", "partial", "full")
+        vercel_token: Vercel API token for deployment
+        vercel_project_name: Unique project name for Vercel deployment
     """
     demo_mode = mode == "demo"
     test_mode = mode == "test"
@@ -86,6 +93,12 @@ async def run_analysis(
         # Update organizations to include if specified
         if include_orgs:
             config["INCLUDE_ORGS"] = include_orgs
+            
+        # Set iframe embedding configuration
+        config["IFRAME_EMBEDDING"] = iframe_mode
+        if iframe_mode != "disabled":
+            config["VERCEL_TOKEN"] = vercel_token
+            config["VERCEL_PROJECT_NAME"] = vercel_project_name or f"ghrepolens-{username.lower()}"
 
         if demo_mode or test_mode or quicktest_mode:
             config["CHECKPOINT_FILE"] = f"github_analyzer_{mode}_checkpoint.pkl"
@@ -407,6 +420,11 @@ async def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) ->
 
         # Create reports directory if it doesn't exist
         Path(analyzer.config["REPORTS_DIR"]).mkdir(exist_ok=True)
+        
+        # Check if iframe embedding is enabled and deploy charts if needed
+        if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
+            status.update("[bold green]Deploying charts for iframe embedding...")
+            await asyncio.to_thread(validate_and_deploy_charts, analyzer.config)
 
 
 def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) -> None:
@@ -424,6 +442,9 @@ def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) 
         f"📊 Generated reports in {analyzer.config['REPORTS_DIR']} directory\n"
         f"📈 Created visualizations and interactive dashboard\n"
     )
+
+    if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
+        summary_text += f"🌐 Charts deployed for iframe embedding (mode: {analyzer.config['IFRAME_EMBEDDING']})\n"
 
     if mode == "demo":
         summary_text += "\n⚠️ Demo mode: Limited to 10 repositories\n"
@@ -531,6 +552,8 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="GitHub Repository Analyzer")
     parser.add_argument('--quicktest', action='store_true', help='Run quick test with predefined parameters')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging to the console')
+    parser.add_argument('--iframe', choices=['disabled', 'partial', 'full'], 
+                       help='Enable iframe embedding of charts (requires Vercel account)')
     # Use parse_known_args to ignore any additional args (important for Google Colab)
     args, _ = parser.parse_known_args()
 
@@ -563,6 +586,11 @@ async def main() -> None:
         if visibility not in ["all", "public", "private"]:
             print_warning(f"Invalid visibility value '{visibility}', using default 'all'.")
             visibility = "all"
+            
+        # Check if iframe embedding is enabled from command line
+        iframe_mode = args.iframe or os.environ.get("IFRAME_EMBEDDING", "disabled")
+        vercel_token = os.environ.get("VERCEL_TOKEN", "")
+        vercel_project_name = os.environ.get("VERCEL_PROJECT_NAME", "")
 
         # Run analysis in quicktest mode
         await run_analysis(
@@ -571,7 +599,10 @@ async def main() -> None:
             mode="quicktest",
             config_file=None,
             include_orgs=include_orgs,
-            visibility=visibility
+            visibility=visibility,
+            iframe_mode=iframe_mode,
+            vercel_token=vercel_token,
+            vercel_project_name=vercel_project_name
         )
 
         return
@@ -652,6 +683,40 @@ async def main() -> None:
                 include_orgs = [org_input.strip()]
                 print_info(f"Will include repositories from organization: {include_orgs[0]}")
 
+    # Ask for iframe embedding mode
+    iframe_mode = args.iframe
+    vercel_token = ""
+    vercel_project_name = ""
+    
+    if iframe_mode is None:  # Only ask if not provided in command line
+        iframe_options = {
+            "1": "disabled",
+            "2": "partial",
+            "3": "full"
+        }
+    
+        print_header("IFrame Embedding Options")
+        console.print("[1] Disabled - No iframe embedding (default)")
+        console.print("[2] Partial - Deploy key chart HTML files")
+        console.print("[3] Full - Deploy all HTML files including dashboard")
+    
+        iframe_choice = Prompt.ask("[bold]Choose iframe embedding mode[/bold]", choices=["1", "2", "3"], default="1")
+        iframe_mode = iframe_options[iframe_choice]
+
+    # If iframe embedding is enabled, ask for Vercel token and project name
+    if iframe_mode and iframe_mode != "disabled":
+        # Try to get token from environment
+        vercel_token = os.environ.get("VERCEL_TOKEN", "")
+        if not vercel_token:
+            vercel_token = Prompt.ask("[bold]Vercel token[/bold] (required for deployment)", password=True)
+            
+        vercel_project_name = os.environ.get("VERCEL_PROJECT_NAME", "")
+        if not vercel_project_name:
+            vercel_project_name = Prompt.ask(
+                "[bold]Vercel project name[/bold] (must be unique)", 
+                default=f"ghrepolens-{github_username.lower()}"
+            )
+
     # Run the analysis
     await run_analysis(
         token=github_token,
@@ -659,7 +724,10 @@ async def main() -> None:
         mode=selected_mode,
         config_file=config_file,
         include_orgs=include_orgs,
-        visibility=selected_visibility
+        visibility=selected_visibility,
+        iframe_mode=iframe_mode,
+        vercel_token=vercel_token,
+        vercel_project_name=vercel_project_name
     )
 
 

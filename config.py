@@ -42,6 +42,9 @@ class Configuration(TypedDict):
     CHECKPOINT_THRESHOLD: int
     RESUME_FROM_CHECKPOINT: bool
     INCLUDE_ORGS: List[str]  # List of organization names to include in analysis
+    IFRAME_EMBEDDING: Literal["disabled", "partial", "full"]  # Option for iframe embedding
+    VERCEL_TOKEN: str  # Vercel API token for deployment
+    VERCEL_PROJECT_NAME: str  # Unique project name for Vercel
 
 
 # Configuration - these will be replaced by command line args or config file
@@ -63,6 +66,9 @@ DEFAULT_CONFIG: Configuration = {
     "CHECKPOINT_THRESHOLD": 100,  # Create checkpoint when remaining API requests falls below this
     "RESUME_FROM_CHECKPOINT": True,  # Whether to resume from checkpoint if it exists
     "INCLUDE_ORGS": [],  # Empty list means don't include any organization repositories
+    "IFRAME_EMBEDDING": "disabled",  # Default: No iframe embedding
+    "VERCEL_TOKEN": "",  # Empty by default, must be provided for deployment
+    "VERCEL_PROJECT_NAME": "",  # Empty by default, must be provided for deployment
 }
 
 # File type mappings for better categorization
@@ -713,85 +719,130 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
     return result
 
 
-def load_config_from_file(config_file: str) -> Configuration:
+class ConfigLoader:
     """
-    Load configuration from a file.
+    Class responsible for loading configuration from files and handling configuration errors.
+    Follows Single Responsibility Principle by focusing only on configuration loading.
+    """
     
-    Reads configuration settings from an INI file and updates the default
-    configuration with values from the file.
-    
-    Args:
-        config_file: Path to the configuration file to load
+    def __init__(self):
+        self.logger = logger
         
-    Returns:
-        Updated configuration dictionary
-    """
-    config = DEFAULT_CONFIG.copy()
-
-    if not os.path.exists(config_file):
-        logger.warning(f"Config file {config_file} not found, using defaults")
-        return config
-
-    try:
-        parser = configparser.ConfigParser()
-        parser.read(config_file)
-
-        if 'github' in parser:
-            github_section = parser['github']
-            if 'token' in github_section:
-                config['GITHUB_TOKEN'] = github_section['token']
-            if 'username' in github_section:
-                config['USERNAME'] = github_section['username']
-
-        if 'analysis' in parser:
-            analysis_section = parser['analysis']
-            if 'reports_dir' in analysis_section:
-                config['REPORTS_DIR'] = analysis_section['reports_dir']
-            if 'clone_dir' in analysis_section:
-                config['CLONE_DIR'] = analysis_section['clone_dir']
-            if 'max_workers' in analysis_section:
-                config['MAX_WORKERS'] = int(analysis_section['max_workers'])
-            if 'inactive_threshold_days' in analysis_section:
-                config['INACTIVE_THRESHOLD_DAYS'] = int(analysis_section['inactive_threshold_days'])
-            if 'large_repo_loc_threshold' in analysis_section:
-                config['LARGE_REPO_LOC_THRESHOLD'] = int(analysis_section['large_repo_loc_threshold'])
-
-        if 'filters' in parser:
-            filters_section = parser['filters']
-            if 'skip_forks' in filters_section:
-                config['SKIP_FORKS'] = filters_section.getboolean('skip_forks')
-            if 'skip_archived' in filters_section:
-                config['SKIP_ARCHIVED'] = filters_section.getboolean('skip_archived')
-            if 'include_private' in filters_section:
-                config['INCLUDE_PRIVATE'] = filters_section.getboolean('include_private')
-            if 'visibility' in filters_section:
-                visibility_value = filters_section['visibility'].lower()
-                if visibility_value in ["all", "public", "private"]:
-                    config['VISIBILITY'] = visibility_value
-            if 'analyze_clones' in filters_section:
-                config['ANALYZE_CLONES'] = filters_section.getboolean('analyze_clones')
-            if 'include_orgs' in filters_section:
-                # Parse comma-separated list of organization names
-                orgs_str = filters_section['include_orgs']
-                if orgs_str.strip():
-                    config['INCLUDE_ORGS'] = [org.strip() for org in orgs_str.split(',')]
-
-        if 'checkpointing' in parser:
-            checkpoint_section = parser['checkpointing']
-            if 'enable_checkpointing' in checkpoint_section:
-                config['ENABLE_CHECKPOINTING'] = checkpoint_section.getboolean('enable_checkpointing')
-            if 'checkpoint_file' in checkpoint_section:
-                config['CHECKPOINT_FILE'] = checkpoint_section['checkpoint_file']
-            if 'checkpoint_threshold' in checkpoint_section:
-                config['CHECKPOINT_THRESHOLD'] = int(checkpoint_section['checkpoint_threshold'])
-            if 'resume_from_checkpoint' in checkpoint_section:
-                config['RESUME_FROM_CHECKPOINT'] = checkpoint_section.getboolean('resume_from_checkpoint')
-
-        # Process the theme section as well
-        if 'theme' in parser:
-            theme_section = parser['theme']
+    def load(self, config_file: str) -> Configuration:
+        """
+        Load configuration from a file and return as Configuration dict.
+        
+        Args:
+            config_file: Path to the configuration file
+            
+        Returns:
+            Configuration: Dictionary with loaded configuration values
+        """
+        cp = configparser.ConfigParser()
+        try:
+            cp.read(config_file)
+            config: Configuration = DEFAULT_CONFIG.copy()
+            
+            self._process_github_settings(cp, config)
+            self._process_analysis_settings(cp, config)
+            self._process_filter_settings(cp, config)
+            self._process_checkpointing_settings(cp, config)
+            self._process_iframe_settings(cp, config)
+            self._process_theme_settings(cp, config_file)
+            
+            self.logger.info(f"Configuration loaded from {config_file}")
+            return config
+            
+        except (configparser.Error, IOError) as e:
+            return self._handle_config_error(config_file, e)
+    
+    def _process_github_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process GitHub related settings from config parser"""
+        if "github" in cp:
+            if "token" in cp["github"]:
+                config["GITHUB_TOKEN"] = cp["github"]["token"]
+            if "username" in cp["github"]:
+                config["USERNAME"] = cp["github"]["username"]
+    
+    def _process_analysis_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process analysis related settings from config parser"""
+        if "analysis" in cp:
+            if "reports_dir" in cp["analysis"]:
+                config["REPORTS_DIR"] = cp["analysis"]["reports_dir"]
+            if "clone_dir" in cp["analysis"]:
+                config["CLONE_DIR"] = cp["analysis"]["clone_dir"]
+            if "max_workers" in cp["analysis"]:
+                config["MAX_WORKERS"] = cp["analysis"].getint("max_workers")
+            if "inactive_threshold_days" in cp["analysis"]:
+                config["INACTIVE_THRESHOLD_DAYS"] = cp["analysis"].getint("inactive_threshold_days")
+            if "large_repo_loc_threshold" in cp["analysis"]:
+                config["LARGE_REPO_LOC_THRESHOLD"] = cp["analysis"].getint("large_repo_loc_threshold")
+    
+    def _process_filter_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process filter related settings from config parser"""
+        if "filters" in cp:
+            if "skip_forks" in cp["filters"]:
+                config["SKIP_FORKS"] = cp["filters"].getboolean("skip_forks")
+            if "skip_archived" in cp["filters"]:
+                config["SKIP_ARCHIVED"] = cp["filters"].getboolean("skip_archived")
+            if "visibility" in cp["filters"]:
+                self._process_visibility_setting(cp, config)
+            if "analyze_clones" in cp["filters"]:
+                config["ANALYZE_CLONES"] = cp["filters"].getboolean("analyze_clones")
+            if "include_orgs" in cp["filters"]:
+                self._process_orgs_setting(cp, config)
+    
+    def _process_visibility_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process visibility setting with validation"""
+        visibility = cp["filters"]["visibility"].lower()
+        if visibility in ["all", "public", "private"]:
+            config["VISIBILITY"] = visibility
+            # For backward compatibility
+            config["INCLUDE_PRIVATE"] = visibility in ["all", "private"]
+        else:
+            self.logger.warning(f"Invalid visibility value: {visibility}. Using default: all")
+    
+    def _process_orgs_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process organizations list setting"""
+        org_list = cp["filters"]["include_orgs"].strip()
+        if org_list:
+            config["INCLUDE_ORGS"] = [o.strip() for o in org_list.split(",") if o.strip()]
+    
+    def _process_checkpointing_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process checkpointing related settings from config parser"""
+        if "checkpointing" in cp:
+            if "enable_checkpointing" in cp["checkpointing"]:
+                config["ENABLE_CHECKPOINTING"] = cp["checkpointing"].getboolean("enable_checkpointing")
+            if "checkpoint_file" in cp["checkpointing"]:
+                config["CHECKPOINT_FILE"] = cp["checkpointing"]["checkpoint_file"]
+            if "checkpoint_threshold" in cp["checkpointing"]:
+                config["CHECKPOINT_THRESHOLD"] = cp["checkpointing"].getint("checkpoint_threshold")
+            if "resume_from_checkpoint" in cp["checkpointing"]:
+                config["RESUME_FROM_CHECKPOINT"] = cp["checkpointing"].getboolean("resume_from_checkpoint")
+    
+    def _process_iframe_settings(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process iframe embedding related settings from config parser"""
+        if "iframe" in cp:
+            if "iframe_embedding" in cp["iframe"]:
+                self._process_iframe_embedding_setting(cp, config)
+            if "vercel_token" in cp["iframe"]:
+                config["VERCEL_TOKEN"] = cp["iframe"]["vercel_token"]
+            if "vercel_project_name" in cp["iframe"]:
+                config["VERCEL_PROJECT_NAME"] = cp["iframe"]["vercel_project_name"]
+    
+    def _process_iframe_embedding_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
+        """Process iframe embedding setting with validation"""
+        embedding_mode = cp["iframe"]["iframe_embedding"].lower()
+        if embedding_mode in ["disabled", "partial", "full"]:
+            config["IFRAME_EMBEDDING"] = embedding_mode
+        else:
+            self.logger.warning(f"Invalid iframe_embedding value: {embedding_mode}. Using default: disabled")
+    
+    def _process_theme_settings(self, cp: configparser.ConfigParser, config_file: str) -> None:
+        """Process theme related settings from config parser"""
+        if 'theme' in cp:
+            theme_section = cp['theme']
             # Store theme configuration for later use by DefaultTheme and HTMLVisualizer
-            # We'll store it as a global so it can be accessed by the theme loading function
             global LOADED_THEME_CONFIG
             LOADED_THEME_CONFIG = {}
 
@@ -799,26 +850,41 @@ def load_config_from_file(config_file: str) -> Configuration:
             for key, value in theme_section.items():
                 LOADED_THEME_CONFIG[key] = value
 
-            # Special handling for JSON fields
-            try:
-                import json
-                if 'skills' in theme_section:
-                    LOADED_THEME_CONFIG['skills'] = json.loads(theme_section['skills'])
-                if 'social_links' in theme_section:
-                    LOADED_THEME_CONFIG['social_links'] = json.loads(theme_section['social_links'])
-                if 'chart_palette' in theme_section:
-                    LOADED_THEME_CONFIG['chart_palette'] = json.loads(theme_section['chart_palette'])
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON in theme section: {e}")
+            self._process_json_theme_fields(theme_section)
+            self.logger.info(f"Loaded theme configuration from {config_file}")
+    
+    def _process_json_theme_fields(self, theme_section: configparser.SectionProxy) -> None:
+        """Process JSON fields in theme section"""
+        try:
+            import json
+            json_fields = ['skills', 'social_links', 'chart_palette']
+            for field in json_fields:
+                if field in theme_section:
+                    LOADED_THEME_CONFIG[field] = json.loads(theme_section[field])
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Error parsing JSON in theme section: {e}")
+    
+    def _handle_config_error(self, config_file: str, error: Exception) -> Configuration:
+        """Handle configuration loading errors"""
+        self.logger.error(f"Error loading configuration from {config_file}: {str(error)}")
+        self.logger.info("Using default configuration")
+        console.print(f"[yellow]Warning:[/yellow] Failed to load config from {config_file}: {error}")
+        console.print("[yellow]Using default configuration instead[/yellow]")
+        return DEFAULT_CONFIG.copy()
 
-            logger.info(f"Loaded theme configuration from {config_file}")
 
-        logger.info(f"Loaded configuration from {config_file}")
-        return config
-
-    except Exception as e:
-        logger.error(f"Error loading config file {config_file}: {e}")
-        return config
+def load_config_from_file(config_file: str) -> Configuration:
+    """
+    Load configuration from a file and return as Configuration dict.
+    
+    Args:
+        config_file: Path to the configuration file
+        
+    Returns:
+        Configuration: Dictionary with loaded configuration values
+    """
+    config_loader = ConfigLoader()
+    return config_loader.load(config_file)
 
 
 # Global variable to store theme configuration loaded from config file

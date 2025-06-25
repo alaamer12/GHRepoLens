@@ -55,6 +55,12 @@ GHRepoLens is a powerful GitHub repository analysis tool that provides comprehen
   - Language distribution analysis
   - Activity heatmaps
 
+* **Chart Embedding**
+  - Iframe embedding for charts
+  - Vercel deployment integration
+  - Share visualizations with teammates
+  - Embed in documentation & dashboards
+
 ### 🚀 Technical Features
 * **Performance Optimizations**
   - Asynchronous processing
@@ -150,6 +156,11 @@ checkpoint_file = analyzer_checkpoint.pkl
 checkpoint_threshold = 100
 resume_from_checkpoint = true
 
+[iframe]
+iframe_embedding = disabled  # disabled, partial, or full
+vercel_token = your_vercel_token
+vercel_project_name = ghrepolens-yourname
+
 [theme]
 # See THEME_CONFIG.md for all theme options
 ```
@@ -185,10 +196,17 @@ python main.py --config custom_config.ini
 python main.py --resume  # Resume from checkpoint
 ```
 
+### Iframe Embedding
+```bash
+python main.py --iframe partial  # Deploy key chart files
+python main.py --iframe full     # Deploy all HTML files
+```
+
 ## 📚 Documentation
 
 * [Detailed Usage Guide](docs/USAGE.md) - Comprehensive usage instructions
 * [Theme Configuration](docs/THEME_CONFIG.md) - Customize appearance
+* [Iframe Embedding](docs/IFRAME_EMBEDDING.md) - Share charts via iframe
 * [Recent Changes](docs/CHANGES.md) - Latest updates
 
 ## 🤝 Contributing
@@ -211,6 +229,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 * [Plotly](https://plotly.com/python/) - Interactive visualizations
 * [Rich](https://github.com/Textualize/rich) - Terminal formatting
 * [python-dotenv](https://github.com/theskumar/python-dotenv) - Environment management
+* [Vercel](https://vercel.com/) - Chart hosting for iframe embedding
 
 ---
 
