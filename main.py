@@ -32,7 +32,7 @@ from rich.prompt import Prompt, Confirm
 
 from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, shutdown_logging
 from console import console, rprint, logger, print_header, print_info, print_warning, print_error, print_success, \
-    create_progress_bar
+    create_progress_bar, configure_logging
 from lens import GithubLens
 from models import RepoStats
 
@@ -530,8 +530,13 @@ async def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="GitHub Repository Analyzer")
     parser.add_argument('--quicktest', action='store_true', help='Run quick test with predefined parameters')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging to the console')
     # Use parse_known_args to ignore any additional args (important for Google Colab)
     args, _ = parser.parse_known_args()
+
+    # Configure logging based on verbosity
+    # This must be done before any logging happens
+    configure_logging(log_to_console=args.verbose)
 
     # Load environment variables from .env file if present
     dotenv.load_dotenv()
