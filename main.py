@@ -29,13 +29,14 @@ from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
+import requests
 
-from config import DEFAULT_CONFIG, Configuration, create_sample_config, load_config_from_file, shutdown_logging
+from config import DEFAULT_CONFIG, Configuration, create_sample_config, create_sample_env, load_config_from_file, shutdown_logging
 from console import console, rprint, logger, print_header, print_info, print_warning, print_error, print_success, \
     create_progress_bar, configure_logging
 from lens import GithubLens
 from models import RepoStats
-from visualize import validate_and_deploy_charts
+from visualize import validate_and_deploy_charts, validate_deploy_and_optionally_delete
 
 # Register shutdown_logging to be called when the program exits
 atexit.register(shutdown_logging)
@@ -427,6 +428,44 @@ async def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) ->
             await asyncio.to_thread(validate_and_deploy_charts, analyzer.config)
 
 
+async def _generate_reports_with_quicktest(analyzer: GithubLens, all_stats: List[RepoStats], delete_project: bool) -> None:
+    """
+    Generate reports and visualizations for analyzed repositories with quicktest options.
+    
+    Args:
+        analyzer: Initialized GithubLens instance
+        all_stats: List of RepoStats objects for analyzed repositories
+        delete_project: Whether to prompt for project deletion after deployment
+    """
+    with console.status("[bold green]Generating reports and visualizations...") as status:
+        logger.info("Generating reports")
+        await asyncio.to_thread(analyzer.generate_report, all_stats)
+
+        logger.info("Generating interactive dashboard")
+        status.update("[bold green]Creating interactive dashboard...")
+        await asyncio.to_thread(analyzer.generate_visualizations, all_stats)
+
+        # Create reports directory if it doesn't exist
+        Path(analyzer.config["REPORTS_DIR"]).mkdir(exist_ok=True)
+        
+        # Check if iframe embedding is enabled and deploy charts if needed
+        if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
+            status.update("[bold green]Deploying charts for iframe embedding...")
+            success, embedder = await asyncio.to_thread(
+                validate_deploy_and_optionally_delete, 
+                analyzer.config
+            )
+            
+            # If deployment was successful and delete_project flag is set, prompt to delete
+            if success and delete_project and embedder:
+                if Confirm.ask(
+                    "Would you like to delete the Vercel project now that testing is complete?", 
+                    default=True
+                ):
+                    status.update("[bold yellow]Deleting Vercel project...")
+                    await asyncio.to_thread(embedder.delete_project)
+
+
 def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) -> None:
     """
     Print analysis summary to console.
@@ -554,6 +593,10 @@ async def main() -> None:
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging to the console')
     parser.add_argument('--iframe', choices=['disabled', 'partial', 'full'], 
                        help='Enable iframe embedding of charts (requires Vercel account)')
+    parser.add_argument('--delete-project', action='store_true', 
+                       help='Delete Vercel project after deployment (only with --quicktest)')
+    parser.add_argument('--test-vercel', action='store_true',
+                       help='Test Vercel token validity without running analysis')
     # Use parse_known_args to ignore any additional args (important for Google Colab)
     args, _ = parser.parse_known_args()
 
@@ -561,19 +604,92 @@ async def main() -> None:
     # This must be done before any logging happens
     configure_logging(log_to_console=args.verbose)
 
+    # Create sample configuration files if they don't exist
+    create_sample_config()
+    create_sample_env()
+
     # Load environment variables from .env file if present
-    dotenv.load_dotenv()
+    env_path = Path('.env')
+    if env_path.exists():
+        print_info(f"Loading environment variables from {env_path.absolute()}")
+        dotenv.load_dotenv(dotenv_path=env_path, override=True)
+    else:
+        print_warning("No .env file found in the current directory")
+        
+    # Debug: Show loaded environment variables (without showing sensitive values)
+    if args.verbose:
+        print_info("Loaded environment variables:")
+        for key in ["GITHUB_USERNAME", "IFRAME_EMBEDDING", "VERCEL_PROJECT_NAME"]:
+            if key in os.environ:
+                print_info(f"  {key} = {os.environ[key]}")
+        # Show if token exists but not its value
+        for key in ["GITHUB_TOKEN", "VERCEL_TOKEN"]:
+            if key in os.environ:
+                print_info(f"  {key} = [HIDDEN]")
+                
+    # Test Vercel token if requested
+    if args.test_vercel:
+        vercel_token = os.environ.get("VERCEL_TOKEN", "")
+        if not vercel_token:
+            print_error("No Vercel token found in environment variables")
+            return
+            
+        print_info("Testing Vercel token validity...")
+        try:
+            headers = {
+                "Authorization": f"Bearer {vercel_token.strip()}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(
+                "https://api.vercel.com/v2/user", 
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                username = user_data.get("user", {}).get("username", "unknown")
+                print_success(f"Vercel token is valid! Authenticated as: {username}")
+                
+                # Also test listing projects
+                print_info("Testing project listing...")
+                proj_response = requests.get(
+                    "https://api.vercel.com/v2/projects", 
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if proj_response.status_code == 200:
+                    projects = proj_response.json()  # v2 API returns array directly
+                    print_success(f"Successfully listed {len(projects)} projects")
+                    for project in projects[:5]:  # Show up to 5 projects
+                        print_info(f"  - {project.get('name')} (ID: {project.get('id')})")
+                else:
+                    print_error(f"Failed to list projects: HTTP {proj_response.status_code}")
+                    print_info(f"Response: {proj_response.text[:200]}")
+            else:
+                print_error(f"Vercel token validation failed: HTTP {response.status_code}")
+                print_info(f"Response: {response.text[:200]}")
+                
+        except Exception as e:
+            print_error(f"Error testing Vercel token: {str(e)}")
+            
+        # Exit after token test
+        return
 
     if args.quicktest:
         # Use environment variables or defaults for quicktest mode
         github_token = os.environ.get("GITHUB_TOKEN", "")
         if not github_token:
             print_error("GitHub token not found in environment. Set GITHUB_TOKEN environment variable.")
+            print_info("You can create a .env file with your credentials. See .env.sample for an example.")
             return
 
         github_username = os.environ.get("GITHUB_USERNAME", "")
         if not github_username:
             print_error("GitHub username not found in environment. Set GITHUB_USERNAME environment variable.")
+            print_info("You can create a .env file with your credentials. See .env.sample for an example.")
             return
 
         # Set predefined organizations for quicktest mode
@@ -591,19 +707,65 @@ async def main() -> None:
         iframe_mode = args.iframe or os.environ.get("IFRAME_EMBEDDING", "disabled")
         vercel_token = os.environ.get("VERCEL_TOKEN", "")
         vercel_project_name = os.environ.get("VERCEL_PROJECT_NAME", "")
+        
+        # Validate Vercel configuration if iframe embedding is enabled
+        if iframe_mode != "disabled":
+            if not vercel_token:
+                print_error("Vercel token not found in environment. Set VERCEL_TOKEN environment variable.")
+                print_info("You can create a .env file with your credentials. See .env.sample for an example.")
+                print_info("Or get a token from https://vercel.com/account/tokens")
+                return
+                
+            if not vercel_project_name:
+                # Generate a default project name based on username and timestamp
+                import time
+                timestamp = int(time.time())
+                vercel_project_name = f"ghrepolens-{github_username.lower()}-{timestamp}"
+                print_info(f"Generated Vercel project name: {vercel_project_name}")
 
-        # Run analysis in quicktest mode
-        await run_analysis(
-            token=github_token,
-            username=github_username,
-            mode="quicktest",
-            config_file=None,
-            include_orgs=include_orgs,
-            visibility=visibility,
-            iframe_mode=iframe_mode,
-            vercel_token=vercel_token,
-            vercel_project_name=vercel_project_name
-        )
+        # Create a configuration object
+        config = DEFAULT_CONFIG.copy()
+        config["GITHUB_TOKEN"] = github_token
+        config["USERNAME"] = github_username
+        config["VISIBILITY"] = visibility
+        config["INCLUDE_ORGS"] = include_orgs
+        config["IFRAME_EMBEDDING"] = iframe_mode
+        config["VERCEL_TOKEN"] = vercel_token
+        config["VERCEL_PROJECT_NAME"] = vercel_project_name
+        
+        # Initialize the analyzer
+        try:
+            analyzer = GithubLens(config["GITHUB_TOKEN"], config["USERNAME"], config)
+            
+            # Run the quicktest analysis
+            all_stats = await _run_quicktest_mode(
+                token=github_token,
+                username=github_username,
+                analyzer=analyzer,
+                include_orgs=include_orgs
+            )
+            
+            if not all_stats:
+                logger.error("❌ No repositories analyzed in quicktest mode")
+                return
+                
+            # Generate reports with quicktest options
+            await _generate_reports_with_quicktest(
+                analyzer=analyzer, 
+                all_stats=all_stats, 
+                delete_project=args.delete_project
+            )
+            
+            # Print summary
+            _print_summary(analyzer, all_stats, "quicktest")
+            
+        except RateLimitExceededException:
+            _handle_rate_limit_exceeded()
+        except GithubException as e:
+            _handle_github_exception(e)
+        except Exception as e:
+            _handle_generic_exception(e)
+            raise
 
         return
 

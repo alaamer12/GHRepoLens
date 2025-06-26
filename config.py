@@ -832,9 +832,11 @@ class ConfigLoader:
             if "iframe_embedding" in cp["iframe"]:
                 self._process_iframe_embedding_setting(cp, config)
             if "vercel_token" in cp["iframe"]:
-                config["VERCEL_TOKEN"] = cp["iframe"]["vercel_token"]
+                # Clean the token to avoid whitespace issues
+                token = cp["iframe"]["vercel_token"].strip()
+                config["VERCEL_TOKEN"] = token
             if "vercel_project_name" in cp["iframe"]:
-                config["VERCEL_PROJECT_NAME"] = cp["iframe"]["vercel_project_name"]
+                config["VERCEL_PROJECT_NAME"] = cp["iframe"]["vercel_project_name"].strip()
 
     def _process_iframe_embedding_setting(self, cp: configparser.ConfigParser, config: Configuration) -> None:
         """Process iframe embedding setting with validation"""
@@ -939,6 +941,13 @@ def create_sample_config() -> None:
         'resume_from_checkpoint': 'true'
     }
 
+    # Add iframe configuration section
+    config['iframe'] = {
+        'iframe_embedding': 'disabled',  # "disabled", "partial", or "full"
+        'vercel_token': 'your_vercel_token_here',
+        'vercel_project_name': 'ghrepolens-username'
+    }
+
     # Add theme configuration section
     config['theme'] = {
         # Color Schemes
@@ -995,6 +1004,42 @@ def create_sample_config() -> None:
 
     console.print(f"[green]Created sample configuration file: {config_file}[/green]")
     console.print("[yellow]Rename to config.ini and update with your settings.[/yellow]")
+
+
+def create_sample_env() -> None:
+    """
+    Create a sample .env file if it doesn't exist.
+    
+    Generates a sample .env file with default settings and environment variables
+    as a template for users to customize.
+    """
+    env_file = '.env.sample'
+    
+    if os.path.exists(env_file):
+        return
+    
+    env_content = """# GitHub Authentication
+GITHUB_TOKEN=your_github_token_here
+GITHUB_USERNAME=your_github_username_here
+
+# Repository Analysis Settings
+GITHUB_VISIBILITY=all  # all, public, or private
+
+# Iframe Embedding Settings
+IFRAME_EMBEDDING=disabled  # disabled, partial, or full
+VERCEL_TOKEN=your_vercel_token_here
+VERCEL_PROJECT_NAME=ghrepolens-username
+
+# Optional: Checkpointing
+ENABLE_CHECKPOINTING=true
+RESUME_FROM_CHECKPOINT=true
+"""
+    
+    with open(env_file, 'w') as f:
+        f.write(env_content)
+    
+    console.print(f"[green]Created sample environment file: {env_file}[/green]")
+    console.print("[yellow]Rename to .env and update with your settings.[/yellow]")
 
 
 class ThemeConfig(TypedDict, total=False):
@@ -1226,6 +1271,13 @@ def get_config() -> configparser.ConfigParser:
         'username': 'your_github_username',
         'token': 'your_github_token',
     }
+    
+    # Add iframe section with defaults
+    config['iframe'] = {
+        'iframe_embedding': 'disabled',
+        'vercel_token': '',
+        'vercel_project_name': '',
+    }
 
     # Check for .env file
     env_file = Path('.env')
@@ -1236,20 +1288,66 @@ def get_config() -> configparser.ConfigParser:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    env_config[key.strip()] = value.strip().strip('"\'')
+                    try:
+                        key, value = line.split('=', 1)
+                        # Clean the values to avoid whitespace issues
+                        env_config[key.strip()] = value.strip().strip('"\'')
+                    except ValueError:
+                        logger.warning(f"Skipping invalid line in .env file: {line}")
 
         # Update config with values from .env
+        # GitHub settings
         if 'GITHUB_USERNAME' in env_config:
             config['github']['username'] = env_config['GITHUB_USERNAME']
         if 'GITHUB_TOKEN' in env_config:
             config['github']['token'] = env_config['GITHUB_TOKEN']
+        
+        # Iframe embedding settings
+        if 'IFRAME_EMBEDDING' in env_config:
+            iframe_mode = env_config['IFRAME_EMBEDDING'].lower()
+            if iframe_mode in ['disabled', 'partial', 'full']:
+                config['iframe']['iframe_embedding'] = iframe_mode
+            else:
+                logger.warning(f"Invalid IFRAME_EMBEDDING value in .env: {iframe_mode}. Using default: disabled")
+        
+        if 'VERCEL_TOKEN' in env_config:
+            config['iframe']['vercel_token'] = env_config['VERCEL_TOKEN']
+        
+        if 'VERCEL_PROJECT_NAME' in env_config:
+            config['iframe']['vercel_project_name'] = env_config['VERCEL_PROJECT_NAME']
 
     # Environment variables override .env file
+    # GitHub settings
     if 'GITHUB_USERNAME' in os.environ:
-        config['github']['username'] = os.environ['GITHUB_USERNAME']
+        config['github']['username'] = os.environ['GITHUB_USERNAME'].strip()
     if 'GITHUB_TOKEN' in os.environ:
-        config['github']['token'] = os.environ['GITHUB_TOKEN']
+        config['github']['token'] = os.environ['GITHUB_TOKEN'].strip()
+    
+    # Iframe embedding settings
+    if 'IFRAME_EMBEDDING' in os.environ:
+        iframe_mode = os.environ['IFRAME_EMBEDDING'].lower().strip()
+        if iframe_mode in ['disabled', 'partial', 'full']:
+            config['iframe']['iframe_embedding'] = iframe_mode
+        else:
+            logger.warning(f"Invalid IFRAME_EMBEDDING value in environment: {iframe_mode}. Using default: disabled")
+    
+    if 'VERCEL_TOKEN' in os.environ:
+        config['iframe']['vercel_token'] = os.environ['VERCEL_TOKEN'].strip()
+    
+    if 'VERCEL_PROJECT_NAME' in os.environ:
+        config['iframe']['vercel_project_name'] = os.environ['VERCEL_PROJECT_NAME'].strip()
+    
+    # Validate critical values
+    if config['iframe']['iframe_embedding'] != 'disabled':
+        if not config['iframe']['vercel_token']:
+            logger.warning("IFRAME_EMBEDDING is enabled but VERCEL_TOKEN is not set")
+        
+        if not config['iframe']['vercel_project_name']:
+            # Generate a default project name based on username
+            username = config['github']['username']
+            if username != 'your_github_username':
+                config['iframe']['vercel_project_name'] = f"ghrepolens-{username.lower()}"
+                logger.info(f"Generated default Vercel project name: {config['iframe']['vercel_project_name']}")
 
     return config
 
