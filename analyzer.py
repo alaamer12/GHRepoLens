@@ -530,125 +530,313 @@ def is_config_file(file_path: str) -> bool:
     return False
 
 
-class GithubAnalyzer:
-    """Class responsible for analyzing GitHub repositories"""
+class SingleRepoAnalyzer:
+    """Class responsible for analyzing a single GitHub repository"""
 
-    def __init__(self, github, username: str, config: Optional[Configuration] = None):
-        """Initialize the analyzer with GitHub client, username and configuration"""
-        self.github = github
-        self.username = username
-        self.config = config
-        self.rate_display = rate_display
-        self.session = None
-        self.user = None
-        self.checkpoint = None
-        self.max_workers = self.config.get("MAX_WORKERS", 1) if self.config else 1
+    def __init__(self, github_analyzer):
+        """Initialize with reference to parent GithubAnalyzer"""
+        self.github_analyzer = github_analyzer
+        self.github = github_analyzer.github
+        self.config = github_analyzer.config
 
-    def check_rate_limit(self) -> None:
-        """Check GitHub API rate limit and wait if necessary"""
+    def analyze(self, repo: Repository) -> RepoStats:
+        """Analyze a single repository and return detailed statistics"""
+        logger.info(f"Analyzing repository: {repo.name}")
+
         try:
-            # Get rate data from API
-            rate_limit = self.github.get_rate_limit()
-            remaining = rate_limit.core.remaining
-            reset_time = rate_limit.core.reset
+            # Get file analysis
+            file_stats = self.github_analyzer.analyze_repository_files(repo)
 
-            if remaining < 100:  # Low on remaining requests
-                # Check if we need to wait
-                wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
-                if wait_time > 0:
-                    logger.warning(
-                        f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
-                    self._visualize_wait(wait_time, "Rate limit cooldown")
+            # Check if repository is empty and handle accordingly
+            is_empty = file_stats.get('is_empty', False)
+
+            # Calculate derived statistics
+            avg_loc = (file_stats['total_loc'] / file_stats['total_files']
+                       if file_stats['total_files'] > 0 else 0)
+
+            # Check if repository is active (commits in last N months)
+            is_active = False
+            last_commit_date = None
+            commits_last_month = 0
+            commits_last_year = 0
+            commit_frequency = 0.0
+
+            try:
+                # Get commit history with rate limit awareness
+                self.github_analyzer.check_rate_limit()
+                commits = list(repo.get_commits().get_page(0))
+
+                if commits:
+                    latest_commit = commits[0]
+                    last_commit_date = latest_commit.commit.author.date
+
+                    # Ensure timezone-aware datetime comparison
+                    # Create timezone-aware threshold date
+                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
+                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
+
+                    # Check activity within threshold using consistent timezone info
+                    if last_commit_date is not None:
+                        is_active = last_commit_date > inactive_threshold
+
+                    # Count recent commits
+                    one_month_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=30)
+                    one_year_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=365)
+
+                    # Get a sample of commits for frequency estimation
+                    try:
+                        recent_commits = list(repo.get_commits(since=one_year_ago))
+
+                        # Count commits in different periods
+                        commits_last_month = sum(1 for c in recent_commits
+                                                 if c.commit.author.date > one_month_ago)
+                        commits_last_year = len(recent_commits)
+
+                        # Calculate average monthly commit frequency
+                        if commits_last_year > 0:
+                            # Make sure created_at is timezone-aware for consistent comparison
+                            created_at = repo.created_at
+                            created_at = ensure_utc(created_at)
+
+                            months_active = min(12,
+                                                int((datetime.now().replace(
+                                                    tzinfo=timezone.utc) - created_at).days / 30))
+                            if months_active > 0:
+                                commit_frequency = commits_last_year / months_active
+                    except GithubException as e:
+                        logger.warning(f"Could not get recent commits for {repo.name}: {e}")
+            except GithubException as e:
+                # Handle empty repository specifically
+                if e.status == 409 and "Git Repository is empty" in str(e):
+                    logger.info(f"Repository {repo.name} has no commits")
+                    # Repository has no commits but we can still use pushed_at as a reference
+                    last_commit_date = repo.pushed_at
+                else:
+                    logger.warning(f"Could not get commit info for {repo.name}: {e}")
+                    last_commit_date = repo.pushed_at
+
+                if last_commit_date:
+                    # Ensure timezone awareness consistency
+                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
+                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
+                    last_commit_date = ensure_utc(last_commit_date)
+                    is_active = last_commit_date > inactive_threshold
+
+            # Get contributors count
+            contributors_count = 0
+            try:
+                contributors_count = repo.get_contributors().totalCount
+            except GithubException as e:
+                # Skip logging for empty repos as this is expected
+                if not (e.status == 409 and "Git Repository is empty" in str(e)):
+                    logger.warning(f"Could not get contributors for {repo.name}: {e}")
+
+            # Get open PRs count
+            open_prs = 0
+            try:
+                open_prs = repo.get_pulls(state='open').totalCount
+            except Exception as e:
+                logger.warning(f"Could not get PRs for {repo.name}: {e}")
+
+            # Get closed issues count
+            closed_issues = 0
+            try:
+                closed_issues = repo.get_issues(state='closed').totalCount
+            except Exception as e:
+                logger.warning(f"Could not get closed issues for {repo.name}: {e}")
+
+            # Get languages from GitHub API
+            github_languages = {}
+            try:
+                github_languages = repo.get_languages()
+            except Exception as e:
+                logger.warning(f"Could not get languages from API for {repo.name}: {e}")
+
+            # Use our file analysis languages instead of merging with GitHub API data
+            # GitHub API returns sizes in bytes, not lines of code, so using these values
+            # as LOC would result in inflated numbers
+            combined_languages = dict(file_stats['languages'])
+
+            # Log the difference between our analysis and GitHub's for debugging
+            logger.debug(f"File analysis languages: {combined_languages}")
+            logger.debug(f"GitHub API languages (bytes): {github_languages}")
+
+            # We'll continue using our manually counted LOC
+
+            # Calculate estimated test coverage percentage based on test files to total files ratio
+            test_coverage_percentage = None
+            if file_stats['has_tests'] and file_stats['total_files'] > 0:
+                # Simple estimation based on test files count relative to codebase size
+                # More sophisticated estimation would require actual test coverage data
+                test_ratio = min(
+                    file_stats['test_files_count'] / max(1, file_stats['total_files'] - file_stats['test_files_count']),
+                    1.0)
+                # Scale to percentage with diminishing returns model
+                # 0 tests = 0%, 10% test files = ~30% coverage, 20% test files = ~50% coverage, 50% test files = ~90% coverage
+                test_coverage_percentage = min(100, 100 * (1 - (1 / (1 + 2 * test_ratio))))
+
+            # Calculate all scores
+            scores = self.github_analyzer.calculate_scores(file_stats, repo)
+
+            # Use ensure_utc consistently in this section
+            # Ensure created_at and last_pushed are timezone-aware
+            created_at = ensure_utc(repo.created_at)
+
+            last_pushed = ensure_utc(repo.pushed_at)
+
+            # Create base repository info
+            base_info = BaseRepoInfo(
+                name=repo.name,
+                is_private=repo.private,
+                default_branch=repo.default_branch,
+                is_fork=repo.fork,
+                is_archived=repo.archived,
+                is_template=repo.is_template,
+                created_at=created_at,
+                last_pushed=last_pushed,
+                description=repo.description,
+                homepage=repo.homepage
+            )
+
+            # Create code stats
+            code_stats = CodeStats(
+                languages=combined_languages,
+                total_files=file_stats['total_files'],
+                # Let CodeStats calculate total_loc based on languages when calculate_primary_language is called
+                avg_loc_per_file=avg_loc,
+                file_types=dict(file_stats['file_types']),
+                size_kb=repo.size,
+                excluded_file_count=file_stats.get('excluded_file_count', 0),
+                project_structure=file_stats.get('project_structure', {}),
+                is_game_repo=file_stats.get('is_game_repo', False),
+                game_engine=file_stats.get('game_engine', 'None'),
+                game_confidence=file_stats.get('game_confidence', 0.0)
+            )
+
+            # Calculate primary language which will also set the correct total_loc
+            code_stats.calculate_primary_language()
+
+            # Create quality indicators
+            quality = QualityIndicators(
+                has_docs=file_stats['has_docs'],
+                has_readme=file_stats['has_readme'],
+                has_tests=file_stats['has_tests'],
+                test_files_count=file_stats['test_files_count'],
+                test_coverage_percentage=test_coverage_percentage,
+                has_cicd=file_stats.get('has_cicd', False),
+                cicd_files=file_stats.get('cicd_files', []),
+                dependency_files=file_stats['dependency_files'],
+                # New metrics
+                has_packages=file_stats.get('has_packages', False),
+                package_files=file_stats.get('package_files', []),
+                has_deployments=file_stats.get('has_deployments', False),
+                deployment_files=file_stats.get('deployment_files', []),
+                has_releases=file_stats.get('has_releases', False),
+                release_count=file_stats.get('release_count', 0),
+                docs_size_category=file_stats.get('docs_size_category', "None"),
+                docs_files_count=file_stats.get('docs_files_count', 0),
+                readme_comprehensiveness=file_stats.get('readme_comprehensiveness', "None"),
+                readme_line_count=file_stats.get('readme_line_count', 0)
+            )
+
+            # Create activity metrics
+            activity = ActivityMetrics(
+                last_commit_date=last_commit_date or repo.pushed_at,
+                is_active=is_active,
+                commit_frequency=commit_frequency,
+                commits_last_month=commits_last_month,
+                commits_last_year=commits_last_year
+            )
+
+            # Create community metrics
+            community = CommunityMetrics(
+                license_name=repo.license.name if repo.license else None,
+                license_spdx_id=repo.license.spdx_id if repo.license else None,
+                contributors_count=contributors_count,
+                open_issues=repo.open_issues_count,
+                open_prs=open_prs,
+                closed_issues=closed_issues,
+                topics=repo.topics,
+                stars=repo.stargazers_count,
+                forks=repo.forks_count,
+                watchers=repo.watchers_count
+            )
+
+            # Create analysis scores
+            scores_obj = AnalysisScores(
+                maintenance_score=scores['maintenance_score'],
+                popularity_score=scores['popularity_score'],
+                code_quality_score=scores['code_quality_score'],
+                documentation_score=scores['documentation_score']
+            )
+
+            # Create a media metrics object
+            media = MediaMetrics(
+                image_count=file_stats.get('media_metrics', {}).get('image_count', 0),
+                audio_count=file_stats.get('media_metrics', {}).get('audio_count', 0),
+                video_count=file_stats.get('media_metrics', {}).get('video_count', 0),
+                model_3d_count=file_stats.get('media_metrics', {}).get('model_3d_count', 0),
+                image_files=file_stats.get('media_metrics', {}).get('image_files', []),
+                audio_files=file_stats.get('media_metrics', {}).get('audio_files', []),
+                video_files=file_stats.get('media_metrics', {}).get('video_files', []),
+                model_3d_files=file_stats.get('media_metrics', {}).get('model_3d_files', []),
+                image_size_kb=file_stats.get('media_metrics', {}).get('image_size_kb', 0),
+                audio_size_kb=file_stats.get('media_metrics', {}).get('audio_size_kb', 0),
+                video_size_kb=file_stats.get('media_metrics', {}).get('video_size_kb', 0),
+                model_3d_size_kb=file_stats.get('media_metrics', {}).get('model_3d_size_kb', 0)
+            )
+
+            # Create RepoStats object
+            repo_stats = RepoStats(
+                base_info=base_info,
+                code_stats=code_stats,
+                quality=quality,
+                activity=activity,
+                community=community,
+                scores=scores_obj,
+                media=media
+            )
+
+            # Add anomaly for empty repository
+            if is_empty:
+                repo_stats.add_anomaly("Empty repository with no files")
+
+            # Calculate additional derived metrics
+            repo_stats.detect_monorepo()
+
+            # Identify anomalies
+            self.github_analyzer.detect_anomalies(repo_stats)
+
+            return repo_stats
+
         except Exception as e:
-            logger.warning(f"Could not check rate limit: {e}")
+            logger.error(f"Error analyzing repository {repo.name}: {e}")
+            # Return minimal stats on error with proper object structure
+            base_info = BaseRepoInfo(
+                name=repo.name,
+                is_private=getattr(repo, 'private', False),
+                default_branch=getattr(repo, 'default_branch', 'unknown'),
+                is_fork=getattr(repo, 'fork', False),
+                is_archived=getattr(repo, 'archived', False),
+                is_template=getattr(repo, 'is_template', False),
+                created_at=getattr(repo, 'created_at', datetime.now().replace(tzinfo=timezone.utc)),
+                last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc)),
+                description=getattr(repo, 'description', None),
+                homepage=getattr(repo, 'homepage', None)
+            )
+            return RepoStats(base_info=base_info)
 
-    @staticmethod
-    def _visualize_wait(wait_time: float, desc: str):
-        """Display a progress bar for wait periods"""
-        # Cap very long waits to show reasonable progress
-        if wait_time > 3600:  # If more than an hour
-            logger.warning(f"Long wait time detected ({wait_time:.1f}s). Showing progress for first hour.")
-            rprint(
-                f"[bold yellow]⚠️ GitHub API requires a long cooldown period ({wait_time / 60:.1f} minutes)[/bold yellow]")
-            rprint("[dim]The script will automatically continue after the wait period.[/dim]")
-            wait_time = 3600  # Cap to 1 hour for the progress bar
 
-        # Show progress bar for the wait
-        wait_seconds = int(wait_time)
-        for _ in tqdm(range(wait_seconds), desc=desc, colour="yellow", leave=True):
-            time.sleep(1)
+class AnalyzerRepoFiles:
+    """Class responsible for analyzing files within a single repository"""
 
-    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
-        """
-        Check if the rate limit is approaching threshold and create a checkpoint if needed.
-        
-        Args:
-            all_stats: List of RepoStats objects analyzed so far
-            analyzed_repo_names: List of repository names already analyzed
-            remaining_repos: List of Repository objects still to analyze
-            
-        Returns:
-            Boolean: True if should stop processing, False if can continue
-        """
-        try:
-            # Update rate data from API
-            self.rate_display.update_from_api(self.github)
-            remaining = self.rate_display.rate_data["remaining"]
-            limit = self.rate_display.rate_data["limit"]
+    def __init__(self, github_analyzer):
+        """Initialize with reference to parent GithubAnalyzer"""
+        self.github_analyzer = github_analyzer
+        self.github = github_analyzer.github
+        self.config = github_analyzer.config
 
-            # Check if below checkpoint threshold
-            if remaining <= self.config["CHECKPOINT_THRESHOLD"]:
-                logger.warning(f"Rate limit low: {remaining} of {limit} remaining")
-
-                # Display rate usage
-                self.rate_display.display_once()
-
-                # Create checkpoint
-                if self.config["ENABLE_CHECKPOINTING"] and all_stats:
-                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
-
-                # Return True to indicate should stop processing
-                return True
-
-            # Still have enough requests
-            return False
-
-        except Exception as e:
-            logger.error(f"Error checking rate limit: {e}")
-            return False
-
-    def save_checkpoint(self, all_stats: List[RepoStats], analyzed_repo_names: List[str],
-                        remaining_repos: List[Repository]) -> None:
-        """Save checkpoint data during analysis"""
-        self.checkpoint.save(all_stats, analyzed_repo_names, remaining_repos)
-
-    def load_checkpoint(self) -> Dict[str, Any]:
-        """Load checkpoint data from previous analysis"""
-        return self.checkpoint.load()
-
-    @staticmethod
-    def get_file_language(file_path: str) -> str:
-        """Determine language from file extension or special filename"""
-        path_obj = Path(file_path)
-        ext = path_obj.suffix.lower()
-
-        # If file has an extension, check language mappings
-        if ext:
-            return LANGUAGE_EXTENSIONS.get(ext, 'Other')
-
-        # No extension, check if it's a known special filename
-        filename = path_obj.name
-        if filename in SPECIAL_FILENAMES:
-            return SPECIAL_FILENAMES[filename]
-
-        # Check if it's a special dot file (like .gitignore)
-        if filename.startswith('.') and filename in SPECIAL_FILENAMES:
-            return SPECIAL_FILENAMES[filename]
-
-        # For truly unknown files
-        return 'Other'
-
-    def analyze_repository_files(self, repo: Repository) -> Dict[str, Any]:
+    def analyze(self, repo: Repository) -> Dict[str, Any]:
         """Analyze files in a repository with improved detection capabilities"""
         stats = {
             'total_files': 0,
@@ -705,7 +893,7 @@ class GithubAnalyzer:
 
         try:
             # Check for rate limits before making API calls
-            self.check_rate_limit()
+            self.github_analyzer.check_rate_limit()
 
             # Get repository contents recursively
             contents = repo.get_contents("")
@@ -718,7 +906,7 @@ class GithubAnalyzer:
                 if file_content.type == "dir":
                     try:
                         # Check if directory should be excluded
-                        if self.is_excluded_path(file_content.path):
+                        if self.github_analyzer.is_excluded_path(file_content.path):
                             stats['skipped_directories'].add(file_content.path)
                             logger.debug(f"Skipping excluded directory: {file_content.path}")
                             continue
@@ -736,7 +924,7 @@ class GithubAnalyzer:
                         continue
                 else:
                     # Skip files in excluded directories
-                    if self.is_excluded_path(file_content.path):
+                    if self.github_analyzer.is_excluded_path(file_content.path):
                         stats['excluded_file_count'] += 1
                         logger.debug(f"Skipping file in excluded path: {file_content.path}")
                         continue
@@ -869,7 +1057,7 @@ class GithubAnalyzer:
                         continue
 
                     # Determine language and file type
-                    language = self.get_file_language(file_path)
+                    language = self.github_analyzer.get_file_language(file_path)
 
                     # Get file extension or special category for file type
                     path_obj = Path(file_path)
@@ -1002,7 +1190,7 @@ class GithubAnalyzer:
 
             # Special logging for DrumVerse to check for audio files
             if repo.name == "DrumVerse":
-                logger.info(f"DrumVerse analysis summary:")
+                logger.info("DrumVerse analysis summary:")
                 logger.info(f"  Total files: {stats['total_files']}")
                 logger.info(f"  Extensions found: {sorted(all_file_extensions)}")
                 logger.info(f"  Has media: {stats['has_media']}")
@@ -1018,7 +1206,7 @@ class GithubAnalyzer:
         except RateLimitExceededException:
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")
             # Wait and continue with partial results
-            self.check_rate_limit()
+            self.github_analyzer.check_rate_limit()
         except GithubException as e:
             # Handle empty repository specifically
             if e.status == 404 and "This repository is empty" in str(e):
@@ -1041,6 +1229,10 @@ class GithubAnalyzer:
         stats.pop('skipped_directories', None)
 
         return dict(stats)
+
+
+class ScoreCalculator:
+    """Class responsible for calculating various quality scores for repositories"""
 
     @staticmethod
     def calculate_scores(repo_stats: Dict[str, Any], repo: Repository) -> Dict[str, float]:
@@ -1254,294 +1446,15 @@ class GithubAnalyzer:
 
         return scores
 
-    def analyze_single_repository(self, repo: Repository) -> RepoStats:
-        """Analyze a single repository and return detailed statistics"""
-        logger.info(f"Analyzing repository: {repo.name}")
 
-        try:
-            # Get file analysis
-            file_stats = self.analyze_repository_files(repo)
+class AnomalyDetctor:
+    """Class responsible for detecting anomalies in repository data"""
 
-            # Check if repository is empty and handle accordingly
-            is_empty = file_stats.get('is_empty', False)
+    def __init__(self, config: Configuration):
+        """Initialize with configuration"""
+        self.config = config
 
-            # Calculate derived statistics
-            avg_loc = (file_stats['total_loc'] / file_stats['total_files']
-                       if file_stats['total_files'] > 0 else 0)
-
-            # Check if repository is active (commits in last N months)
-            is_active = False
-            last_commit_date = None
-            commits_last_month = 0
-            commits_last_year = 0
-            commit_frequency = 0.0
-
-            try:
-                # Get commit history with rate limit awareness
-                self.check_rate_limit()
-                commits = list(repo.get_commits().get_page(0))
-
-                if commits:
-                    latest_commit = commits[0]
-                    last_commit_date = latest_commit.commit.author.date
-
-                    # Ensure timezone-aware datetime comparison
-                    # Create timezone-aware threshold date
-                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
-                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
-
-                    # Check activity within threshold using consistent timezone info
-                    if last_commit_date is not None:
-                        is_active = last_commit_date > inactive_threshold
-
-                    # Count recent commits
-                    one_month_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=30)
-                    one_year_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=365)
-
-                    # Get a sample of commits for frequency estimation
-                    try:
-                        recent_commits = list(repo.get_commits(since=one_year_ago))
-
-                        # Count commits in different periods
-                        commits_last_month = sum(1 for c in recent_commits
-                                                 if c.commit.author.date > one_month_ago)
-                        commits_last_year = len(recent_commits)
-
-                        # Calculate average monthly commit frequency
-                        if commits_last_year > 0:
-                            # Make sure created_at is timezone-aware for consistent comparison
-                            created_at = repo.created_at
-                            created_at = ensure_utc(created_at)
-
-                            months_active = min(12,
-                                                int((datetime.now().replace(
-                                                    tzinfo=timezone.utc) - created_at).days / 30))
-                            if months_active > 0:
-                                commit_frequency = commits_last_year / months_active
-                    except GithubException as e:
-                        logger.warning(f"Could not get recent commits for {repo.name}: {e}")
-            except GithubException as e:
-                # Handle empty repository specifically
-                if e.status == 409 and "Git Repository is empty" in str(e):
-                    logger.info(f"Repository {repo.name} has no commits")
-                    # Repository has no commits but we can still use pushed_at as a reference
-                    last_commit_date = repo.pushed_at
-                else:
-                    logger.warning(f"Could not get commit info for {repo.name}: {e}")
-                    last_commit_date = repo.pushed_at
-
-                if last_commit_date:
-                    # Ensure timezone awareness consistency
-                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
-                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
-                    last_commit_date = ensure_utc(last_commit_date)
-                    is_active = last_commit_date > inactive_threshold
-
-            # Get contributors count
-            contributors_count = 0
-            try:
-                contributors_count = repo.get_contributors().totalCount
-            except GithubException as e:
-                # Skip logging for empty repos as this is expected
-                if not (e.status == 409 and "Git Repository is empty" in str(e)):
-                    logger.warning(f"Could not get contributors for {repo.name}: {e}")
-
-            # Get open PRs count
-            open_prs = 0
-            try:
-                open_prs = repo.get_pulls(state='open').totalCount
-            except Exception as e:
-                logger.warning(f"Could not get PRs for {repo.name}: {e}")
-
-            # Get closed issues count
-            closed_issues = 0
-            try:
-                closed_issues = repo.get_issues(state='closed').totalCount
-            except Exception as e:
-                logger.warning(f"Could not get closed issues for {repo.name}: {e}")
-
-            # Get languages from GitHub API
-            github_languages = {}
-            try:
-                github_languages = repo.get_languages()
-            except Exception as e:
-                logger.warning(f"Could not get languages from API for {repo.name}: {e}")
-
-            # Use our file analysis languages instead of merging with GitHub API data
-            # GitHub API returns sizes in bytes, not lines of code, so using these values
-            # as LOC would result in inflated numbers
-            combined_languages = dict(file_stats['languages'])
-
-            # Log the difference between our analysis and GitHub's for debugging
-            logger.debug(f"File analysis languages: {combined_languages}")
-            logger.debug(f"GitHub API languages (bytes): {github_languages}")
-
-            # We'll continue using our manually counted LOC
-
-            # Calculate estimated test coverage percentage based on test files to total files ratio
-            test_coverage_percentage = None
-            if file_stats['has_tests'] and file_stats['total_files'] > 0:
-                # Simple estimation based on test files count relative to codebase size
-                # More sophisticated estimation would require actual test coverage data
-                test_ratio = min(
-                    file_stats['test_files_count'] / max(1, file_stats['total_files'] - file_stats['test_files_count']),
-                    1.0)
-                # Scale to percentage with diminishing returns model
-                # 0 tests = 0%, 10% test files = ~30% coverage, 20% test files = ~50% coverage, 50% test files = ~90% coverage
-                test_coverage_percentage = min(100, 100 * (1 - (1 / (1 + 2 * test_ratio))))
-
-            # Calculate all scores
-            scores = self.calculate_scores(file_stats, repo)
-
-            # Use ensure_utc consistently in this section
-            # Ensure created_at and last_pushed are timezone-aware
-            created_at = ensure_utc(repo.created_at)
-
-            last_pushed = ensure_utc(repo.pushed_at)
-
-            # Create base repository info
-            base_info = BaseRepoInfo(
-                name=repo.name,
-                is_private=repo.private,
-                default_branch=repo.default_branch,
-                is_fork=repo.fork,
-                is_archived=repo.archived,
-                is_template=repo.is_template,
-                created_at=created_at,
-                last_pushed=last_pushed,
-                description=repo.description,
-                homepage=repo.homepage
-            )
-
-            # Create code stats
-            code_stats = CodeStats(
-                languages=combined_languages,
-                total_files=file_stats['total_files'],
-                # Let CodeStats calculate total_loc based on languages when calculate_primary_language is called
-                avg_loc_per_file=avg_loc,
-                file_types=dict(file_stats['file_types']),
-                size_kb=repo.size,
-                excluded_file_count=file_stats.get('excluded_file_count', 0),
-                project_structure=file_stats.get('project_structure', {}),
-                is_game_repo=file_stats.get('is_game_repo', False),
-                game_engine=file_stats.get('game_engine', 'None'),
-                game_confidence=file_stats.get('game_confidence', 0.0)
-            )
-
-            # Calculate primary language which will also set the correct total_loc
-            code_stats.calculate_primary_language()
-
-            # Create quality indicators
-            quality = QualityIndicators(
-                has_docs=file_stats['has_docs'],
-                has_readme=file_stats['has_readme'],
-                has_tests=file_stats['has_tests'],
-                test_files_count=file_stats['test_files_count'],
-                test_coverage_percentage=test_coverage_percentage,
-                has_cicd=file_stats.get('has_cicd', False),
-                cicd_files=file_stats.get('cicd_files', []),
-                dependency_files=file_stats['dependency_files'],
-                # New metrics
-                has_packages=file_stats.get('has_packages', False),
-                package_files=file_stats.get('package_files', []),
-                has_deployments=file_stats.get('has_deployments', False),
-                deployment_files=file_stats.get('deployment_files', []),
-                has_releases=file_stats.get('has_releases', False),
-                release_count=file_stats.get('release_count', 0),
-                docs_size_category=file_stats.get('docs_size_category', "None"),
-                docs_files_count=file_stats.get('docs_files_count', 0),
-                readme_comprehensiveness=file_stats.get('readme_comprehensiveness', "None"),
-                readme_line_count=file_stats.get('readme_line_count', 0)
-            )
-
-            # Create activity metrics
-            activity = ActivityMetrics(
-                last_commit_date=last_commit_date or repo.pushed_at,
-                is_active=is_active,
-                commit_frequency=commit_frequency,
-                commits_last_month=commits_last_month,
-                commits_last_year=commits_last_year
-            )
-
-            # Create community metrics
-            community = CommunityMetrics(
-                license_name=repo.license.name if repo.license else None,
-                license_spdx_id=repo.license.spdx_id if repo.license else None,
-                contributors_count=contributors_count,
-                open_issues=repo.open_issues_count,
-                open_prs=open_prs,
-                closed_issues=closed_issues,
-                topics=repo.topics,
-                stars=repo.stargazers_count,
-                forks=repo.forks_count,
-                watchers=repo.watchers_count
-            )
-
-            # Create analysis scores
-            scores_obj = AnalysisScores(
-                maintenance_score=scores['maintenance_score'],
-                popularity_score=scores['popularity_score'],
-                code_quality_score=scores['code_quality_score'],
-                documentation_score=scores['documentation_score']
-            )
-
-            # Create a media metrics object
-            media = MediaMetrics(
-                image_count=file_stats.get('media_metrics', {}).get('image_count', 0),
-                audio_count=file_stats.get('media_metrics', {}).get('audio_count', 0),
-                video_count=file_stats.get('media_metrics', {}).get('video_count', 0),
-                model_3d_count=file_stats.get('media_metrics', {}).get('model_3d_count', 0),
-                image_files=file_stats.get('media_metrics', {}).get('image_files', []),
-                audio_files=file_stats.get('media_metrics', {}).get('audio_files', []),
-                video_files=file_stats.get('media_metrics', {}).get('video_files', []),
-                model_3d_files=file_stats.get('media_metrics', {}).get('model_3d_files', []),
-                image_size_kb=file_stats.get('media_metrics', {}).get('image_size_kb', 0),
-                audio_size_kb=file_stats.get('media_metrics', {}).get('audio_size_kb', 0),
-                video_size_kb=file_stats.get('media_metrics', {}).get('video_size_kb', 0),
-                model_3d_size_kb=file_stats.get('media_metrics', {}).get('model_3d_size_kb', 0)
-            )
-
-            # Create RepoStats object
-            repo_stats = RepoStats(
-                base_info=base_info,
-                code_stats=code_stats,
-                quality=quality,
-                activity=activity,
-                community=community,
-                scores=scores_obj,
-                media=media
-            )
-
-            # Add anomaly for empty repository
-            if is_empty:
-                repo_stats.add_anomaly("Empty repository with no files")
-
-            # Calculate additional derived metrics
-            repo_stats.detect_monorepo()
-
-            # Identify anomalies
-            self.detect_anomalies(repo_stats)
-
-            return repo_stats
-
-        except Exception as e:
-            logger.error(f"Error analyzing repository {repo.name}: {e}")
-            # Return minimal stats on error with proper object structure
-            base_info = BaseRepoInfo(
-                name=repo.name,
-                is_private=getattr(repo, 'private', False),
-                default_branch=getattr(repo, 'default_branch', 'unknown'),
-                is_fork=getattr(repo, 'fork', False),
-                is_archived=getattr(repo, 'archived', False),
-                is_template=getattr(repo, 'is_template', False),
-                created_at=getattr(repo, 'created_at', datetime.now().replace(tzinfo=timezone.utc)),
-                last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc)),
-                description=getattr(repo, 'description', None),
-                homepage=getattr(repo, 'homepage', None)
-            )
-            return RepoStats(base_info=base_info)
-
-    def detect_anomalies(self, repo_stats: RepoStats) -> None:
+    def detect(self, repo_stats: RepoStats) -> None:
         """Detect anomalies in repository data"""
         # Large repo without documentation
         if repo_stats.code_stats.total_loc > self.config[
@@ -1628,6 +1541,354 @@ class GithubAnalyzer:
             if years_since_created > 3 and months_since_last_commit > 12:
                 repo_stats.add_anomaly("Old repository without updates in over a year")
 
+
+class ReposAnalyzer:
+    """Class responsible for analyzing multiple repositories with checkpointing and rate limiting"""
+
+    def __init__(self, github_analyzer):
+        """Initialize with reference to parent GithubAnalyzer"""
+        self.github_analyzer = github_analyzer
+        self.github = github_analyzer.github
+        self.config = github_analyzer.config
+        self.rate_display = github_analyzer.rate_display
+
+    def analyze(self, repositories: List[Repository]) -> List[RepoStats]:
+        """
+        Analyze a specific list of repositories.
+        
+        This method analyzes a provided list of repositories with support for
+        checkpointing, rate limiting, and parallel processing.
+        Args:
+            repositories: List of Repository objects to analyze
+            
+        Returns:
+            List of RepoStats objects, one for each analyzed repository
+        """
+        logger.info(f"Starting analysis of {len(repositories)} specified repositories")
+
+        all_stats = []
+        analyzed_repo_names = []
+        repos_to_analyze = repositories
+
+        try:
+            # Check for existing checkpoint
+            checkpoint_data = self.github_analyzer.load_checkpoint()
+
+            # If checkpoint exists and resume is enabled, load the checkpoint data
+            if checkpoint_data:
+                all_stats = checkpoint_data.get('all_stats', [])
+                analyzed_repo_names = checkpoint_data.get('analyzed_repos', [])
+
+                # Filter out repositories that have already been analyzed
+                repos_to_analyze = [repo for repo in repositories if repo.name not in analyzed_repo_names]
+
+                logger.info(f"Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
+                rprint(
+                    f"[blue]📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories[/blue]")
+
+            # Initialize GitHub with rate limit check
+            self.github_analyzer.check_rate_limit()
+
+            logger.info(f"Analyzing {len(repos_to_analyze)} repositories after checkpoint filtering")
+
+            if not repos_to_analyze and not all_stats:
+                logger.warning("No repositories found matching the criteria")
+                return []
+
+            if not repos_to_analyze and all_stats:
+                logger.info("All repositories have already been analyzed according to checkpoint")
+                return all_stats
+
+            # Track newly analyzed repositories in this session
+            newly_analyzed_repos = []
+
+            # For progress bar display, accurate counts including checkpoint
+            total_repos = len(repos_to_analyze) + len(all_stats)
+
+            # Display initial rate limit usage before starting
+            rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
+            self.rate_display.display_once()  # Use our interactive display
+            rprint("[bold]-------------------------------[/bold]")
+
+            # Use parallel processing if configured with multiple workers
+            if self.github_analyzer.max_workers > 1 and len(repos_to_analyze) > 1:
+                all_stats = self._analyze_parallel(repos_to_analyze, all_stats, analyzed_repo_names,
+                                                   newly_analyzed_repos, total_repos)
+            else:
+                all_stats = self._analyze_sequential(repos_to_analyze, all_stats, analyzed_repo_names,
+                                                     newly_analyzed_repos, total_repos)
+            # Final rate limit status display
+            rprint("\n[bold]--- Final API Rate Status ---[/bold]")
+            self.rate_display.display_once()
+            rprint("[bold]----------------------------[/bold]")
+
+            # If all repositories were successfully analyzed, clean up the checkpoint file
+            if self.config["ENABLE_CHECKPOINTING"] and not repos_to_analyze:
+                try:
+                    Path(self.config["CHECKPOINT_FILE"]).unlink(missing_ok=True)
+                except:
+                    pass  # Silently ignore any issues with checkpoint deletion
+
+            logger.info(f"Successfully analyzed {len(all_stats)} repositories")
+            return all_stats
+
+        except RateLimitExceededException:
+            logger.error("GitHub API rate limit exceeded during repository analysis")
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
+                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
+            return all_stats
+        except GithubException as e:
+            logger.error(f"GitHub API error: {e}")
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
+                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
+            return all_stats
+        except Exception as e:
+            logger.error(f"Unexpected error during analysis: {e}")
+            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
+                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
+            return all_stats
+
+    def _analyze_parallel(self, repos_to_analyze: List[Repository], all_stats: List[RepoStats],
+                          analyzed_repo_names: List[str], newly_analyzed_repos: List[Repository],
+                          total_repos: int) -> List[RepoStats]:
+        """Analyze repositories using parallel processing"""
+        logger.info(f"Using parallel processing with {self.github_analyzer.max_workers} workers")
+
+        with tqdm(total=total_repos, initial=len(all_stats),
+                  desc="Analyzing repositories", leave=True, colour='green') as pbar:
+
+            # Update progress bar for already analyzed repos from checkpoint
+            if all_stats:
+                pbar.set_description("Analyzing repositories (resumed from checkpoint)")
+
+            # Process repos in smaller batches to allow for checkpointing
+            remaining_repos = repos_to_analyze.copy()
+            batch_size = min(20, len(remaining_repos))  # Process in batches of 20 or fewer
+            repo_counter = 0  # Counter to track repository processing
+
+            while remaining_repos:
+                repo_counter += 1
+                # Take the next batch
+                batch = remaining_repos[:batch_size]
+                remaining_repos = remaining_repos[batch_size:]
+
+                # Periodically show rate limit status
+                if repo_counter % 5 == 0 or repo_counter == 1 or len(batch) == batch_size:
+                    rprint("\n[bold]--- Current API Rate Status ---[/bold]")
+                    self.rate_display.display_once()
+                    rprint("[bold]-------------------------------[/bold]")
+
+                # Check if we need to checkpoint before processing this batch
+                if self.github_analyzer.check_rate_limit_and_checkpoint(all_stats,
+                                                                        analyzed_repo_names + [r.name for r in
+                                                                                               newly_analyzed_repos],
+                                                                        remaining_repos + batch):
+                    logger.info("Stopping analysis due to approaching API rate limit")
+                    return all_stats
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.github_analyzer.max_workers) as executor:
+                    # Submit all tasks for this batch
+                    future_to_repo = {executor.submit(self.github_analyzer.analyze_single_repository, repo): repo for
+                                      repo in
+                                      batch}
+
+                    # Process results as they complete
+                    for future in concurrent.futures.as_completed(future_to_repo):
+                        repo = future_to_repo[future]
+                        try:
+                            repo_stats = future.result()
+                            all_stats.append(repo_stats)
+                            newly_analyzed_repos.append(repo)
+                            analyzed_repo_names.append(repo.name)
+                            pbar.update(1)
+                        except Exception as e:
+                            logger.error(f"Failed to analyze {repo.name}: {e}")
+
+            # Final checkpoint after all batches complete
+            if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
+                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
+
+        return all_stats
+
+    def _analyze_sequential(self, repos_to_analyze: List[Repository], all_stats: List[RepoStats],
+                            analyzed_repo_names: List[str], newly_analyzed_repos: List[Repository],
+                            total_repos: int) -> List[RepoStats]:
+        """Analyze repositories using sequential processing"""
+        with tqdm(total=total_repos, initial=len(all_stats),
+                  desc="Analyzing repositories", leave=True, colour='green') as pbar:
+
+            # Update progress bar for already analyzed repos from checkpoint
+            if all_stats:
+                pbar.set_description(f"Analyzing repositories (resumed from checkpoint)")
+
+            for repo in repos_to_analyze:
+                # Periodically check and display rate limit status
+                if len(newly_analyzed_repos) % 5 == 0 or len(newly_analyzed_repos) == 0:
+                    rprint("\n[bold]--- Current API Rate Status ---[/bold]")
+                    self.rate_display.display_once()
+                    rprint("[bold]-------------------------------[/bold]")
+
+                # Check if we need to checkpoint
+                if self.github_analyzer.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names,
+                                                                        repos_to_analyze[
+                                                                        repos_to_analyze.index(repo):]):
+                    logger.info("Stopping analysis due to approaching API rate limit")
+                    return all_stats
+
+                try:
+                    repo_stats = self.github_analyzer.analyze_single_repository(repo)
+                    all_stats.append(repo_stats)
+                    newly_analyzed_repos.append(repo)
+                    analyzed_repo_names.append(repo.name)
+                    pbar.update(1)
+                except Exception as e:
+                    logger.error(f"Failed to analyze {repo.name}: {e}")
+
+            # Final checkpoint after all repos complete
+            if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
+                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, [])
+
+        return all_stats
+
+
+class GithubAnalyzer:
+    """Class responsible for analyzing GitHub repositories"""
+
+    def __init__(self, github, username: str, config: Optional[Configuration] = None):
+        """Initialize the analyzer with GitHub client, username and configuration"""
+        self.github = github
+        self.username = username
+        self.config = config
+        self.rate_display = rate_display
+        self.session = None
+        self.user = None
+        self.checkpoint = None
+        self.max_workers = self.config.get("MAX_WORKERS", 1) if self.config else 1
+
+    def check_rate_limit(self) -> None:
+        """Check GitHub API rate limit and wait if necessary"""
+        try:
+            # Get rate data from API
+            rate_limit = self.github.get_rate_limit()
+            remaining = rate_limit.core.remaining
+            reset_time = rate_limit.core.reset
+
+            if remaining < 100:  # Low on remaining requests
+                # Check if we need to wait
+                wait_time = (reset_time - datetime.now().replace(tzinfo=timezone.utc)).total_seconds()
+                if wait_time > 0:
+                    logger.warning(
+                        f"GitHub API rate limit low ({remaining} left). Waiting {wait_time:.1f}s until reset.")
+                    self._visualize_wait(wait_time, "Rate limit cooldown")
+        except Exception as e:
+            logger.warning(f"Could not check rate limit: {e}")
+
+    @staticmethod
+    def _visualize_wait(wait_time: float, desc: str):
+        """Display a progress bar for wait periods"""
+        # Cap very long waits to show reasonable progress
+        if wait_time > 3600:  # If more than an hour
+            logger.warning(f"Long wait time detected ({wait_time:.1f}s). Showing progress for first hour.")
+            rprint(
+                f"[bold yellow]⚠️ GitHub API requires a long cooldown period ({wait_time / 60:.1f} minutes)[/bold yellow]")
+            rprint("[dim]The script will automatically continue after the wait period.[/dim]")
+            wait_time = 3600  # Cap to 1 hour for the progress bar
+
+        # Show progress bar for the wait
+        wait_seconds = int(wait_time)
+        for _ in tqdm(range(wait_seconds), desc=desc, colour="yellow", leave=True):
+            time.sleep(1)
+
+    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
+        """
+        Check if the rate limit is approaching threshold and create a checkpoint if needed.
+        
+        Args:
+            all_stats: List of RepoStats objects analyzed so far
+            analyzed_repo_names: List of repository names already analyzed
+            remaining_repos: List of Repository objects still to analyze
+            
+        Returns:
+            Boolean: True if should stop processing, False if can continue
+        """
+        try:
+            # Update rate data from API
+            self.rate_display.update_from_api(self.github)
+            remaining = self.rate_display.rate_data["remaining"]
+            limit = self.rate_display.rate_data["limit"]
+
+            # Check if below checkpoint threshold
+            if remaining <= self.config["CHECKPOINT_THRESHOLD"]:
+                logger.warning(f"Rate limit low: {remaining} of {limit} remaining")
+
+                # Display rate usage
+                self.rate_display.display_once()
+
+                # Create checkpoint
+                if self.config["ENABLE_CHECKPOINTING"] and all_stats:
+                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
+
+                # Return True to indicate should stop processing
+                return True
+
+            # Still have enough requests
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking rate limit: {e}")
+            return False
+
+    def save_checkpoint(self, all_stats: List[RepoStats], analyzed_repo_names: List[str],
+                        remaining_repos: List[Repository]) -> None:
+        """Save checkpoint data during analysis"""
+        self.checkpoint.save(all_stats, analyzed_repo_names, remaining_repos)
+
+    def load_checkpoint(self) -> Dict[str, Any]:
+        """Load checkpoint data from previous analysis"""
+        return self.checkpoint.load()
+
+    @staticmethod
+    def get_file_language(file_path: str) -> str:
+        """Determine language from file extension or special filename"""
+        path_obj = Path(file_path)
+        ext = path_obj.suffix.lower()
+
+        # If file has an extension, check language mappings
+        if ext:
+            return LANGUAGE_EXTENSIONS.get(ext, 'Other')
+
+        # No extension, check if it's a known special filename
+        filename = path_obj.name
+        if filename in SPECIAL_FILENAMES:
+            return SPECIAL_FILENAMES[filename]
+
+        # Check if it's a special dot file (like .gitignore)
+        if filename.startswith('.') and filename in SPECIAL_FILENAMES:
+            return SPECIAL_FILENAMES[filename]
+
+        # For truly unknown files
+        return 'Other'
+
+    def analyze_repository_files(self, repo: Repository) -> Dict[str, Any]:
+        """Analyze files in a repository with improved detection capabilities"""
+        file_analyzer = AnalyzerRepoFiles(self)
+        return file_analyzer.analyze(repo)
+
+    @staticmethod
+    def calculate_scores(repo_stats: Dict[str, Any], repo: Repository) -> Dict[str, float]:
+        """Calculate various quality scores for a repository"""
+        score_calculator = ScoreCalculator()
+        return score_calculator.calculate_scores(repo_stats, repo)
+
+    def analyze_single_repository(self, repo: Repository) -> RepoStats:
+        """Analyze a single repository and return detailed statistics"""
+        single_analyzer = SingleRepoAnalyzer(self)
+        return single_analyzer.analyze(repo)
+
+    def detect_anomalies(self, repo_stats):
+        detector = AnomalyDetctor(self.config)
+        detector.detect(repo_stats)
+
     @staticmethod
     def is_excluded_path(file_path: str) -> bool:
         """Check if a file path should be excluded from analysis"""
@@ -1658,169 +1919,5 @@ class GithubAnalyzer:
         Returns:
             List of RepoStats objects, one for each analyzed repository
         """
-        logger.info(f"Starting analysis of {len(repositories)} specified repositories")
-
-        all_stats = []
-        analyzed_repo_names = []
-        repos_to_analyze = repositories
-
-        try:
-            # Check for existing checkpoint
-            checkpoint_data = self.load_checkpoint()
-
-            # If checkpoint exists and resume is enabled, load the checkpoint data
-            if checkpoint_data:
-                all_stats = checkpoint_data.get('all_stats', [])
-                analyzed_repo_names = checkpoint_data.get('analyzed_repos', [])
-
-                # Filter out repositories that have already been analyzed
-                repos_to_analyze = [repo for repo in repositories if repo.name not in analyzed_repo_names]
-
-                logger.info(f"Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
-                rprint(
-                    f"[blue]📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories[/blue]")
-
-            # Initialize GitHub with rate limit check
-            self.check_rate_limit()
-
-            logger.info(f"Analyzing {len(repos_to_analyze)} repositories after checkpoint filtering")
-
-            if not repos_to_analyze and not all_stats:
-                logger.warning("No repositories found matching the criteria")
-                return []
-
-            if not repos_to_analyze and all_stats:
-                logger.info("All repositories have already been analyzed according to checkpoint")
-                return all_stats
-
-            # Track newly analyzed repositories in this session
-            newly_analyzed_repos = []
-
-            # For progress bar display, accurate counts including checkpoint
-            total_repos = len(repos_to_analyze) + len(all_stats)
-
-            # Display initial rate limit usage before starting
-            rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
-            self.rate_display.display_once()  # Use our interactive display
-            rprint("[bold]-------------------------------[/bold]")
-
-            # Use parallel processing if configured with multiple workers
-            if self.max_workers > 1 and len(repos_to_analyze) > 1:
-                logger.info(f"Using parallel processing with {self.max_workers} workers")
-
-                with tqdm(total=total_repos, initial=len(all_stats),
-                          desc="Analyzing repositories", leave=True, colour='green') as pbar:
-
-                    # Update progress bar for already analyzed repos from checkpoint
-                    if all_stats:
-                        pbar.set_description(f"Analyzing repositories (resumed from checkpoint)")
-
-                    # Process repos in smaller batches to allow for checkpointing
-                    remaining_repos = repos_to_analyze.copy()
-                    batch_size = min(20, len(remaining_repos))  # Process in batches of 20 or fewer
-                    repo_counter = 0  # Counter to track repository processing
-
-                    while remaining_repos:
-                        repo_counter += 1
-                        # Take the next batch
-                        batch = remaining_repos[:batch_size]
-                        remaining_repos = remaining_repos[batch_size:]
-
-                        # Periodically show rate limit status
-                        if repo_counter % 5 == 0 or repo_counter == 1 or len(batch) == batch_size:
-                            rprint("\n[bold]--- Current API Rate Status ---[/bold]")
-                            self.rate_display.display_once()
-                            rprint("[bold]-------------------------------[/bold]")
-
-                        # Check if we need to checkpoint before processing this batch
-                        if self.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names + [r.name for r in
-                                                                                                  newly_analyzed_repos],
-                                                                remaining_repos + batch):
-                            logger.info("Stopping analysis due to approaching API rate limit")
-                            return all_stats
-
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                            # Submit all tasks for this batch
-                            future_to_repo = {executor.submit(self.analyze_single_repository, repo): repo for repo in
-                                              batch}
-
-                            # Process results as they complete
-                            for future in concurrent.futures.as_completed(future_to_repo):
-                                repo = future_to_repo[future]
-                                try:
-                                    repo_stats = future.result()
-                                    all_stats.append(repo_stats)
-                                    newly_analyzed_repos.append(repo)
-                                    analyzed_repo_names.append(repo.name)
-                                    pbar.update(1)
-                                except Exception as e:
-                                    logger.error(f"Failed to analyze {repo.name}: {e}")
-
-                # Final checkpoint after all batches complete
-                if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
-                    self.save_checkpoint(all_stats, analyzed_repo_names, remaining_repos)
-            else:
-                # Sequential processing for single worker or single repo case
-                with tqdm(total=total_repos, initial=len(all_stats),
-                          desc="Analyzing repositories", leave=True, colour='green') as pbar:
-
-                    # Update progress bar for already analyzed repos from checkpoint
-                    if all_stats:
-                        pbar.set_description(f"Analyzing repositories (resumed from checkpoint)")
-
-                    for repo in repos_to_analyze:
-                        # Periodically check and display rate limit status
-                        if len(newly_analyzed_repos) % 5 == 0 or len(newly_analyzed_repos) == 0:
-                            rprint("\n[bold]--- Current API Rate Status ---[/bold]")
-                            self.rate_display.display_once()
-                            rprint("[bold]-------------------------------[/bold]")
-
-                        # Check if we need to checkpoint
-                        if self.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names,
-                                                                repos_to_analyze[repos_to_analyze.index(repo):]):
-                            logger.info("Stopping analysis due to approaching API rate limit")
-                            return all_stats
-
-                        try:
-                            repo_stats = self.analyze_single_repository(repo)
-                            all_stats.append(repo_stats)
-                            newly_analyzed_repos.append(repo)
-                            analyzed_repo_names.append(repo.name)
-                            pbar.update(1)
-                        except Exception as e:
-                            logger.error(f"Failed to analyze {repo.name}: {e}")
-
-                # Final checkpoint after all repos complete
-                if self.config["ENABLE_CHECKPOINTING"] and newly_analyzed_repos:
-                    self.save_checkpoint(all_stats, analyzed_repo_names, [])
-
-            # Final rate limit status display
-            rprint("\n[bold]--- Final API Rate Status ---[/bold]")
-            self.rate_display.display_once()
-            rprint("[bold]----------------------------[/bold]")
-
-            # If all repositories were successfully analyzed, clean up the checkpoint file
-            if self.config["ENABLE_CHECKPOINTING"] and not repos_to_analyze:
-                try:
-                    Path(self.config["CHECKPOINT_FILE"]).unlink(missing_ok=True)
-                except:
-                    pass  # Silently ignore any issues with checkpoint deletion
-
-            logger.info(f"Successfully analyzed {len(all_stats)} repositories")
-            return all_stats
-
-        except RateLimitExceededException:
-            logger.error("GitHub API rate limit exceeded during repository analysis")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
-        except GithubException as e:
-            logger.error(f"GitHub API error: {e}")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
-        except Exception as e:
-            logger.error(f"Unexpected error during analysis: {e}")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
+        repos_analyzer = ReposAnalyzer(self)
+        return repos_analyzer.analyze(repositories)

@@ -133,10 +133,24 @@ class InfrastructureQualityMetricsCreator:
 
     def create_commit_activity_heatmap(self) -> None:
         """Create a heatmap showing commit activity by month and year"""
-        # Extract monthly commit data from non-empty repos
-        # Group by month and year
+        commit_data = self._extract_commit_data()
+
+        if not commit_data:
+            return
+
+        years = self._get_sorted_years(commit_data)
+        if not years:
+            return
+
+        z_data = self._build_heatmap_data(commit_data, years)
+        hover_text = self._create_heatmap_hover_text(commit_data, years)
+
+        fig = self._create_heatmap_figure(z_data, hover_text, years)
+        save_figure(fig, 'commit_activity_heatmap', self.reports_dir)
+
+    def _extract_commit_data(self) -> Dict[tuple, int]:
+        """Extract commit data grouped by year and month"""
         commit_data = defaultdict(int)
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
         for stats in self.non_empty_repos:
             if stats.last_commit_date:
@@ -144,49 +158,63 @@ class InfrastructureQualityMetricsCreator:
                 year = stats.last_commit_date.year
                 commit_data[(year, month)] += 1
 
-        if commit_data:
-            # Create data for heatmap
-            years = sorted(set(year for year, _ in commit_data.keys()))
+        return commit_data
 
-            if len(years) > 0:
-                # Create z values for the heatmap (commits count)
-                z_data = []
-                for year in years:
-                    row = [commit_data.get((year, month), 0) for month in range(12)]
-                    z_data.append(row)
+    @staticmethod
+    def _get_sorted_years(commit_data: Dict[tuple, int]) -> List[int]:
+        """Get sorted list of years from commit data"""
+        return sorted(set(year for year, _ in commit_data.keys()))
 
-                # Create custom hover text
-                hover_text = []
-                for year in years:
-                    hover_row = []
-                    for month in range(12):
-                        count = commit_data.get((year, month), 0)
-                        hover_row.append(f"Year: {year}<br>Month: {month_names[month]}<br>Commits: {count}")
-                    hover_text.append(hover_row)
+    @staticmethod
+    def _build_heatmap_data(commit_data: Dict[tuple, int], years: List[int]) -> List[List[int]]:
+        """Build z-data matrix for the heatmap"""
+        z_data = []
+        for year in years:
+            row = [commit_data.get((year, month), 0) for month in range(12)]
+            z_data.append(row)
+        return z_data
 
-                # Create plotly figure
-                fig = go.Figure(data=go.Heatmap(
-                    z=z_data,
-                    x=month_names,
-                    y=years,
-                    colorscale='YlGnBu',
-                    text=z_data,  # Show commit counts as text
-                    texttemplate="%{text}",
-                    hoverinfo='text',
-                    hovertext=hover_text,
-                    colorbar=dict(title='Commit Count')
-                ))
+    @staticmethod
+    def _create_heatmap_hover_text(commit_data: Dict[tuple, int], years: List[int]) -> List[List[str]]:
+        """Create hover text for the heatmap"""
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        hover_text = []
 
-                # Update layout
-                fig.update_layout(
-                    title='Repository Commit Activity by Month',
-                    xaxis_title='Month',
-                    yaxis_title='Year',
-                    xaxis=dict(side='top'),  # Show month names at the top like in seaborn
-                )
+        for year in years:
+            hover_row = []
+            for month in range(12):
+                count = commit_data.get((year, month), 0)
+                hover_row.append(f"Year: {year}<br>Month: {month_names[month]}<br>Commits: {count}")
+            hover_text.append(hover_row)
 
-                # Save the figure using the utility function
-                save_figure(fig, 'commit_activity_heatmap', self.reports_dir)
+        return hover_text
+
+    @staticmethod
+    def _create_heatmap_figure(z_data: List[List[int]], hover_text: List[List[str]], years: List[int]) -> go.Figure:
+        """Create the plotly heatmap figure"""
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        fig = go.Figure(data=go.Heatmap(
+            z=z_data,
+            x=month_names,
+            y=years,
+            colorscale='YlGnBu',
+            text=z_data,  # Show commit counts as text
+            texttemplate="%{text}",
+            hoverinfo='text',
+            hovertext=hover_text,
+            colorbar=dict(title='Commit Count')
+        ))
+
+        # Update layout
+        fig.update_layout(
+            title='Repository Commit Activity by Month',
+            xaxis_title='Month',
+            yaxis_title='Year',
+            xaxis=dict(side='top'),  # Show month names at the top like in seaborn
+        )
+
+        return fig
 
     def create_top_repos_by_metrics(self) -> None:
         """Create charts showing top 10 repositories by various metrics"""
@@ -731,6 +759,569 @@ class InfrastructureQualityMetricsCreator:
             save_figure(fig, 'release_counts', self.reports_dir)
 
 
+class RepositoryTimelineCreator:
+    """Class responsible for creating repository timeline visualizations"""
+
+    def __init__(self, all_stats: List[RepoStats], reports_dir: Path):
+        self.all_stats = all_stats
+        self.reports_dir = reports_dir
+
+    def create_timeline(self) -> None:
+        """Create repository timeline chart showing creation and last commit dates"""
+        repo_data = self._prepare_timeline_data()
+        if not repo_data:
+            return
+
+        fig = self._create_timeline_figure(repo_data)
+        self._configure_timeline_layout(fig, repo_data)
+        save_figure(fig, 'repository_timeline', self.reports_dir)
+
+    def _prepare_timeline_data(self) -> List[Dict]:
+        """Prepare data for timeline visualization"""
+        repo_data = []
+        for stats in self.all_stats:
+            created = ensure_utc(stats.created_at)
+            last_commit = ensure_utc(stats.last_commit_date or stats.last_pushed)
+            is_empty = "Empty repository with no files" in stats.anomalies
+
+            repo_data.append({
+                'name': stats.name,
+                'created': created,
+                'last_commit': last_commit,
+                'loc': stats.total_loc,
+                'stars': stats.stars,
+                'is_active': stats.is_active,
+                'is_empty': is_empty
+            })
+
+        return sorted(repo_data, key=lambda x: x['created'])
+
+    def _create_timeline_figure(self, repo_data: List[Dict]) -> go.Figure:
+        """Create the timeline figure with lines and markers"""
+        fig = go.Figure()
+
+        for i, repo in enumerate(repo_data):
+            self._add_timeline_traces(fig, repo, i)
+
+        return fig
+
+    def _add_timeline_traces(self, fig: go.Figure, repo: Dict, index: int) -> None:
+        """Add timeline traces for a single repository"""
+        color, opacity, marker_symbol = self._get_repo_style(repo)
+
+        # Add line from creation to last commit
+        fig.add_trace(go.Scatter(
+            x=[repo['created'], repo['last_commit']],
+            y=[index, index],
+            mode='lines',
+            line=dict(color=color, width=2),
+            opacity=opacity,
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+        # Add creation marker
+        fig.add_trace(go.Scatter(
+            x=[repo['created']],
+            y=[index],
+            mode='markers',
+            marker=dict(
+                color='blue',
+                size=10,
+                symbol=marker_symbol,
+                line=dict(width=1, color='DarkSlateGrey')
+            ),
+            name='Created' if index == 0 else None,
+            showlegend=index == 0,
+            hovertemplate=f"Repository: {repo['name']}<br>Created: %{{x|%Y-%m-%d}}<extra></extra>"
+        ))
+
+        # Add last commit marker
+        marker_size = min(20, max(8, repo['stars'] * 2 + 8))
+        fig.add_trace(go.Scatter(
+            x=[repo['last_commit']],
+            y=[index],
+            mode='markers',
+            marker=dict(
+                color=color,
+                size=marker_size,
+                symbol=marker_symbol,
+                line=dict(width=1, color='DarkSlateGrey')
+            ),
+            name='Last Commit' if index == 0 else None,
+            showlegend=index == 0,
+            hovertemplate=f"Repository: {repo['name']}<br>Last Commit: %{{x|%Y-%m-%d}}<br>Stars: {repo['stars']}<br>Status: {'Empty' if repo['is_empty'] else 'Active' if repo['is_active'] else 'Inactive'}<extra></extra>"
+        ))
+
+    @staticmethod
+    def _get_repo_style(repo: Dict) -> tuple:
+        """Get color, opacity, and marker symbol for repository based on status"""
+        if repo['is_empty']:
+            return 'red', 0.3, 'x'
+        else:
+            color = 'green' if repo['is_active'] else 'gray'
+            opacity = 0.7 if repo['is_active'] else 0.3
+            return color, opacity, 'circle'
+
+    @staticmethod
+    def _configure_timeline_layout(fig: go.Figure, repo_data: List[Dict]) -> None:
+        """Configure the layout for the timeline chart"""
+        fig.update_layout(
+            yaxis=dict(
+                tickmode='array',
+                tickvals=list(range(len(repo_data))),
+                ticktext=[r['name'] for r in repo_data]
+            )
+        )
+
+        fig.update_layout(
+            title='Repository Timeline (Creation → Last Commit)',
+            xaxis_title='Date',
+            yaxis_title='Repository',
+            hovermode='closest',
+            height=max(600, len(repo_data) * 25),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            margin=dict(l=150, r=20, t=50, b=50)
+        )
+
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
+
+
+class LanguageEvolutionCreator:
+    """Class responsible for creating language evolution visualizations"""
+
+    def __init__(self, non_empty_repos: List[RepoStats], reports_dir: Path):
+        self.non_empty_repos = non_empty_repos
+        self.reports_dir = reports_dir
+
+    def create_evolution_chart(self) -> None:
+        """Create language evolution chart showing how language usage has changed over time"""
+        if len(self.non_empty_repos) <= 1:
+            return
+
+        yearly_languages, yearly_total_loc = self._gather_yearly_language_data()
+        self._adjust_yearly_totals(yearly_languages, yearly_total_loc)
+
+        top_languages = self._get_top_languages(yearly_languages)
+        years, lang_data = self._prepare_evolution_data(yearly_languages, top_languages)
+
+        fig = self._create_evolution_figure(years, lang_data, top_languages)
+        save_figure(fig, 'language_evolution', self.reports_dir)
+
+    def _gather_yearly_language_data(self) -> tuple:
+        """Gather language data grouped by year"""
+        yearly_languages = defaultdict(lambda: defaultdict(int))
+        yearly_total_loc = defaultdict(int)
+
+        # First pass: gather total LOC by year
+        for stats in self.non_empty_repos:
+            created_at = ensure_utc(stats.created_at)
+            year = created_at.year
+            yearly_total_loc[year] += stats.total_loc
+
+        # Second pass: gather language data
+        for stats in self.non_empty_repos:
+            created_at = ensure_utc(stats.created_at)
+            year = created_at.year
+
+            self._process_repo_languages(stats, yearly_languages[year])
+
+        return yearly_languages, yearly_total_loc
+
+    @staticmethod
+    def _process_repo_languages(stats: RepoStats, year_languages: Dict[str, int]) -> None:
+        """Process language data for a single repository"""
+        lang_sum = sum(stats.languages.values())
+
+        if lang_sum == 0:
+            if stats.total_loc > 0:
+                year_languages["Unknown"] += stats.total_loc
+            return
+
+        # Handle inconsistent language data
+        if lang_sum > stats.total_loc * 1.1:
+            scaling_factor = stats.total_loc / lang_sum if lang_sum > 0 else 1
+            logger.info(
+                f"Repository {stats.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
+
+            for lang, loc in stats.languages.items():
+                year_languages[lang] += int(loc * scaling_factor)
+        else:
+            for lang, loc in stats.languages.items():
+                year_languages[lang] += loc
+
+    @staticmethod
+    def _adjust_yearly_totals(yearly_languages: Dict, yearly_total_loc: Dict) -> None:
+        """Adjust yearly language totals to match expected LOC"""
+        for year in yearly_languages:
+            lang_sum = sum(yearly_languages[year].values())
+            total_loc = yearly_total_loc[year]
+
+            if abs(lang_sum - total_loc) > total_loc * 0.05:
+                logger.info(f"Year {year}: Adjusting language data to match total LOC ({total_loc:,})")
+
+                if lang_sum < total_loc:
+                    difference = total_loc - lang_sum
+                    yearly_languages[year]["Unknown"] += difference
+                elif lang_sum > total_loc:
+                    scaling_factor = total_loc / lang_sum
+                    for lang in yearly_languages[year]:
+                        yearly_languages[year][lang] = int(yearly_languages[year][lang] * scaling_factor)
+
+    @staticmethod
+    def _get_top_languages(yearly_languages: Dict) -> List[str]:
+        """Get top 5 languages overall"""
+        all_lang_totals = defaultdict(int)
+        for year_data in yearly_languages.values():
+            for lang, loc in year_data.items():
+                all_lang_totals[lang] += loc
+
+        top_languages = sorted(all_lang_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+        return [lang for lang, _ in top_languages]
+
+    @staticmethod
+    def _prepare_evolution_data(yearly_languages: Dict, top_languages: List[str]) -> tuple:
+        """Prepare data for the evolution chart"""
+        years = sorted(yearly_languages.keys())
+        lang_data = {lang: [] for lang in top_languages}
+
+        for year in years:
+            year_total = sum(yearly_languages[year].values()) or 1
+            for lang in top_languages:
+                percentage = (yearly_languages[year][lang] / year_total) * 100
+                lang_data[lang].append(percentage)
+
+        return years, lang_data
+
+    @staticmethod
+    def _create_evolution_figure(years: List[int], lang_data: Dict, top_languages: List[str]) -> go.Figure:
+        """Create the language evolution figure"""
+        fig = go.Figure()
+
+        for lang in top_languages:
+            fig.add_trace(go.Scatter(
+                x=years,
+                y=lang_data[lang],
+                mode='lines',
+                stackgroup='one',
+                name=lang,
+                hovertemplate='Year: %{x}<br>' + lang + ': %{y:.1f}%<extra></extra>'
+            ))
+
+        fig.update_layout(
+            title='Language Usage Evolution Over Time',
+            xaxis_title='Year',
+            yaxis_title='Percentage of Code (%)',
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
+
+        return fig
+
+
+class MaintenanceQualityHeatmapCreator:
+    """Class responsible for creating maintenance quality heatmap visualizations"""
+
+    def __init__(self, non_empty_repos: List[RepoStats], reports_dir: Path):
+        self.non_empty_repos = non_empty_repos
+        self.reports_dir = reports_dir
+        self.quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
+
+    def create_heatmap(self) -> None:
+        """Create heatmap showing maintenance quality factors for top repositories"""
+        if not self.non_empty_repos:
+            return
+
+        top_repos = self._select_top_repositories()
+        quality_matrix = self._build_quality_matrix(top_repos)
+
+        if quality_matrix:
+            fig = self._create_heatmap_figure(quality_matrix, top_repos)
+            save_figure(fig, 'quality_heatmap', self.reports_dir)
+
+    def _select_top_repositories(self) -> List[RepoStats]:
+        """Select top repositories by maintenance score"""
+        return sorted(self.non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
+
+    def _build_quality_matrix(self, top_repos: List[RepoStats]) -> List[List[int]]:
+        """Build the quality matrix for the heatmap"""
+        quality_matrix = []
+        for stats in top_repos:
+            row = self._evaluate_quality_factors(stats)
+            quality_matrix.append(row)
+        return quality_matrix
+
+    @staticmethod
+    def _evaluate_quality_factors(stats: RepoStats) -> List[int]:
+        """Evaluate quality factors for a single repository"""
+        return [
+            1 if stats.has_docs else 0,
+            1 if stats.has_tests else 0,
+            1 if stats.is_active else 0,
+            1 if stats.license_name else 0,
+            1 if stats.open_issues < 5 else 0
+        ]
+
+    def _create_heatmap_figure(self, quality_matrix: List[List[int]], top_repos: List[RepoStats]) -> go.Figure:
+        """Create the heatmap figure"""
+        repo_names = [stats.name[:20] for stats in top_repos]
+        # noinspection PyTypeChecker
+        z_data = list(map(list, zip(*quality_matrix)))
+        hover_text = self._create_hover_text(z_data, repo_names)
+
+        fig = go.Figure(data=go.Heatmap(
+            z=z_data,
+            x=repo_names,
+            y=self.quality_factors,
+            colorscale=[[0, 'red'], [1, 'green']],
+            showscale=False,
+            text=z_data,
+            texttemplate="%{text}",
+            hoverinfo='text',
+            hovertext=hover_text
+        ))
+
+        self._configure_heatmap_layout(fig)
+        return fig
+
+    def _create_hover_text(self, z_data: List[List[int]], repo_names: List[str]) -> List[List[str]]:
+        """Create hover text for the heatmap"""
+        hover_text = []
+        for i, factor in enumerate(self.quality_factors):
+            hover_row = []
+            for j, repo in enumerate(repo_names):
+                value = "Yes" if z_data[i][j] == 1 else "No"
+                hover_row.append(f"Repository: {repo}<br>{factor}: {value}")
+            hover_text.append(hover_row)
+        return hover_text
+
+    @staticmethod
+    def _configure_heatmap_layout(fig: go.Figure) -> None:
+        """Configure the layout for the heatmap"""
+        fig.update_layout(
+            title='Repository Maintenance Quality Matrix',
+            xaxis=dict(
+                title='Repositories',
+                tickangle=-45,
+            ),
+            yaxis=dict(
+                title='Quality Factors',
+                autorange='reversed'
+            ),
+            height=600,
+            width=900,
+            margin=dict(l=150, r=20, t=50, b=150)
+        )
+
+
+class CorrelationScorer:
+    """Class responsible for creating correlation matrix visualizations"""
+
+    def __init__(self, non_empty_repos: List[RepoStats], reports_dir: Path):
+        self.non_empty_repos = non_empty_repos
+        self.reports_dir = reports_dir
+
+    def create_correlation_matrix(self) -> None:
+        """Create a correlation matrix of various metrics"""
+        if len(self.non_empty_repos) < 5:  # Need sufficient data for correlations
+            return
+
+        data = self._extract_metrics_data()
+        self._add_top_language_data(data)
+
+        corr_matrix = self._calculate_correlation_matrix(data)
+        fig = self._create_correlation_heatmap(corr_matrix)
+        save_figure(fig, 'metrics_correlation', self.reports_dir)
+
+    def _extract_metrics_data(self) -> Dict[str, List]:
+        """Extract relevant metrics for correlation analysis"""
+        return {
+            "Total LOC": [repo.total_loc for repo in self.non_empty_repos],
+            "Stars": [repo.stars for repo in self.non_empty_repos],
+            "Forks": [repo.forks for repo in self.non_empty_repos],
+            "Age (Days)": [(datetime.now().replace(tzinfo=timezone.utc) - repo.created_at).days for repo in
+                           self.non_empty_repos],
+            "Maintenance": [repo.maintenance_score for repo in self.non_empty_repos],
+            "Open Issues": [repo.open_issues for repo in self.non_empty_repos]
+        }
+
+    def _add_top_language_data(self, data: Dict[str, List]) -> None:
+        """Add top language percentage data to metrics"""
+        all_languages = self._get_consistent_language_data()
+        if not all_languages:
+            return
+
+        top_language = max(all_languages.items(), key=lambda x: x[1])[0]
+        data[f"{top_language} %"] = []
+
+        for repo in self.non_empty_repos:
+            percentage = self._calculate_language_percentage(repo, top_language)
+            data[f"{top_language} %"].append(percentage)
+
+    @staticmethod
+    def _calculate_language_percentage(repo: RepoStats, language: str) -> float:
+        """Calculate percentage of specific language in repository"""
+        total_lang_loc = sum(repo.languages.values())
+        if total_lang_loc > 0:
+            return (repo.languages.get(language, 0) / total_lang_loc) * 100
+        return 0
+
+    @staticmethod
+    def _calculate_correlation_matrix(data: Dict[str, List]):
+        """Calculate correlation matrix from metrics data"""
+        import pandas as pd
+        corr_data = pd.DataFrame(data)
+        return corr_data.corr()
+
+    def _create_correlation_heatmap(self, corr_matrix) -> go.Figure:
+        """Create plotly heatmap figure from correlation matrix"""
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+        labels = corr_matrix.columns.tolist()
+        z_values = corr_matrix.values
+        z_masked = z_values.copy()
+        z_masked[mask] = None
+
+        hover_text = self._create_correlation_hover_text(labels, z_values, mask)
+
+        fig = go.Figure(data=go.Heatmap(
+            z=z_masked,
+            x=labels,
+            y=labels,
+            colorscale='RdBu_r',
+            zmid=0,
+            text=hover_text,
+            hoverinfo='text',
+            colorbar=dict(title='Correlation')
+        ))
+
+        fig.update_layout(
+            title='Correlation Between Repository Metrics',
+            width=700,
+            height=700,
+            xaxis=dict(ticks='', showticklabels=True, side='bottom'),
+            yaxis=dict(ticks='', showticklabels=True),
+        )
+
+        return fig
+
+    @staticmethod
+    def _create_correlation_hover_text(labels: List[str], z_values, mask) -> List[List[str]]:
+        """Create hover text for correlation heatmap"""
+        hover_text = []
+        for i, row_label in enumerate(labels):
+            hover_row = []
+            for j, col_label in enumerate(labels):
+                if mask[i, j]:
+                    hover_row.append(None)
+                else:
+                    corr_value = z_values[i, j]
+                    hover_row.append(f"{row_label} x {col_label}<br>Correlation: {corr_value:.2f}")
+            hover_text.append(hover_row)
+        return hover_text
+
+    def _get_consistent_language_data(self) -> Dict[str, int]:
+        """Process language data with consistency checks to avoid inflated LOC counts"""
+        total_loc_sum = self._calculate_total_loc()
+        all_languages = defaultdict(int)
+        scaled_repos = 0
+
+        for repo in self.non_empty_repos:
+            scaled_repos += self._process_repository_languages(repo, all_languages)
+
+        self._log_scaling_summary(scaled_repos)
+        self._adjust_language_totals(all_languages, total_loc_sum)
+        return all_languages
+
+    def _calculate_total_loc(self) -> int:
+        """Calculate total lines of code across all repositories"""
+        total_loc_sum = sum(repo.total_loc for repo in self.non_empty_repos)
+        logger.info(f"Total LOC across repositories: {total_loc_sum:,}")
+        return total_loc_sum
+
+    def _process_repository_languages(self, repo: RepoStats, all_languages: Dict[str, int]) -> int:
+        """Process language data for a single repository, returning 1 if scaling was applied, 0 otherwise"""
+        lang_sum = sum(repo.languages.values())
+
+        if lang_sum == 0:
+            self._handle_missing_language_data(repo, all_languages)
+            return 0
+
+        if self._needs_scaling(repo, lang_sum):
+            self._apply_language_scaling(repo, all_languages, lang_sum)
+            return 1
+        else:
+            self._add_unscaled_languages(repo, all_languages)
+            return 0
+
+    @staticmethod
+    def _handle_missing_language_data(repo: RepoStats, all_languages: Dict[str, int]) -> None:
+        """Handle repositories with no language data but positive LOC"""
+        if repo.total_loc > 0:
+            all_languages["Unknown"] += repo.total_loc
+            logger.info(
+                f"Adding {repo.total_loc} LOC from {repo.name} to 'Unknown' language (no language data)")
+
+    @staticmethod
+    def _needs_scaling(repo: RepoStats, lang_sum: int) -> bool:
+        """Check if repository language data needs scaling due to inconsistency"""
+        return lang_sum > repo.total_loc * 1.1
+
+    @staticmethod
+    def _apply_language_scaling(repo: RepoStats, all_languages: Dict[str, int], lang_sum: int) -> None:
+        """Apply scaling factor to repository language data"""
+        scaling_factor = repo.total_loc / lang_sum
+        logger.info(
+            f"Repository {repo.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
+
+        for lang, loc in repo.languages.items():
+            all_languages[lang] += int(loc * scaling_factor)
+
+    @staticmethod
+    def _add_unscaled_languages(repo: RepoStats, all_languages: Dict[str, int]) -> None:
+        """Add repository language data without scaling"""
+        for lang, loc in repo.languages.items():
+            all_languages[lang] += loc
+
+    @staticmethod
+    def _log_scaling_summary(scaled_repos: int) -> None:
+        """Log summary of scaling operations"""
+        if scaled_repos > 0:
+            logger.info(f"Scaled language data for {scaled_repos} repositories with inconsistent totals")
+
+    @staticmethod
+    def _adjust_language_totals(all_languages: Dict[str, int], total_loc_sum: int) -> None:
+        """Adjust language totals to match expected LOC sum"""
+        lang_loc_sum = sum(all_languages.values())
+        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
+
+        if lang_loc_sum != total_loc_sum:
+            logger.info(f"Adjusting language data to match total LOC: {total_loc_sum:,}")
+            if lang_loc_sum < total_loc_sum:
+                difference = total_loc_sum - lang_loc_sum
+                all_languages["Unknown"] = all_languages.get("Unknown", 0) + difference
+                logger.info(f"Added {difference:,} missing LOC to 'Unknown' language")
+            elif lang_loc_sum > total_loc_sum:
+                scaling_factor = total_loc_sum / lang_loc_sum
+                logger.info(f"Scaling all language LOC by factor of {scaling_factor:.4f} to match total LOC")
+                for lang in all_languages:
+                    all_languages[lang] = int(all_languages[lang] * scaling_factor)
+
+
 # noinspection PyTypeChecker
 class CreateDetailedCharts:
     """Class responsible for creating detailed charts for the visualization dashboard"""
@@ -779,304 +1370,18 @@ class CreateDetailedCharts:
 
     def _create_repository_timeline(self) -> None:
         """Create repository timeline chart showing creation and last commit dates"""
-        # Prepare data for timeline
-        repo_data = []
-        for stats in self.all_stats:  # Include all repos, even empty ones
-            # Ensure dates are timezone-aware
-            created = ensure_utc(stats.created_at)
-            last_commit = ensure_utc(stats.last_commit_date or stats.last_pushed)
-
-            # Mark empty repositories differently
-            is_empty = "Empty repository with no files" in stats.anomalies
-
-            repo_data.append({
-                'name': stats.name,
-                'created': created,
-                'last_commit': last_commit,
-                'loc': stats.total_loc,
-                'stars': stats.stars,
-                'is_active': stats.is_active,
-                'is_empty': is_empty
-            })
-
-        # Sort by creation date
-        repo_data.sort(key=lambda x: x['created'])
-
-        # Create plotly figure
-        fig = go.Figure()
-
-        # Add lines and markers for each repository
-        for i, repo in enumerate(repo_data):
-            # Choose color and style based on repo status
-            if repo['is_empty']:
-                color = 'red'
-                opacity = 0.3
-                marker_symbol = 'x'
-            else:
-                color = 'green' if repo['is_active'] else 'gray'
-                opacity = 0.7 if repo['is_active'] else 0.3
-                marker_symbol = 'circle'
-
-            # Add line from creation to last commit
-            fig.add_trace(go.Scatter(
-                x=[repo['created'], repo['last_commit']],
-                y=[i, i],
-                mode='lines',
-                line=dict(color=color, width=2),
-                opacity=opacity,
-                showlegend=False,
-                hoverinfo='skip'
-            ))
-
-            # Add creation marker
-            fig.add_trace(go.Scatter(
-                x=[repo['created']],
-                y=[i],
-                mode='markers',
-                marker=dict(
-                    color='blue',
-                    size=10,
-                    symbol=marker_symbol,
-                    line=dict(width=1, color='DarkSlateGrey')
-                ),
-                name='Created' if i == 0 else None,
-                showlegend=i == 0,  # Only show in legend for first repo
-                hovertemplate=f"Repository: {repo['name']}<br>Created: %{{x|%Y-%m-%d}}<extra></extra>"
-            ))
-
-            # Add last commit marker with size based on stars
-            marker_size = min(20, max(8, repo['stars'] * 2 + 8))  # Limit size for very starred repos
-            fig.add_trace(go.Scatter(
-                x=[repo['last_commit']],
-                y=[i],
-                mode='markers',
-                marker=dict(
-                    color=color,
-                    size=marker_size,
-                    symbol=marker_symbol,
-                    line=dict(width=1, color='DarkSlateGrey')
-                ),
-                name='Last Commit' if i == 0 else None,
-                showlegend=i == 0,  # Only show in legend for first repo
-                hovertemplate=f"Repository: {repo['name']}<br>Last Commit: %{{x|%Y-%m-%d}}<br>Stars: {repo['stars']}<br>Status: {'Empty' if repo['is_empty'] else 'Active' if repo['is_active'] else 'Inactive'}<extra></extra>"
-            ))
-
-        # Add y-axis labels (repository names)
-        fig.update_layout(
-            yaxis=dict(
-                tickmode='array',
-                tickvals=list(range(len(repo_data))),
-                ticktext=[r['name'] for r in repo_data]
-            )
-        )
-
-        # Update layout
-        fig.update_layout(
-            title='Repository Timeline (Creation → Last Commit)',
-            xaxis_title='Date',
-            yaxis_title='Repository',
-            hovermode='closest',
-            height=max(600, len(repo_data) * 25),  # Dynamic height based on number of repos
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            margin=dict(l=150, r=20, t=50, b=50)  # Add margin for repo names
-        )
-
-        # Add grid lines
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
-
-        # Save the figure using the utility function
-        save_figure(fig, 'repository_timeline', self.reports_dir)
+        timeline_creator = RepositoryTimelineCreator(self.all_stats, self.reports_dir)
+        timeline_creator.create_timeline()
 
     def _create_language_evolution(self, non_empty_repos: List[RepoStats]) -> None:
         """Create language evolution chart showing how language usage has changed over time"""
-        if len(non_empty_repos) <= 1:
-            return
-
-        # Group repositories by creation year and analyze language usage
-        yearly_languages = defaultdict(lambda: defaultdict(int))
-        yearly_total_loc = defaultdict(int)
-
-        # First pass: gather total LOC by year for verification
-        for stats in non_empty_repos:
-            # Ensure date is timezone-aware
-            created_at = ensure_utc(stats.created_at)
-            year = created_at.year
-            yearly_total_loc[year] += stats.total_loc
-
-        # Second pass: gather language data and check for consistency
-        for stats in non_empty_repos:
-            created_at = ensure_utc(stats.created_at)
-            year = created_at.year
-
-            # Check if repository has any language data
-            lang_sum = sum(stats.languages.values())
-
-            if lang_sum == 0:
-                # If repository has LOC but no language data, add to "Unknown"
-                if stats.total_loc > 0:
-                    yearly_languages[year]["Unknown"] += stats.total_loc
-                continue
-
-            # For repositories with inconsistent language data, scale the data
-            if lang_sum > stats.total_loc * 1.1:  # Allow 10% margin for rounding
-                scaling_factor = stats.total_loc / lang_sum if lang_sum > 0 else 1
-                logger.info(
-                    f"Repository {stats.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
-
-                # Add scaled language data
-                for lang, loc in stats.languages.items():
-                    yearly_languages[year][lang] += int(loc * scaling_factor)
-            else:
-                # Add languages as is for repositories with consistent data
-                for lang, loc in stats.languages.items():
-                    yearly_languages[year][lang] += loc
-
-        # Verify and adjust yearly totals if necessary
-        for year in yearly_languages:
-            lang_sum = sum(yearly_languages[year].values())
-            total_loc = yearly_total_loc[year]
-
-            if abs(lang_sum - total_loc) > total_loc * 0.05:  # Allow 5% difference
-                logger.info(f"Year {year}: Adjusting language data to match total LOC ({total_loc:,})")
-
-                if lang_sum < total_loc:
-                    # Add difference to Unknown
-                    difference = total_loc - lang_sum
-                    yearly_languages[year]["Unknown"] += difference
-                elif lang_sum > total_loc:
-                    # Scale down proportionally
-                    scaling_factor = total_loc / lang_sum
-                    for lang in yearly_languages[year]:
-                        yearly_languages[year][lang] = int(yearly_languages[year][lang] * scaling_factor)
-
-        # Get top 5 languages overall
-        all_lang_totals = defaultdict(int)
-        for year_data in yearly_languages.values():
-            for lang, loc in year_data.items():
-                all_lang_totals[lang] += loc
-
-        top_languages = sorted(all_lang_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-        top_lang_names = [lang for lang, _ in top_languages]
-
-        # Create data for stacked area chart
-        years = sorted(yearly_languages.keys())
-        lang_data = {lang: [] for lang in top_lang_names}
-
-        for year in years:
-            year_total = sum(yearly_languages[year].values()) or 1
-            for lang in top_lang_names:
-                percentage = (yearly_languages[year][lang] / year_total) * 100
-                lang_data[lang].append(percentage)
-
-        # Create plotly figure
-        fig = go.Figure()
-
-        # Add traces for each language
-        for lang in top_lang_names:
-            fig.add_trace(go.Scatter(
-                x=years,
-                y=lang_data[lang],
-                mode='lines',
-                stackgroup='one',  # Stack the traces
-                name=lang,
-                hovertemplate='Year: %{x}<br>' + lang + ': %{y:.1f}%<extra></extra>'
-            ))
-
-        # Update layout
-        fig.update_layout(
-            title='Language Usage Evolution Over Time',
-            xaxis_title='Year',
-            yaxis_title='Percentage of Code (%)',
-            hovermode='x unified',
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
-        )
-
-        # Add grid lines
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
-
-        # Save the figure using the utility function
-        save_figure(fig, 'language_evolution', self.reports_dir)
+        evolution_creator = LanguageEvolutionCreator(non_empty_repos, self.reports_dir)
+        evolution_creator.create_evolution_chart()
 
     def _create_maintenance_quality_heatmap(self, non_empty_repos: List[RepoStats]) -> None:
         """Create heatmap showing maintenance quality factors for top repositories"""
-        if not non_empty_repos:
-            return
-
-        # Create matrix for heatmap
-        quality_factors = ['Has Docs', 'Has Tests', 'Is Active', 'Has License', 'Low Issues']
-
-        # Select top repos by maintenance score (non-empty only)
-        top_repos = sorted(non_empty_repos, key=lambda x: x.maintenance_score, reverse=True)[:20]
-        repo_names = [stats.name[:20] for stats in top_repos]  # Top 20 repos
-
-        quality_matrix = []
-        for stats in top_repos:
-            row = [
-                1 if stats.has_docs else 0,
-                1 if stats.has_tests else 0,
-                1 if stats.is_active else 0,
-                1 if stats.license_name else 0,
-                1 if stats.open_issues < 5 else 0
-            ]
-            quality_matrix.append(row)
-
-        if quality_matrix:  # Only create heatmap if we have non-empty repos
-            # Transpose the matrix for plotly heatmap (rows become columns)
-            z_data = list(map(list, zip(*quality_matrix)))
-
-            # Create custom hover text
-            hover_text = []
-            for i, factor in enumerate(quality_factors):
-                hover_row = []
-                for j, repo in enumerate(repo_names):
-                    value = "Yes" if z_data[i][j] == 1 else "No"
-                    hover_row.append(f"Repository: {repo}<br>{factor}: {value}")
-                hover_text.append(hover_row)
-
-            # Create plotly heatmap
-            fig = go.Figure(data=go.Heatmap(
-                z=z_data,
-                x=repo_names,
-                y=quality_factors,
-                colorscale=[[0, 'red'], [1, 'green']],  # Red for 0 (No), Green for 1 (Yes)
-                showscale=False,
-                text=z_data,
-                texttemplate="%{text}",
-                hoverinfo='text',
-                hovertext=hover_text
-            ))
-
-            # Update layout
-            fig.update_layout(
-                title='Repository Maintenance Quality Matrix',
-                xaxis=dict(
-                    title='Repositories',
-                    tickangle=-45,
-                ),
-                yaxis=dict(
-                    title='Quality Factors',
-                    autorange='reversed'  # To match seaborn's orientation
-                ),
-                height=600,
-                width=900,
-                margin=dict(l=150, r=20, t=50, b=150)  # Add margins for labels
-            )
-
-            # Save the figure using the utility function
-            save_figure(fig, 'quality_heatmap', self.reports_dir)
+        heatmap_creator = MaintenanceQualityHeatmapCreator(non_empty_repos, self.reports_dir)
+        heatmap_creator.create_heatmap()
 
     def _create_empty_vs_nonempty_pie(self, empty_repos: List[RepoStats], non_empty_repos: List[RepoStats]) -> None:
         """Create pie chart showing empty vs non-empty repository distribution"""
@@ -1340,90 +1645,8 @@ class CreateDetailedCharts:
 
     def _create_score_correlation_matrix(self, non_empty_repos: List[RepoStats]) -> None:
         """Create a correlation matrix of various metrics"""
-        if len(non_empty_repos) < 5:  # Need sufficient data for correlations
-            return
-
-        # Extract relevant metrics for correlation
-        data = {
-            "Total LOC": [repo.total_loc for repo in non_empty_repos],
-            "Stars": [repo.stars for repo in non_empty_repos],
-            "Forks": [repo.forks for repo in non_empty_repos],
-            "Age (Days)": [(datetime.now().replace(tzinfo=timezone.utc) - repo.created_at).days for repo in
-                           non_empty_repos],
-            "Maintenance": [repo.maintenance_score for repo in non_empty_repos],
-            "Open Issues": [repo.open_issues for repo in non_empty_repos]
-        }
-
-        # Add top language percentage if we have language data
-        # This is where we need to update to use our consistent language method
-        all_languages = self._get_consistent_language_data(non_empty_repos)
-        if all_languages:
-            top_language = max(all_languages.items(), key=lambda x: x[1])[0]
-            data[f"{top_language} %"] = []
-
-            for repo in non_empty_repos:
-                # Calculate percentage of top language in this repo
-                if sum(repo.languages.values()) > 0:
-                    percentage = (repo.languages.get(top_language, 0) / sum(repo.languages.values())) * 100
-                else:
-                    percentage = 0
-                data[f"{top_language} %"].append(percentage)
-
-        # Create correlation dataframe
-        import pandas as pd
-        corr_data = pd.DataFrame(data)
-
-        # Calculate correlation
-        corr_matrix = corr_data.corr()
-
-        # Create mask for upper triangle (for cleaner visualization)
-        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
-
-        # Get labels and values for plotly heatmap
-        labels = corr_matrix.columns.tolist()
-        z_values = corr_matrix.values
-
-        # Apply mask - replace upper triangle with None for plotly
-        z_masked = z_values.copy()
-        z_masked[mask] = None
-
-        # Create custom hover text
-        hover_text = []
-        for i, row_label in enumerate(labels):
-            hover_row = []
-            for j, col_label in enumerate(labels):
-                if mask[i, j]:  # Skip upper triangle
-                    hover_row.append(None)
-                else:
-                    corr_value = z_values[i, j]
-                    hover_row.append(f"{row_label} x {col_label}<br>Correlation: {corr_value:.2f}")
-            hover_text.append(hover_row)
-
-        # Create plotly heatmap
-        fig = go.Figure(data=go.Heatmap(
-            z=z_masked,
-            x=labels,
-            y=labels,
-            colorscale='RdBu_r',  # Similar to coolwarm in seaborn
-            zmid=0,  # Center color scale at 0
-            text=hover_text,
-            hoverinfo='text',
-            colorbar=dict(
-                title='Correlation'
-            )
-        ))
-
-        # Update layout
-        fig.update_layout(
-            title='Correlation Between Repository Metrics',
-            width=700,
-            height=700,
-            xaxis=dict(ticks='', showticklabels=True, side='bottom'),
-            yaxis=dict(ticks='', showticklabels=True),
-        )
-
-        # Save the figure using the utility function
-        save_figure(fig, 'metrics_correlation', self.reports_dir)
+        correlation_scorer = CorrelationScorer(non_empty_repos, self.reports_dir)
+        correlation_scorer.create_correlation_matrix()
 
     def _create_topics_wordcloud(self, non_empty_repos: List[RepoStats]) -> None:
         """Create word cloud visualization of repository topics"""
@@ -1559,7 +1782,15 @@ class CreateDetailedCharts:
         if not non_empty_repos:
             return
 
-        # Extract data
+        scatter_data = self._extract_scatter_data(non_empty_repos, chart_colors)
+        fig = self._create_scatter_figure(scatter_data)
+        self._add_scatter_annotations(fig, scatter_data)
+        self._configure_scatter_layout(fig, scatter_data)
+        save_figure(fig, 'stars_vs_issues', self.reports_dir)
+
+    @staticmethod
+    def _extract_scatter_data(non_empty_repos: List[RepoStats], chart_colors: List[str]) -> Dict:
+        """Extract and prepare data for the scatter plot"""
         stars = [r.stars for r in non_empty_repos]
         issues = [r.open_issues for r in non_empty_repos]
         names = [r.name for r in non_empty_repos]
@@ -1577,25 +1808,46 @@ class CreateDetailedCharts:
             f"Repository: {name}<br>Stars: {star}<br>Issues: {issue}<br>Status: {'Active' if active else 'Inactive'}"
             for name, star, issue, active in zip(names, stars, issues, is_active)]
 
-        # Create plotly figure
+        return {
+            'stars': stars,
+            'issues': issues,
+            'names': names,
+            'is_active': is_active,
+            'colors': colors,
+            'use_log_x': use_log_x,
+            'use_log_y': use_log_y,
+            'hover_texts': hover_texts
+        }
+
+    @staticmethod
+    def _create_scatter_figure(scatter_data: Dict) -> go.Figure:
+        """Create the scatter plot figure"""
         fig = go.Figure()
 
         # Add scatter plot
         fig.add_trace(go.Scatter(
-            x=stars,
-            y=issues,
+            x=scatter_data['stars'],
+            y=scatter_data['issues'],
             mode='markers',
             marker=dict(
                 size=12,
-                color=colors,
+                color=scatter_data['colors'],
                 opacity=0.7,
                 line=dict(width=1, color='DarkSlateGrey')
             ),
-            text=hover_texts,
+            text=scatter_data['hover_texts'],
             hoverinfo='text'
         ))
 
-        # Add annotations for repos with many stars or issues
+        return fig
+
+    @staticmethod
+    def _add_scatter_annotations(fig: go.Figure, scatter_data: Dict) -> None:
+        """Add annotations for repositories with many stars or issues"""
+        stars = scatter_data['stars']
+        issues = scatter_data['issues']
+        names = scatter_data['names']
+
         threshold_stars = np.percentile(stars, 90) if len(stars) > 10 else 0
         threshold_issues = np.percentile(issues, 90) if len(issues) > 10 else 0
 
@@ -1611,24 +1863,23 @@ class CreateDetailedCharts:
                     yshift=10
                 )
 
-        # Update layout
+    @staticmethod
+    def _configure_scatter_layout(fig: go.Figure, scatter_data: Dict) -> None:
+        """Configure the layout for the scatter plot"""
         fig.update_layout(
             title='Repository Popularity vs. Maintenance Burden',
             xaxis_title='Stars',
             yaxis_title='Open Issues',
             hovermode='closest',
             xaxis=dict(
-                type='log' if use_log_x else 'linear',
+                type='log' if scatter_data['use_log_x'] else 'linear',
                 showgrid=True
             ),
             yaxis=dict(
-                type='log' if use_log_y else 'linear',
+                type='log' if scatter_data['use_log_y'] else 'linear',
                 showgrid=True
             )
         )
-
-        # Save the figure using the utility function
-        save_figure(fig, 'stars_vs_issues', self.reports_dir)
 
     def _create_repository_creation_timeline(self, chart_colors: List[str]) -> None:
         """Create timeline showing repository creation over time"""
@@ -1823,64 +2074,3 @@ class CreateDetailedCharts:
 
             # Save the figure using the utility function
             save_figure(fig, 'release_counts', self.reports_dir)
-
-    def _get_consistent_language_data(self, repos: List[RepoStats]) -> Dict[str, int]:
-        """Process language data with consistency checks to avoid inflated LOC counts"""
-        # Calculate total LOC sum for validation
-        total_loc_sum = sum(repo.total_loc for repo in repos)
-        logger.info(f"Total LOC across repositories: {total_loc_sum:,}")
-
-        # Collect language data with consistency checks
-        all_languages = defaultdict(int)
-        scaled_repos = 0
-
-        for repo in repos:
-            # Check if repository has any language data
-            lang_sum = sum(repo.languages.values())
-
-            if lang_sum == 0:
-                # If repository has LOC but no language data, add to "Unknown"
-                if repo.total_loc > 0:
-                    all_languages["Unknown"] += repo.total_loc
-                    logger.info(
-                        f"Adding {repo.total_loc} LOC from {repo.name} to 'Unknown' language (no language data)")
-                continue
-
-            # For repositories with inconsistent language data (language sum much larger than total LOC)
-            # Scale the language data proportionally to match repo.total_loc
-            if lang_sum > repo.total_loc * 1.1:  # Allow 10% margin for rounding
-                scaling_factor = repo.total_loc / lang_sum
-                logger.info(
-                    f"Repository {repo.name} has inconsistent language data. Scaling by factor {scaling_factor:.4f}")
-                scaled_repos += 1
-
-                # Add scaled language data
-                for lang, loc in repo.languages.items():
-                    all_languages[lang] += int(loc * scaling_factor)
-            else:
-                # Add languages for repositories with consistent data
-                for lang, loc in repo.languages.items():
-                    all_languages[lang] += loc
-
-        if scaled_repos > 0:
-            logger.info(f"Scaled language data for {scaled_repos} repositories with inconsistent totals")
-
-        # Verify and log the total sum of language-specific LOC
-        lang_loc_sum = sum(all_languages.values())
-        logger.info(f"Sum of language-specific LOC: {lang_loc_sum:,}")
-
-        # Final adjustment if still different
-        if lang_loc_sum != total_loc_sum:
-            logger.info(f"Adjusting language data to match total LOC: {total_loc_sum:,}")
-            if lang_loc_sum < total_loc_sum:
-                # Add difference to Unknown
-                difference = total_loc_sum - lang_loc_sum
-                all_languages["Unknown"] = all_languages.get("Unknown", 0) + difference
-                logger.info(f"Added {difference:,} missing LOC to 'Unknown' language")
-            elif lang_loc_sum > total_loc_sum:
-                # Scale down proportionally
-                scaling_factor = total_loc_sum / lang_loc_sum
-                logger.info(f"Scaling all language LOC by factor of {scaling_factor:.4f} to match total LOC")
-                all_languages = {lang: int(loc * scaling_factor) for lang, loc in all_languages.items()}
-
-        return all_languages
