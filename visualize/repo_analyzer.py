@@ -233,7 +233,7 @@ class PersonalRepoAnalysis:
         chart_colors = self.theme["chart_palette"]
 
         # Add all chart traces
-        self._add_language_chart(fig, chart_colors, non_empty_repos)
+        self._add_language_chart(fig, chart_colors)
         self._add_repo_size_chart(fig, chart_colors, non_empty_repos)
         self._add_file_type_chart(fig, chart_colors, non_empty_repos)
         self._add_activity_timeline_chart(fig, chart_colors, non_empty_repos)
@@ -315,7 +315,7 @@ class PersonalRepoAnalysis:
 
         return fig
 
-    def _add_language_chart(self, fig: go.Figure, chart_colors: list, non_empty_repos: List[RepoStats]) -> None:
+    def _add_language_chart(self, fig: go.Figure, chart_colors: list) -> None:
         """Add language distribution chart to the figure"""
         # Need access to all_languages from the original class
         if hasattr(self, 'all_languages') and self.all_languages:
@@ -640,9 +640,9 @@ class OrganizationRepoAnalysis:
             all_org_repos.extend(org_repos_list)
 
         # Add charts
-        self._add_org_language_chart(fig, chart_colors, org_repos)
+        self._add_org_language_chart(fig, chart_colors)
         self._add_org_repo_count_chart(fig, chart_colors, org_repos)
-        self._add_org_specific_language_chart(fig, chart_colors, org_repos)
+        self._add_org_specific_language_chart(fig, chart_colors)
         self._add_repo_size_by_org_chart(fig, chart_colors, org_repos)
         self._add_stars_by_org_chart(fig, chart_colors, org_repos)
         self._add_activity_status_chart(fig, chart_colors, org_repos)
@@ -698,8 +698,7 @@ class OrganizationRepoAnalysis:
 
         return fig
 
-    def _add_org_language_chart(self, fig: go.Figure, chart_colors: list,
-                                org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_org_language_chart(self, fig: go.Figure, chart_colors: list) -> None:
         """Add top languages across all organizations chart"""
         if self.all_languages:
             top_languages = sorted(self.all_languages.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -730,8 +729,7 @@ class OrganizationRepoAnalysis:
                 row=1, col=2
             )
 
-    def _add_org_specific_language_chart(self, fig: go.Figure, chart_colors: list,
-                                         org_repos: Dict[str, List[RepoStats]]) -> None:
+    def _add_org_specific_language_chart(self, fig: go.Figure, chart_colors: list) -> None:
         """Add organization-specific language distribution"""
         if self.org_languages:
             # Create data for a stacked bar chart of languages per organization

@@ -13,6 +13,8 @@ Key components:
 
 import configparser
 import os
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import List, TypedDict, Dict, Set, Literal, Any, Optional
 import json
@@ -70,6 +72,20 @@ DEFAULT_CONFIG: Configuration = {
     "VERCEL_TOKEN": "",  # Empty by default, must be provided for deployment
     "VERCEL_PROJECT_NAME": "",  # Empty by default, must be provided for deployment
 }
+
+
+_STRING_KEYS = [
+    'primary_color', 'secondary_color', 'accent_color',
+    'light_bg_color', 'light_text_color', 'light_card_bg', 'light_chart_bg',
+    'dark_bg_color', 'dark_text_color', 'dark_card_bg', 'dark_chart_bg',
+    'font_family', 'heading_font', 'code_font',
+    'border_radius', 'shadow_style', 'header_gradient',
+    'user_avatar', 'user_name', 'user_title', 'user_bio',
+    'background_html_path'
+]
+
+_SPECIAL_KEYS = ['skills', 'social_links', 'chart_palette']
+
 
 # File type mappings for better categorization
 LANGUAGE_EXTENSIONS: Dict[str, str] = {
@@ -489,38 +505,6 @@ RELEASE_FILES: Set[str] = {
     'semver.txt', 'semantic-release.config.js'
 }
 
-# Game engine binary files and formats to help identify game repositories
-GAME_ENGINE_FILES: Set[str] = {
-    # Unity
-    '.unity', '.unitypackage', '.asset', '.prefab', '.mat', '.meta',
-    '.cubemap', '.flare', '.fontsettings', '.guiskin',
-    '.physicMaterial', '.physicsMaterial2D', '.renderTexture',
-    '.mixer', '.shadervariants', '.spriteatlas', '.terrainlayer',
-
-    # Godot
-    '.pck', '.gdc', '.res', '.scn', '.godot',
-
-    # Unreal Engine
-    '.pak', '.ubulk', '.uexp', '.umeta',
-
-    # Other game engines and formats
-    '.bsp', '.vtf', '.vmt', '.vpk', '.pgm', '.dem',
-    '.sav', '.lmp', '.bik', '.smk', '.usm',
-    '.fnt', '.ttarch', '.pbb', '.lvl'
-}
-
-# Common game engine directories
-GAME_ENGINE_DIRECTORIES: Set[str] = {
-    # Unity
-    'Assets', 'ProjectSettings', 'Packages', 'Library/PackageCache',
-
-    # Unreal Engine
-    'Content', 'Config', 'Binaries', 'Intermediate', 'Saved',
-
-    # Godot
-    '.godot', 'addons', 'bin', 'scenes'
-}
-
 # Media file extensions for specific media types
 IMAGE_FILE_EXTENSIONS: Set[str] = {
     # Common image formats
@@ -572,14 +556,296 @@ MEDIA_FILE_EXTENSIONS: Set[str] = (
 )
 
 
+class GameEngine(Enum):
+    """Supported game engines."""
+    UNITY = "Unity"
+    UNREAL_ENGINE = "Unreal Engine"
+    GODOT = "Godot"
+    UNKNOWN = "Other/Unknown"
+
+
+@dataclass
+class DetectionResult:
+    """Result of game repository detection."""
+    is_game_repo: bool
+    engine_type: str
+    confidence: float
+    detected_features: List[str]
+    file_indicators: Dict[str, int]
+    directory_indicators: List[str]
+
+
+class GameRepoDetector:
+    """
+    Advanced game repository detector supporting Unity, Unreal Engine, and Godot.
+
+    This class provides enhanced detection capabilities with detailed analysis
+    of file types, directory structures, and engine-specific indicators.
+    """
+
+    # Game engine file extensions (excluding meta files for counting)
+    # Engine-specific file patterns
+    ENGINE_FILES = {
+        GameEngine.UNITY: {
+            '.unity', '.unitypackage', '.asset', '.prefab', '.mat', '.meta',
+            '.cubemap', '.flare', '.fontsettings', '.guiskin',
+            '.physicMaterial', '.physicsMaterial2D', '.renderTexture',
+            '.mixer', '.shadervariants', '.spriteatlas', '.terrainlayer',
+        },
+        GameEngine.UNREAL_ENGINE: {
+            '.uasset', '.umap', '.upk', '.uproject', '.uplugin', '.uclass',
+            '.ini', '.pak'
+        },
+        GameEngine.GODOT: {
+            '.godot', '.tscn', '.gd', '.tres', '.import', '.remap', '.cfg'
+        }
+    }
+
+    # Engine-specific directories
+    ENGINE_DIRECTORIES = {
+        GameEngine.UNITY: {
+            'Assets', 'ProjectSettings', 'Packages', 'Library', 'Temp',
+            'UserSettings', 'Logs'
+        },
+        GameEngine.UNREAL_ENGINE: {
+            'Content', 'Config', 'Binaries', 'Intermediate', 'Saved',
+            'Source', 'Plugins', 'DerivedDataCache'
+        },
+        GameEngine.GODOT: {
+            '.godot', 'addons', 'scenes', 'scripts', 'assets',
+            'autoload', 'project'
+        }
+    }
+
+    # Strong indicators (project files that definitively identify an engine)
+    STRONG_INDICATORS = {
+        GameEngine.UNITY: {'.unity', '.asmdef', 'ProjectSettings'},
+        GameEngine.UNREAL_ENGINE: {'.uproject', '.uplugin'},
+        GameEngine.GODOT: {'.godot', '.tscn', '.gd', 'project.godot'}
+    }
+
+    # Programming language indicators
+    LANGUAGE_INDICATORS = {
+        GameEngine.UNITY: {'C#': 0.2},  # Minimum percentage for confidence boost
+        GameEngine.UNREAL_ENGINE: {'C++': 0.2, 'Blueprint': 0.1},
+        GameEngine.GODOT: {'GDScript': 0.1, 'C#': 0.1, 'C++': 0.1}
+    }
+
+    def __init__(self, min_confidence_threshold: float = 0.5):
+        """
+        Initialize the GameRepoDetector.
+
+        Args:
+            min_confidence_threshold: Minimum confidence to classify as game repo
+        """
+        self.min_confidence_threshold = min_confidence_threshold
+        self._reset_detection_state()
+
+    def _reset_detection_state(self):
+        """Reset internal detection state."""
+        self._detected_features = []
+        self._file_indicators = {}
+        self._directory_indicators = []
+
+    def detect(self, file_types: Dict[str, int],
+               project_structure: Dict[str, int]) -> DetectionResult:
+        """
+        Detect if repository is a game project and identify the engine.
+
+        Args:
+            file_types: Dictionary of file extensions with counts
+            project_structure: Dictionary of top-level directories with counts
+
+        Returns:
+            DetectionResult with comprehensive analysis
+        """
+        self._reset_detection_state()
+
+        if not file_types:
+            return self._create_negative_result()
+
+        total_files = sum(file_types.values())
+        if total_files == 0:
+            return self._create_negative_result()
+
+        # Analyze each engine
+        unity_score = self._analyze_engine(GameEngine.UNITY, file_types,
+                                           project_structure, total_files)
+        unreal_score = self._analyze_engine(GameEngine.UNREAL_ENGINE, file_types,
+                                            project_structure, total_files)
+        godot_score = self._analyze_engine(GameEngine.GODOT, file_types,
+                                           project_structure, total_files)
+
+        # Determine best match
+        scores = {
+            GameEngine.UNITY: unity_score,
+            GameEngine.UNREAL_ENGINE: unreal_score,
+            GameEngine.GODOT: godot_score
+        }
+
+        best_engine = max(scores, key=scores.get)
+        best_confidence = scores[best_engine]
+
+        # Apply language-based confidence boosts
+        best_confidence = self._apply_language_boost(
+            best_engine, file_types, total_files, best_confidence
+        )
+
+        # Cap confidence at 1.0
+        best_confidence = min(1.0, best_confidence)
+
+        return DetectionResult(
+            is_game_repo=best_confidence >= self.min_confidence_threshold,
+            engine_type=best_engine.value,
+            confidence=best_confidence,
+            detected_features=self._detected_features.copy(),
+            file_indicators=self._file_indicators.copy(),
+            directory_indicators=self._directory_indicators.copy()
+        )
+
+    def _analyze_engine(self, engine: GameEngine, file_types: Dict[str, int],
+                        project_structure: Dict[str, int], total_files: int) -> float:
+        """Analyze likelihood of specific engine."""
+        confidence = 0.0
+
+        # Check for strong indicators (project files)
+        strong_indicators = self._check_strong_indicators(
+            engine, file_types, project_structure
+        )
+        if strong_indicators:
+            confidence += 0.7
+            self._detected_features.extend(strong_indicators)
+
+        # Check directory structure
+        dir_score = self._check_directories(engine, project_structure)
+        confidence += dir_score
+
+        # Check file types
+        file_score = self._check_file_types(engine, file_types, total_files)
+        confidence += file_score
+
+        return confidence
+
+    def _check_strong_indicators(self, engine: GameEngine,
+                                 file_types: Dict[str, int],
+                                 project_structure: Dict[str, int]) -> List[str]:
+        """Check for strong engine indicators."""
+        indicators = []
+        strong_files = self.STRONG_INDICATORS[engine]
+
+        # Check file extensions
+        for ext in strong_files:
+            if ext.startswith('.') and ext in file_types:
+                indicators.append(f"{engine.value} project file: {ext}")
+                self._file_indicators[ext] = file_types[ext]
+
+        # Check directories
+        for dir_name in strong_files:
+            if not dir_name.startswith('.') and dir_name in project_structure:
+                indicators.append(f"{engine.value} directory: {dir_name}")
+                self._directory_indicators.append(dir_name)
+
+        return indicators
+
+    def _check_directories(self, engine: GameEngine,
+                           project_structure: Dict[str, int]) -> float:
+        """Check directory structure for engine indicators."""
+        engine_dirs = self.ENGINE_DIRECTORIES[engine]
+        matched_dirs = 0
+
+        for directory in project_structure:
+            dir_lower = directory.lower()
+
+            # Exact match
+            if directory in engine_dirs:
+                matched_dirs += 1
+                self._directory_indicators.append(directory)
+            # Case-insensitive or pattern match for Godot
+            elif engine == GameEngine.GODOT and (
+                    dir_lower.endswith('.godot') or
+                    any(d.lower() == dir_lower for d in engine_dirs)
+            ):
+                matched_dirs += 1
+                self._directory_indicators.append(directory)
+
+        # Score based on matched directories
+        if matched_dirs >= 2:
+            return 0.3 + (matched_dirs * 0.05)
+        elif matched_dirs == 1:
+            return 0.15
+        return 0.0
+
+    def _check_file_types(self, engine: GameEngine,
+                          file_types: Dict[str, int], total_files: int) -> float:
+        """Check file types for engine indicators."""
+        engine_files = self.ENGINE_FILES[engine]
+        engine_file_count = 0
+
+        for ext, count in file_types.items():
+            if ext.lower() in {e.lower() for e in engine_files}:
+                engine_file_count += count
+                if ext not in self._file_indicators:
+                    self._file_indicators[ext] = count
+
+        # Calculate ratio (excluding meta files for Unity if they dominate)
+        effective_total = total_files
+        if engine == GameEngine.UNITY and '.meta' in file_types:
+            meta_count = file_types['.meta']
+            if meta_count > total_files * 0.5:
+                effective_total = total_files - meta_count
+                engine_file_count -= meta_count
+
+        if effective_total > 0 and engine_file_count > 3:
+            ratio = engine_file_count / effective_total
+            return min(0.4, ratio * 0.8)  # Cap file type contribution
+
+        return 0.0
+
+    def _apply_language_boost(self, engine: GameEngine,
+                              file_types: Dict[str, int],
+                              total_files: int, base_confidence: float) -> float:
+        """Apply confidence boost based on programming languages."""
+        if engine not in self.LANGUAGE_INDICATORS:
+            return base_confidence
+
+        boost = 0.0
+        language_thresholds = self.LANGUAGE_INDICATORS[engine]
+
+        for language, min_percentage in language_thresholds.items():
+            if language in file_types:
+                percentage = file_types[language] / total_files
+                if percentage >= min_percentage:
+                    boost += 0.1
+                    self._detected_features.append(
+                        f"{language} usage ({percentage:.1%})"
+                    )
+
+        return base_confidence + boost
+
+    @staticmethod
+    def _create_negative_result() -> DetectionResult:
+        """Create result for non-game repositories."""
+        return DetectionResult(
+            is_game_repo=False,
+            engine_type=GameEngine.UNKNOWN.value,
+            confidence=0.0,
+            detected_features=[],
+            file_indicators={},
+            directory_indicators=[]
+        )
+
+
+# Backward compatibility function
 def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) -> Dict[str, Any]:
     """
     Determine if a repository is likely a game project and which engine it uses.
-    
+
+    This function maintains backward compatibility with the original implementation.
+
     Args:
         file_types: Dictionary of file extensions with counts
         project_structure: Dictionary of top-level directories with counts
-        
+
     Returns:
         Dictionary with game repository information: {
             'is_game_repo': bool,
@@ -587,137 +853,15 @@ def is_game_repo(file_types: Dict[str, int], project_structure: Dict[str, int]) 
             'confidence': float  # 0.0-1.0
         }
     """
-    result = {
-        'is_game_repo': False,
-        'engine_type': 'Other/Unknown',
-        'confidence': 0.0
+
+    detector = GameRepoDetector()
+    result = detector.detect(file_types, project_structure)
+
+    return {
+        'is_game_repo': result.is_game_repo,
+        'engine_type': result.engine_type,
+        'confidence': result.confidence
     }
-
-    # Check for game engine file extensions
-    game_file_count = 0
-    total_files = sum(file_types.values())
-
-    if total_files == 0:
-        return result
-
-    # Count game files by extension but exclude meta files from the count
-    game_file_extensions = {ext for ext in GAME_ENGINE_FILES if ext != '.meta'}
-
-    for ext, count in file_types.items():
-        if ext.lower() in game_file_extensions:
-            game_file_count += count
-
-    # Check directory structure
-    unity_dirs = 0
-    unreal_dirs = 0
-    godot_dirs = 0
-
-    # Check for specific files that are strong indicators
-    has_unity_project = False
-    has_unreal_project = False
-    has_godot_project = False
-
-    # Unity-specific project files
-    if '.unity' in file_types or '.asmdef' in file_types or '.meta' in file_types:
-        has_unity_project = True
-
-    # Unreal-specific project files
-    if '.uproject' in file_types or '.uplugin' in file_types:
-        has_unreal_project = True
-
-    # Godot-specific project files
-    if '.godot' in file_types or '.tscn' in file_types or '.gd' in file_types:
-        has_godot_project = True
-
-    # Check project structure
-    for directory in project_structure:
-        dir_lower = directory.lower()
-        # Unity-specific directories
-        if directory in ['Assets', 'ProjectSettings', 'Packages']:
-            unity_dirs += 1
-        # Unreal Engine-specific directories
-        elif directory in ['Content', 'Config', 'Binaries', 'Intermediate', 'Saved']:
-            unreal_dirs += 1
-        # Godot-specific directories
-        elif directory in ['.godot', 'addons'] or dir_lower.endswith('.godot'):
-            godot_dirs += 1
-
-    # Calculate confidence based on file types and directory structure
-    game_file_ratio = game_file_count / max(1, total_files)
-
-    # Determine engine type based on strongest signals
-    if (unity_dirs >= 2) or has_unity_project:
-        result['engine_type'] = 'Unity'
-        result['confidence'] = 0.7 + (unity_dirs * 0.1) + (game_file_ratio * 0.2)
-
-        # Boost confidence if specific Unity project files are found
-        if has_unity_project:
-            result['confidence'] += 0.2
-
-    elif (unreal_dirs >= 2) or has_unreal_project:
-        result['engine_type'] = 'Unreal Engine'
-        result['confidence'] = 0.7 + (unreal_dirs * 0.1) + (game_file_ratio * 0.2)
-
-        # Boost confidence if specific Unreal project files are found
-        if has_unreal_project:
-            result['confidence'] += 0.2
-
-    elif (godot_dirs >= 1) or has_godot_project:
-        result['engine_type'] = 'Godot'
-        result['confidence'] = 0.7 + (godot_dirs * 0.15) + (game_file_ratio * 0.2)
-
-        # Boost confidence if specific Godot project files are found
-        if has_godot_project:
-            result['confidence'] += 0.2
-
-    else:
-        # Check for engines based primarily on file types
-        unity_files = sum(count for ext, count in file_types.items()
-                          if ext.lower() in ['.unity', '.prefab', '.asset', '.asmdef'])
-        unreal_files = sum(count for ext, count in file_types.items()
-                           if ext.lower() in ['.uasset', '.umap', '.upk', '.uproject'])
-        godot_files = sum(count for ext, count in file_types.items()
-                          if ext.lower() in ['.godot', '.tscn', '.gd', '.tres'])
-
-        # Exclude .meta files from consideration as they are too generic and common
-        if '.meta' in file_types:
-            meta_count = file_types['.meta']
-            # If meta files make up more than 50% of the files, they might skew results
-            if meta_count > total_files * 0.5:
-                # Ignore meta files in the confidence calculation
-                pass
-
-        if unity_files > unreal_files and unity_files > godot_files and unity_files > 3:
-            result['engine_type'] = 'Unity'
-            result['confidence'] = 0.5 + (
-                        unity_files / max(1, total_files - meta_count if '.meta' in file_types else total_files) * 0.5)
-        elif unreal_files > unity_files and unreal_files > godot_files and unreal_files > 3:
-            result['engine_type'] = 'Unreal Engine'
-            result['confidence'] = 0.5 + (unreal_files / max(1, total_files) * 0.5)
-        elif godot_files > unity_files and godot_files > unreal_files and godot_files > 2:
-            result['engine_type'] = 'Godot'
-            result['confidence'] = 0.5 + (godot_files / max(1, total_files) * 0.5)
-
-    # Check for common game development languages with high representation
-    csharp_percentage = 0
-    cpp_percentage = 0
-    if 'C#' in file_types and total_files > 0:
-        csharp_percentage = file_types['C#'] / total_files
-        if csharp_percentage > 0.2 and result['engine_type'] == 'Unity':
-            # Boost confidence for C# in Unity projects
-            result['confidence'] += 0.1
-
-    if 'C++' in file_types and total_files > 0:
-        cpp_percentage = file_types['C++'] / total_files
-        if cpp_percentage > 0.2 and result['engine_type'] == 'Unreal Engine':
-            # Boost confidence for C++ in Unreal projects
-            result['confidence'] += 0.1
-
-    # Make final determination
-    result['is_game_repo'] = result['confidence'] > 0.5
-    result['confidence'] = min(1.0, result['confidence'])  # Cap at 1.0
-
-    return result
 
 
 class ConfigLoader:
@@ -1014,10 +1158,10 @@ def create_sample_env() -> None:
     as a template for users to customize.
     """
     env_file = '.env.sample'
-    
+
     if os.path.exists(env_file):
         return
-    
+
     env_content = """# GitHub Authentication
 GITHUB_TOKEN=your_github_token_here
 GITHUB_USERNAME=your_github_username_here
@@ -1034,10 +1178,10 @@ VERCEL_PROJECT_NAME=ghrepolens-username
 ENABLE_CHECKPOINTING=true
 RESUME_FROM_CHECKPOINT=true
 """
-    
+
     with open(env_file, 'w') as f:
         f.write(env_content)
-    
+
     console.print(f"[green]Created sample environment file: {env_file}[/green]")
     console.print("[yellow]Rename to .env and update with your settings.[/yellow]")
 
@@ -1172,29 +1316,16 @@ class DefaultTheme:
 def load_theme_config() -> ThemeConfig:
     """
     Load theme configuration from config file or return default theme.
-    
+
     Returns:
         ThemeConfig: A dictionary containing theme configuration settings
     """
-    # Check if we already loaded the theme config in load_config_from_file
     global LOADED_THEME_CONFIG
+
     if LOADED_THEME_CONFIG is not None:
         logger.info("Using previously loaded theme configuration")
-        theme: dict = DefaultTheme.get_default_theme()
+        return _merge_with_default_theme(LOADED_THEME_CONFIG)
 
-        # Update theme with loaded values
-        for key, value in LOADED_THEME_CONFIG.items():
-            if key in theme and isinstance(value, str) and not key in ['skills', 'social_links', 'chart_palette']:
-                theme[key] = value
-
-        # Handle special fields that should already be parsed
-        for key in ['skills', 'social_links', 'chart_palette']:
-            if key in LOADED_THEME_CONFIG:
-                theme[key] = LOADED_THEME_CONFIG[key]
-
-        return theme
-
-    # Fall back to old method if LOADED_THEME_CONFIG is not populated
     config_file = 'config.ini'
     theme = DefaultTheme.get_default_theme()
 
@@ -1211,44 +1342,7 @@ def load_theme_config() -> ThemeConfig:
             return theme
 
         theme_section = parser['theme']
-
-        # Load basic string values
-        for key in ['primary_color', 'secondary_color', 'accent_color',
-                    'light_bg_color', 'light_text_color', 'light_card_bg', 'light_chart_bg',
-                    'dark_bg_color', 'dark_text_color', 'dark_card_bg', 'dark_chart_bg',
-                    'font_family', 'heading_font', 'code_font',
-                    'border_radius', 'shadow_style', 'header_gradient',
-                    'user_avatar', 'user_name', 'user_title', 'user_bio',
-                    'background_html_path']:
-            if key in theme_section:
-                theme[key] = theme_section[key]
-
-        # Handle JSON fields
-        if 'skills' in theme_section:
-            import json
-            try:
-                skills_json = theme_section['skills']
-                theme['skills'] = json.loads(skills_json)
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON for skills in {config_file}, using default skills")
-
-        if 'social_links' in theme_section:
-            import json
-            try:
-                links_json = theme_section['social_links']
-                theme['social_links'] = json.loads(links_json)
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON for social_links in {config_file}, using default social links")
-
-        # Handle chart_palette list
-        if 'chart_palette' in theme_section:
-            import json
-            try:
-                palette_json = theme_section['chart_palette']
-                theme['chart_palette'] = json.loads(palette_json)
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON for chart_palette in {config_file}, using default palette")
-
+        theme = _apply_theme_section(theme, theme_section)
         logger.info(f"Loaded theme configuration from {config_file}")
         return theme
 
@@ -1257,99 +1351,37 @@ def load_theme_config() -> ThemeConfig:
         return theme
 
 
-def get_config() -> configparser.ConfigParser:
-    """
-    Get configuration from .env file or environment variables.
-    
-    Returns:
-        configparser.ConfigParser: A ConfigParser object with configuration settings
-    """
-    config = configparser.ConfigParser()
+# noinspection PyTypedDict
+def _merge_with_default_theme(loaded: Dict) -> ThemeConfig:
+    theme = DefaultTheme.get_default_theme()
 
-    # Default configuration
-    config['github'] = {
-        'username': 'your_github_username',
-        'token': 'your_github_token',
-    }
-    
-    # Add iframe section with defaults
-    config['iframe'] = {
-        'iframe_embedding': 'disabled',
-        'vercel_token': '',
-        'vercel_project_name': '',
-    }
+    # Simple string fields
+    for key, value in loaded.items():
+        if key in theme and isinstance(value, str) and key not in _SPECIAL_KEYS:
+            theme[key] = value
 
-    # Check for .env file
-    env_file = Path('.env')
-    if env_file.exists():
-        # Parse .env file
-        env_config = {}
-        with open(env_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    try:
-                        key, value = line.split('=', 1)
-                        # Clean the values to avoid whitespace issues
-                        env_config[key.strip()] = value.strip().strip('"\'')
-                    except ValueError:
-                        logger.warning(f"Skipping invalid line in .env file: {line}")
+    # Complex fields (already parsed)
+    for key in _SPECIAL_KEYS:
+        if key in loaded:
+            theme[key] = loaded[key]
 
-        # Update config with values from .env
-        # GitHub settings
-        if 'GITHUB_USERNAME' in env_config:
-            config['github']['username'] = env_config['GITHUB_USERNAME']
-        if 'GITHUB_TOKEN' in env_config:
-            config['github']['token'] = env_config['GITHUB_TOKEN']
-        
-        # Iframe embedding settings
-        if 'IFRAME_EMBEDDING' in env_config:
-            iframe_mode = env_config['IFRAME_EMBEDDING'].lower()
-            if iframe_mode in ['disabled', 'partial', 'full']:
-                config['iframe']['iframe_embedding'] = iframe_mode
-            else:
-                logger.warning(f"Invalid IFRAME_EMBEDDING value in .env: {iframe_mode}. Using default: disabled")
-        
-        if 'VERCEL_TOKEN' in env_config:
-            config['iframe']['vercel_token'] = env_config['VERCEL_TOKEN']
-        
-        if 'VERCEL_PROJECT_NAME' in env_config:
-            config['iframe']['vercel_project_name'] = env_config['VERCEL_PROJECT_NAME']
+    return theme
 
-    # Environment variables override .env file
-    # GitHub settings
-    if 'GITHUB_USERNAME' in os.environ:
-        config['github']['username'] = os.environ['GITHUB_USERNAME'].strip()
-    if 'GITHUB_TOKEN' in os.environ:
-        config['github']['token'] = os.environ['GITHUB_TOKEN'].strip()
-    
-    # Iframe embedding settings
-    if 'IFRAME_EMBEDDING' in os.environ:
-        iframe_mode = os.environ['IFRAME_EMBEDDING'].lower().strip()
-        if iframe_mode in ['disabled', 'partial', 'full']:
-            config['iframe']['iframe_embedding'] = iframe_mode
-        else:
-            logger.warning(f"Invalid IFRAME_EMBEDDING value in environment: {iframe_mode}. Using default: disabled")
-    
-    if 'VERCEL_TOKEN' in os.environ:
-        config['iframe']['vercel_token'] = os.environ['VERCEL_TOKEN'].strip()
-    
-    if 'VERCEL_PROJECT_NAME' in os.environ:
-        config['iframe']['vercel_project_name'] = os.environ['VERCEL_PROJECT_NAME'].strip()
-    
-    # Validate critical values
-    if config['iframe']['iframe_embedding'] != 'disabled':
-        if not config['iframe']['vercel_token']:
-            logger.warning("IFRAME_EMBEDDING is enabled but VERCEL_TOKEN is not set")
-        
-        if not config['iframe']['vercel_project_name']:
-            # Generate a default project name based on username
-            username = config['github']['username']
-            if username != 'your_github_username':
-                config['iframe']['vercel_project_name'] = f"ghrepolens-{username.lower()}"
-                logger.info(f"Generated default Vercel project name: {config['iframe']['vercel_project_name']}")
 
-    return config
+# noinspection PyTypedDict
+def _apply_theme_section(theme: ThemeConfig, section: configparser.SectionProxy) -> ThemeConfig:
+    for key in _STRING_KEYS:
+        if key in section:
+            theme[key] = section[key]
+
+    for key in _SPECIAL_KEYS:
+        if key in section:
+            try:
+                theme[key] = json.loads(section[key])
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON for '{key}' in config.ini, using default {key}")
+
+    return theme
 
 
 def shutdown_logging() -> None:

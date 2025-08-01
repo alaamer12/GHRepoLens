@@ -42,7 +42,7 @@ class GithubLens:
             username: GitHub username to analyze
             config: Optional configuration dictionary to override defaults
         """
-        self.org_repositories: Optional[Dict[str, List[RepoStats]]] = None
+        self.orepo: Optional[Dict[str, List[RepoStats]]] = None
         self.github: Optional[Github] = None
         self.config = DEFAULT_CONFIG.copy()
         if config:
@@ -86,44 +86,6 @@ class GithubLens:
 
         logger.info(f"Initialized analyzer for user: {username}")
 
-    def start_monitoring(self, update_interval: int = 30) -> bool:
-        """
-        Start continuous rate monitoring in a background thread.
-        
-        Args:
-            update_interval: How often to update the display (in seconds)
-        
-        Returns:
-            True if monitoring started, False otherwise
-        """
-        try:
-            # Update the display once immediately
-            self.rate_display.update_from_api(self.github)
-            self.rate_display.display_once()
-
-            # Start continuous monitoring - Note: implementation removed from utilities.py
-            logger.info(f"Rate monitoring requested (updates every {update_interval}s)")
-            return True
-        except Exception as e:
-            logger.error(f"Error starting continuous rate monitoring: {e}")
-            return False
-
-    @staticmethod
-    def stop_monitoring() -> bool:
-        """
-        Stop continuous rate monitoring.
-        
-        Returns:
-            True if monitoring was successfully stopped, False otherwise
-        """
-        try:
-            # Stop monitoring - Note: implementation removed from utilities.py
-            logger.info("Stopped continuous rate monitoring")
-            return True
-        except Exception as e:
-            logger.error(f"Error stopping continuous rate monitoring: {e}")
-            return False
-
     def setup_github_client(self, token: str) -> None:
         """
         Set up GitHub client with custom backoff handling to show progress bars.
@@ -140,7 +102,7 @@ class GithubLens:
             logger.error(f"Error setting up GitHub client: {e}")
             raise
 
-    def analyze_single_repository(self, repo: Repository) -> RepoStats:
+    def analyze_repo(self, repo: Repository) -> RepoStats:
         """
         Analyze a single repository using the GithubAnalyzer.
         
@@ -153,7 +115,8 @@ class GithubLens:
         # Pass to the analyzer instance
         return self.analyzer.analyze_single_repository(repo)
 
-    def get_personal_repositories(self) -> List[Repository]:
+    @property
+    def prepo(self) -> List[Repository]:
         """
         Get personal repositories (non-organization) for the authenticated user.
         
@@ -185,7 +148,7 @@ class GithubLens:
             logger.error(f"Error getting personal repositories: {e}")
             return []
 
-    def get_organization_repositories(self, org_name: str) -> List[Repository]:
+    def get_orepo(self, org_name: str) -> List[Repository]:
         """
         Get repositories for a specific organization.
         
@@ -213,52 +176,48 @@ class GithubLens:
             logger.error(f"Error getting repositories for organization {org_name}: {e}")
             return []
 
-    def get_repositories_to_analyze(self) -> List[Repository]:
+    @property
+    def repos_to_analyze(self) -> List[Repository]:
         """
         Get all repositories to analyze based on configuration.
-        
+
         Returns:
             List of Repository objects to be analyzed
         """
-        # Always include personal repositories
-        repositories = self.get_personal_repositories()
+        repositories = list(self.prepo)  # Always include personal repositories
 
-        # Include repositories from specified organizations if configured
-        include_orgs = self.config.get("INCLUDE_ORGS", [])
-        if include_orgs:
-            for org_name in include_orgs:
-                org_repos = self.get_organization_repositories(org_name)
-                repositories.extend(org_repos)
-                logger.info(f"Added {len(org_repos)} repositories from organization {org_name}")
+        # Add repositories from configured organizations
+        for org_name in self.config.get("INCLUDE_ORGS", []):
+            org_repos = self.get_orepo(org_name)
+            repositories.extend(org_repos)
+            logger.info(f"Added {len(org_repos)} repositories from organization '{org_name}'")
 
-        # Apply repository filters
-        filtered_repos = []
-        for repo in repositories:
-            # Skip forks if configured
-            if self.config.get("SKIP_FORKS", False) and repo.fork:
-                continue
-
-            # Skip archived repositories if configured
-            if self.config.get("SKIP_ARCHIVED", False) and repo.archived:
-                continue
-
-            # Apply visibility filter (supersedes INCLUDE_PRIVATE)
-            visibility = self.config.get("VISIBILITY", "all")
-            if visibility != "all":
-                if visibility == "public" and repo.private:
-                    continue
-                if visibility == "private" and not repo.private:
-                    continue
-            # For backwards compatibility, also check INCLUDE_PRIVATE
-            elif not self.config.get("INCLUDE_PRIVATE", True) and repo.private:
-                continue
-
-            filtered_repos.append(repo)
+        # Filter repositories
+        filtered_repos = [repo for repo in repositories if self._is_repo_included(repo)]
 
         logger.info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
         return filtered_repos
 
-    def analyze_all_repositories(self) -> List[RepoStats]:
+    def _is_repo_included(self, repo: Repository) -> bool:
+        """Check if a repository should be included based on config filters."""
+        if self.config.get("SKIP_FORKS", False) and repo.fork:
+            return False
+        if self.config.get("SKIP_ARCHIVED", False) and repo.archived:
+            return False
+
+        visibility = self.config.get("VISIBILITY", "all")
+        if visibility == "public" and repo.private:
+            return False
+        if visibility == "private" and not repo.private:
+            return False
+
+        # Legacy support for INCLUDE_PRIVATE
+        if visibility == "all" and not self.config.get("INCLUDE_PRIVATE", True) and repo.private:
+            return False
+
+        return True
+
+    def analyze_all_repos(self) -> List[RepoStats]:
         """
         Analyze all repositories for the user.
         
@@ -266,7 +225,7 @@ class GithubLens:
             List of RepoStats objects, one for each repository
         """
         # Get repositories to analyze based on configuration
-        repositories_to_analyze = self.get_repositories_to_analyze()
+        repositories_to_analyze = self.repos_to_analyze
 
         # Delegate to the analyzer instance
         return self.analyzer.analyze_repositories(repositories_to_analyze)
@@ -376,7 +335,7 @@ class GithubLens:
         visualizer = GithubVisualizer(self.username, self.reports_dir, theme)
 
         # Check for organization repositories from previously set data
-        org_repos = getattr(self, 'org_repositories', None)
+        org_repos = getattr(self, 'orepo', None)
 
         # If no org repositories were set directly, check config for org names to include
         if not org_repos and self.config.get("INCLUDE_ORGS"):
@@ -387,15 +346,15 @@ class GithubLens:
         visualizer.create_visualizations(all_stats, org_repos)
         logger.info("Generated visualizations and interactive dashboard")
 
-    def set_organization_repositories(self, org_repos_map: Dict[str, List[RepoStats]]) -> None:
+    def set_org_repo(self, org_repos_map: Dict[str, List[RepoStats]]) -> None:
         """
         Set organization repositories data in the lens.
         
         Args:
             org_repos_map: Dictionary mapping organization names to lists of repository statistics
         """
-        self.org_repositories = org_repos_map
+        self.orepo = org_repos_map
         logger.info(f"Set organization repositories for {len(org_repos_map)} organizations")
 
         # The visualizer is created later, so we don't need to set anything here
-        # The generate_visualizations method will use the org_repositories data
+        # The generate_visualizations method will use the orepo data

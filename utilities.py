@@ -11,12 +11,9 @@ Key components:
 """
 
 import pickle
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-
-from tqdm.auto import tqdm
 
 from console import logger
 
@@ -103,6 +100,7 @@ class Checkpoint:
 
         try:
             with open(self.checkpoint_file, 'rb') as f:
+                # noinspection PickleLoad
                 checkpoint_data = pickle.load(f)
 
             # Basic validation
@@ -130,82 +128,6 @@ class Checkpoint:
         except Exception as e:
             logger.error(f"Error loading checkpoint: {e}")
             return None
-
-
-def visualize_wait(wait_time: float, desc: str = "Rate limit exceeded, waiting") -> None:
-    """
-    Display a progress bar while waiting for rate limit to reset.
-    
-    Args:
-        wait_time: Time to wait in seconds
-        desc: Description to display on the progress bar
-    """
-    # Use a clean tqdm instance to avoid nested progress bars
-    if wait_time > 0:
-        logger.warning(f"Rate limit exceeded. Waiting {wait_time:.1f} seconds...")
-
-        # Convert to integer for tqdm
-        wait_secs = int(wait_time) + 1
-
-        # Display a progress bar for the wait time
-        with tqdm(total=wait_secs, desc=desc, unit="s") as pbar:
-            for _ in range(wait_secs):
-                time.sleep(1)
-                pbar.update(1)
-
-
-def is_binary_file(file_path: str) -> bool:
-    """
-    Check if a file is likely a binary file based on its extension.
-    
-    Args:
-        file_path: Path to the file to check
-        
-    Returns:
-        True if file is likely binary, False otherwise
-    """
-    # File extensions that typically indicate binary files
-    binary_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.pdf',
-                         '.zip', '.gz', '.tar', '.7z', '.rar', '.exe', '.dll',
-                         '.so', '.pyc', '.class', '.jar', '.war', '.ear'}
-    return Path(file_path).suffix.lower() in binary_extensions
-
-
-def is_config_file(file_path: str) -> bool:
-    """
-    Check if a file is likely a configuration file based on its name or extension.
-    
-    Args:
-        file_path: Path to the file to check
-        
-    Returns:
-        True if file is likely a config file, False otherwise
-    """
-    path = Path(file_path)
-    config_extensions = {'.json', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg', '.xml'}
-    config_names = {'config', 'settings', 'preferences', 'environment'}
-
-    return (path.suffix.lower() in config_extensions or
-            path.stem.lower() in config_names or
-            'config' in path.stem.lower())
-
-
-def is_cicd_file(file_path: str) -> bool:
-    """
-    Check if a file is likely related to CI/CD configuration.
-    
-    Args:
-        file_path: Path to the file to check
-        
-    Returns:
-        True if file is likely a CI/CD file, False otherwise
-    """
-    path = Path(file_path)
-    cicd_indicators = {'.github/workflows', '.circleci', '.gitlab-ci', 'jenkins', 'travis',
-                       'azure-pipelines', 'bitbucket-pipelines', '.drone.yml'}
-
-    return any(indicator in str(path).lower() for indicator in cicd_indicators)
-
 
 def is_test_file(file_path: str) -> bool:
     """
@@ -255,70 +177,3 @@ def get_file_language(file_path: str) -> str:
         '.tex': 'LaTeX', '.ltx': 'LaTeX', '.latex': 'LaTeX'
     }
     return ext_to_language.get(Path(file_path).suffix.lower(), 'Other')
-
-
-def is_excluded_path(file_path: str) -> bool:
-    """
-    Check if a file path should be excluded from analysis.
-    
-    Excludes generated files, dependencies, and other non-interesting paths.
-    
-    Args:
-        file_path: Path to check
-        
-    Returns:
-        True if path should be excluded, False otherwise
-    """
-    # Convert to lowercase for case-insensitive matching
-    lower_path = str(file_path).lower()
-
-    # Common directories to exclude
-    excluded_dirs = {
-        'node_modules/', 'venv/', '.venv/', '.git/', '.idea/', '.vscode/',
-        'dist/', 'build/', 'target/', 'vendor/', 'tmp/', 'temp/',
-        'logs/', '__pycache__/', '.pytest_cache/', '.coverage/', '.nyc_output/',
-        '.yarn/', '.npm/', 'bower_components/', 'jspm_packages/',
-        'migrations/', 'generated/', 'compiled/', 'assets/', 'static/',
-        '.ipynb_checkpoints/', '.angular/', '.next/', '.nuxt/',
-        'coverage/', 'cypress/', 'e2e/', 'test-results/', 'testresults/'
-    }
-
-    # Check if path contains an excluded directory
-    if any(excluded_dir in lower_path for excluded_dir in excluded_dirs):
-        return True
-
-    # Check for dot files/directories
-    path_parts = Path(file_path).parts
-    if any(part.startswith('.') for part in path_parts):
-        # Allow some specific dot directories
-        allowed_dots = {'.github', '.circleci', '.gitlab'}
-        if not any(allowed_dot in part for part in path_parts for allowed_dot in allowed_dots):
-            return True
-
-    # Include the path (not excluded)
-    return False
-
-
-def count_lines_of_code(content: str, file_path: str) -> int:
-    """
-    Count non-blank lines of code in a file.
-    
-    Args:
-        content: File content as string
-        file_path: Path to the file (for language detection)
-        
-    Returns:
-        Number of non-blank lines of code
-    """
-    # Skip binary files
-    if is_binary_file(file_path):
-        return 0
-
-    # Get file extension for language-specific handling
-    ext = Path(file_path).suffix.lower()
-
-    # Count non-blank lines
-    lines = content.splitlines()
-    non_blank_lines = [line for line in lines if line.strip()]
-
-    return len(non_blank_lines)

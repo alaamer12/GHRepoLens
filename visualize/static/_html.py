@@ -190,7 +190,7 @@ def prune_html_content(html_content: str, prune_tags: bool = False) -> Tuple[str
 
         return body_content, head_styles, javascript
 
-    except Exception as e:
+    except Exception:
         # Fallback to regex-based extraction for severely malformed HTML
         return _fallback_extraction(html_content, prune_tags)
 
@@ -585,7 +585,7 @@ class HTMLVisualizer:
     @staticmethod
     def create_stats_section() -> str:
         """Create the stats section of the HTML file"""
-        stats_section = f"""<!-- Stats overview with enhanced animations -->
+        stats_section = """<!-- Stats overview with enhanced animations -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                     <!-- Repositories count - Represents collection/organization -->
                     <div data-aos="zoom-in" data-aos-delay="100" class="stat-card card-3d-effect bg-white dark:bg-gray-800 rounded-lg p-6 border-l-4 border-primary shadow-lg dark:text-white overflow-hidden relative group transform transition-all duration-500 hover:scale-105 hover:shadow-2xl">

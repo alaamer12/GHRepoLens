@@ -94,7 +94,7 @@ class RunnerAnalyzer:
 
         for repo in repos:
             try:
-                repo_stats = analyzer.analyze_single_repository(repo)
+                repo_stats = analyzer.analyze_repo(repo)
                 stats.append(repo_stats)
                 progress.update(task, advance=1, description=f"Analyzed {repo.name}")
             except Exception as e:
@@ -112,7 +112,7 @@ class RunnerAnalyzer:
 
         for repo in org_repo_list:
             try:
-                stats = analyzer.analyze_single_repository(repo)
+                stats = analyzer.analyze_repo(repo)
                 org_stats.append(stats)
                 progress.update(task, advance=1, description=f"Analyzed {repo.name}")
             except Exception as e:
@@ -213,7 +213,7 @@ class RunnerAnalyzer:
         print_header("Analyzing organization repositories (one per org)")
         org_stats_map = self._process_predefined_orgs(github, analyzer, progress)
 
-        analyzer.set_organization_repositories(org_stats_map)
+        analyzer.set_org_repo(org_stats_map)
         return personal_stats
 
     def demo_mode(self, token: str, username: str, analyzer, test_mode: bool = False,
@@ -237,7 +237,7 @@ class RunnerAnalyzer:
             task = progress.add_task("Analyzing repositories", total=min(demo_size, len(all_repos)))
             for repo in all_repos:
                 try:
-                    stats = analyzer.analyze_single_repository(repo)
+                    stats = analyzer.analyze_repo(repo)
                     demo_stats.append(stats)
                     progress.update(task, advance=1, description=f"Analyzed {repo.name}")
                 except Exception as e:
@@ -253,7 +253,7 @@ class RunnerAnalyzer:
         if include_orgs and org_repos:
             print_header("Analyzing organization repositories")
             org_stats_map = self._process_specified_orgs(analyzer, org_repos, test_mode, progress)
-            analyzer.set_organization_repositories(org_stats_map)
+            analyzer.set_org_repo(org_stats_map)
 
         return demo_stats
 
@@ -274,7 +274,7 @@ async def _run_full_analysis(analyzer: GithubLens) -> List[RepoStats]:
     rprint("[bold]-------------------------------[/bold]")
 
     # Run repository analysis and wait for completion
-    return analyzer.analyze_all_repositories()
+    return analyzer.analyze_all_repos()
 
 
 async def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) -> None:
