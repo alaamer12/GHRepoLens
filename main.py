@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
 """
-GitHub Repository Analyzer - Main Entry Point
+GitHub Repository RunnerAnalyzer - Main Entry Point
 
-This module provides the main entry point for the GitHub Repository Analyzer tool.
+This module provides the main entry point for the GitHub Repository RunnerAnalyzer tool.
 It handles configuration loading, user input validation, and executes the analysis
 of GitHub repositories. The analyzer provides detailed insights about repositories
 including code quality, activity metrics, and community engagement.
@@ -20,418 +19,53 @@ import argparse
 import asyncio
 import atexit
 import os
-import random
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, NamedTuple
 
 import dotenv
-from github import Github
 from github.GithubException import GithubException, RateLimitExceededException
-from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 import requests
 
-from config import DEFAULT_CONFIG, Configuration, create_sample_config, create_sample_env, load_config_from_file, shutdown_logging
-from console import console, rprint, logger, print_header, print_info, print_warning, print_error, print_success, \
-    create_progress_bar, configure_logging
+from config import DEFAULT_CONFIG, create_sample_config, create_sample_env, shutdown_logging
+from console import console, logger, print_header, print_info, print_warning, print_error, print_success, \
+    configure_logging
 from lens import GithubLens
 from models import RepoStats
-from visualize import validate_and_deploy_charts, validate_deploy_and_optionally_delete
+from runner_analyzer import RunnerAnalyzer, _print_summary, _handle_rate_limit_exceeded, _handle_github_exception, \
+    _handle_generic_exception, run_analysis
+from visualize import validate_deploy_and_optionally_delete
 
 # Register shutdown_logging to be called when the program exits
 atexit.register(shutdown_logging)
 
 
-async def run_analysis(
-        token: str,
-        username: str,
-        mode: str = "full",
-        config_file: Optional[str] = None,
-        include_orgs: Optional[List[str]] = None,
-        visibility: str = "all",
-        iframe_mode: str = "disabled",
-        vercel_token: str = "",
-        vercel_project_name: str = ""
-) -> None:
-    """
-    Run GitHub repository analysis for the specified user.
-    
-    Performs comprehensive analysis of GitHub repositories, generates reports,
-    and handles exceptions gracefully.
-
-    Args:
-        token: GitHub personal access token for API authentication
-        username: GitHub username whose repositories will be analyzed
-        mode: Analysis mode ("demo", "full", "test", or "quicktest")
-        config_file: Path to custom configuration file (default: None)
-        include_orgs: List of organization names to include in analysis (default: None)
-        visibility: Repository visibility option ("all", "public", or "private")
-        iframe_mode: Mode for iframe embedding ("disabled", "partial", "full")
-        vercel_token: Vercel API token for deployment
-        vercel_project_name: Unique project name for Vercel deployment
-    """
-    demo_mode = mode == "demo"
-    test_mode = mode == "test"
-    quicktest_mode = mode == "quicktest"
-
-    with console.status(f"[bold green]Starting GitHub Repository Analyzer ({mode.upper()} MODE)"):
-        logger.info(
-            f"Starting GitHub Repository Analyzer ({mode.upper()} MODE)"
-        )
-
-        create_sample_config()
-        config: Configuration = DEFAULT_CONFIG.copy()
-
-        if config_file and os.path.exists(config_file):
-            logger.info(f"Loading configuration from {config_file}")
-            file_config = load_config_from_file(config_file)
-            config.update(file_config)
-
-        config["GITHUB_TOKEN"] = token
-        config["USERNAME"] = username
-        config["VISIBILITY"] = visibility
-
-        # Update organizations to include if specified
-        if include_orgs:
-            config["INCLUDE_ORGS"] = include_orgs
-            
-        # Set iframe embedding configuration
-        config["IFRAME_EMBEDDING"] = iframe_mode
-        if iframe_mode != "disabled":
-            config["VERCEL_TOKEN"] = vercel_token
-            config["VERCEL_PROJECT_NAME"] = vercel_project_name or f"ghrepolens-{username.lower()}"
-
-        if demo_mode or test_mode or quicktest_mode:
-            config["CHECKPOINT_FILE"] = f"github_analyzer_{mode}_checkpoint.pkl"
-
-    try:
-        analyzer = GithubLens(config["GITHUB_TOKEN"], config["USERNAME"], config)
-        await _handle_checkpoint_message(config)
-
-        if quicktest_mode:
-            all_stats = await _run_quicktest_mode(token, username, analyzer, include_orgs)
-            if not all_stats:
-                logger.error("❌ No repositories analyzed in quicktest mode")
-                return
-        elif demo_mode or test_mode:
-            all_stats = await _run_demo_mode(token, username, analyzer, test_mode, include_orgs)
-            if not all_stats:
-                logger.error(f"❌ No repositories analyzed in {mode} mode")
-                return
-        else:
-            all_stats = await _run_full_analysis(analyzer)
-            if not all_stats:
-                logger.error("❌ No repositories found or analyzed")
-                return
-
-        await _generate_reports(analyzer, all_stats)
-        _print_summary(analyzer, all_stats, mode)
-
-    except RateLimitExceededException:
-        _handle_rate_limit_exceeded()
-    except GithubException as e:
-        _handle_github_exception(e)
-    except Exception as e:
-        _handle_generic_exception(e)
-        raise
-
-
-async def _handle_checkpoint_message(config: Configuration) -> None:
-    """
-    Display checkpoint resume message if applicable.
-    
-    Args:
-        config: Configuration dictionary containing checkpoint settings
-    """
-    checkpoint_exists = Path(config["CHECKPOINT_FILE"]).exists()
-    if checkpoint_exists and config.get("RESUME_FROM_CHECKPOINT", False):
-        print_info("Found existing checkpoint file")
-        print_success("Will resume analysis from checkpoint")
+class PromptResults(NamedTuple):
+    selected_mode: str
+    selected_visibility: str
+    config_file: str
+    include_orgs: list
+    iframe_mode: str
+    vercel_token: str
+    vercel_project_name: str
 
 
 async def _run_quicktest_mode(
         token: str,
         username: str,
-        analyzer: GithubLens,
-        include_orgs: Optional[List[str]] = None
-) -> List[RepoStats]:
-    """
-    Run analysis in quicktest mode (1 personal repo and 1 repo per organization).
-    
-    Fetches and analyzes repositories for quick testing with predefined organizations.
-    
-    Args:
-        token: GitHub personal access token
-        username: GitHub username to analyze
-        analyzer: Initialized GithubLens instance
-        include_orgs: List of organization names to include in analysis
-        
-    Returns:
-        List of RepoStats objects for analyzed repositories
-    """
-    github = Github(token)
-
-    # Check if we're analyzing the authenticated user (to access private repos)
-    auth_user = github.get_user()
-    if username == auth_user.login:
-        # If analyzing ourselves, use the authenticated user to get all repos including private
-        print_info(f"Analyzing authenticated user {username}, will include private repositories")
-        user = auth_user
-    else:
-        # Otherwise get the specified user (which will only return public repos)
-        user = github.get_user(username)
-
-    # Get all repos and select just one for testing
-    repos = list(user.get_repos())
-    if not repos:
-        print_warning(f"No repositories found for user {username}")
-        return []
-
-    # Just pick the first repository for simplicity in quicktest mode
-    selected_repos = [repos[0]]
-
-    print_header(f"Running quicktest analysis on one personal repository: {selected_repos[0].name}")
-    rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
-    analyzer.rate_display.display_once()
-    rprint("[bold]-------------------------------[/bold]")
-
-    personal_stats: List[RepoStats] = []
-    # Use our progress bar from console
-    progress = create_progress_bar(transient=False)
-
-    with progress:
-        task = progress.add_task(f"Analyzing personal repository", total=1)
-        for repo in selected_repos:
-            try:
-                stats = analyzer.analyze_single_repository(repo)
-                personal_stats.append(stats)
-                progress.update(task, advance=1, description=f"Analyzed {repo.name}")
-            except Exception as e:
-                logger.error(f"Failed to analyze {repo.name}: {e}")
-                progress.update(task, advance=1, description=f"Failed to analyze {repo.name}")
-                continue
-
-    # Use predefined organizations for quicktest mode
-    predefined_orgs = ["JsonAlchemy", "T2F-lab"]
-    org_repos = {}
-
-    print_header(f"Analyzing organization repositories (one per org)")
-    org_stats_map = {}
-
-    for org_name in predefined_orgs:
-        try:
-            print_info(f"Fetching repositories for organization: {org_name}")
-            org = github.get_organization(org_name)
-            org_repos_list = list(org.get_repos())
-
-            if not org_repos_list:
-                print_warning(f"No repositories found for organization {org_name}")
-                continue
-
-            # Just pick the first repository for each org in quicktest mode
-            selected_org_repo = [org_repos_list[0]]
-            print_info(f"Selected repository {selected_org_repo[0].name} from {org_name}")
-
-            org_stats = []
-
-            with progress:
-                task = progress.add_task(f"Analyzing {org_name} repository", total=1)
-                for repo in selected_org_repo:
-                    try:
-                        stats = analyzer.analyze_single_repository(repo)
-                        org_stats.append(stats)
-                        progress.update(task, advance=1, description=f"Analyzed {repo.name}")
-                    except Exception as e:
-                        logger.error(f"Failed to analyze {org_name}/{repo.name}: {e}")
-                        progress.update(task, advance=1, description=f"Failed to analyze {org_name}/{repo.name}")
-                        continue
-
-            if org_stats:
-                org_stats_map[org_name] = org_stats
-
-        except Exception as e:
-            print_warning(f"Failed to fetch repositories for organization {org_name}: {str(e)}")
-            logger.error(f"Failed to fetch organization {org_name}: {e}")
-
-    # Set organization repositories data in the analyzer
-    analyzer.set_organization_repositories(org_stats_map)
-
-    # Return the personal stats - the org stats are stored in the analyzer
-    return personal_stats
+        analyzer,
+) -> List:
+    """Backward compatible wrapper for quicktest mode."""
+    analyzer_instance = RunnerAnalyzer(None)
+    return analyzer_instance.quicktest_mode(token, username, analyzer)
 
 
-async def _run_demo_mode(
-        token: str,
-        username: str,
-        analyzer: GithubLens,
-        test_mode: bool = False,
-        include_orgs: Optional[List[str]] = None
-) -> List[RepoStats]:
-    """
-    Run analysis in demo mode (up to 10 repositories) or test mode (1 repository).
-    
-    Fetches and analyzes repositories for demonstration or testing purposes.
-    
-    Args:
-        token: GitHub personal access token
-        username: GitHub username to analyze
-        analyzer: Initialized GithubLens instance
-        test_mode: Whether to run in test mode (1 repo only)
-        include_orgs: List of organization names to include in analysis
-        
-    Returns:
-        List of RepoStats objects for analyzed repositories
-    """
-    github = Github(token)
-
-    # Check if we're analyzing the authenticated user (to access private repos)
-    auth_user = github.get_user()
-    if username == auth_user.login:
-        # If analyzing ourselves, use the authenticated user to get all repos including private
-        print_info(f"Analyzing authenticated user {username}, will include private repositories")
-        user = auth_user
-    else:
-        # Otherwise get the specified user (which will only return public repos)
-        user = github.get_user(username)
-
-    demo_size = 1 if test_mode else 10
-    repos = list(user.get_repos())
-
-    # Handle organization repositories if specified
-    org_repos = {}
-    if include_orgs:
-        for org_name in include_orgs:
-            try:
-                print_info(f"Fetching repositories for organization: {org_name}")
-                org = github.get_organization(org_name)
-                org_repos[org_name] = list(org.get_repos())
-                print_info(f"Found {len(org_repos[org_name])} repositories in organization {org_name}")
-            except Exception as e:
-                print_warning(f"Failed to fetch repositories for organization {org_name}: {str(e)}")
-                logger.error(f"Failed to fetch organization {org_name}: {e}")
-
-    if demo_size == 10:
-        random.shuffle(repos)
-    all_repos = repos[:demo_size]  # Shuffle the repos to randomize the order
-
-    mode_name = "test" if test_mode else "demo"
-    print_header(f"Running {mode_name} analysis on up to {demo_size} repositories")
-    rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
-    analyzer.rate_display.display_once()
-    rprint("[bold]-------------------------------[/bold]")
-
-    demo_stats: List[RepoStats] = []
-    # Use our new progress bar from console
-    progress = create_progress_bar(transient=False)
-
-    with progress:
-        task = progress.add_task(f"Analyzing repositories", total=min(demo_size, len(all_repos)))
-        for repo in all_repos:
-            try:
-                stats = analyzer.analyze_single_repository(repo)
-                demo_stats.append(stats)
-                progress.update(task, advance=1, description=f"Analyzed {repo.name}")
-            except Exception as e:
-                logger.error(f"Failed to analyze {repo.name}: {e}")
-                progress.update(task, advance=1, description=f"Failed to analyze {repo.name}")
-                continue
-
-            if analyzer.analyzer.check_rate_limit_and_checkpoint(
-                    demo_stats, [s.name for s in demo_stats], []
-            ):
-                break
-
-    # Process organization repositories if any were found
-    if include_orgs and org_repos:
-        print_header(f"Analyzing organization repositories")
-        org_stats_map = {}
-
-        for org_name, org_repo_list in org_repos.items():
-            if test_mode:
-                # Limit to 1 repository per organization in test mode
-                org_repo_list = org_repo_list[:1]
-            elif len(org_repo_list) > 5:
-                # Limit to 5 repositories per organization in demo mode
-                random.shuffle(org_repo_list)
-                org_repo_list = org_repo_list[:5]
-
-            print_info(f"Analyzing up to {len(org_repo_list)} repositories from {org_name}")
-            org_stats = []
-
-            with progress:
-                task = progress.add_task(f"Analyzing {org_name} repositories", total=len(org_repo_list))
-                for repo in org_repo_list:
-                    try:
-                        stats = analyzer.analyze_single_repository(repo)
-                        org_stats.append(stats)
-                        progress.update(task, advance=1, description=f"Analyzed {repo.name}")
-                    except Exception as e:
-                        logger.error(f"Failed to analyze {org_name}/{repo.name}: {e}")
-                        progress.update(task, advance=1, description=f"Failed to analyze {org_name}/{repo.name}")
-                        continue
-
-                    if analyzer.analyzer.check_rate_limit_and_checkpoint(
-                            org_stats, [s.name for s in org_stats], []
-                    ):
-                        break
-
-            if org_stats:
-                org_stats_map[org_name] = org_stats
-
-        # Set organization repositories data in the analyzer
-        analyzer.set_organization_repositories(org_stats_map)
-
-    return demo_stats
-
-
-async def _run_full_analysis(analyzer: GithubLens) -> List[RepoStats]:
-    """
-    Run full analysis of all repositories.
-    
-    Args:
-        analyzer: Initialized GithubLens instance
-        
-    Returns:
-        List of RepoStats objects for all analyzed repositories
-    """
-    print_header("Running full analysis of all repositories")
-    rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
-    analyzer.rate_display.display_once()
-    rprint("[bold]-------------------------------[/bold]")
-
-    # Run repository analysis and wait for completion
-    return analyzer.analyze_all_repositories()
-
-
-async def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) -> None:
-    """
-    Generate reports and visualizations for analyzed repositories.
-    
-    Args:
-        analyzer: Initialized GithubLens instance
-        all_stats: List of RepoStats objects for analyzed repositories
-    """
-    with console.status("[bold green]Generating reports and visualizations...") as status:
-        logger.info("Generating reports")
-        await asyncio.to_thread(analyzer.generate_report, all_stats)
-
-        logger.info("Generating interactive dashboard")
-        status.update("[bold green]Creating interactive dashboard...")
-        await asyncio.to_thread(analyzer.generate_visualizations, all_stats)
-
-        # Create reports directory if it doesn't exist
-        Path(analyzer.config["REPORTS_DIR"]).mkdir(exist_ok=True)
-        
-        # Check if iframe embedding is enabled and deploy charts if needed
-        if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
-            status.update("[bold green]Deploying charts for iframe embedding...")
-            await asyncio.to_thread(validate_and_deploy_charts, analyzer.config)
-
-
-async def _generate_reports_with_quicktest(analyzer: GithubLens, all_stats: List[RepoStats], delete_project: bool) -> None:
+async def _generate_reports_with_quicktest(analyzer: GithubLens, all_stats: List[RepoStats],
+                                           delete_project: bool) -> None:
     """
     Generate reports and visualizations for analyzed repositories with quicktest options.
-    
+
     Args:
         analyzer: Initialized GithubLens instance
         all_stats: List of RepoStats objects for analyzed repositories
@@ -447,449 +81,472 @@ async def _generate_reports_with_quicktest(analyzer: GithubLens, all_stats: List
 
         # Create reports directory if it doesn't exist
         Path(analyzer.config["REPORTS_DIR"]).mkdir(exist_ok=True)
-        
+
         # Check if iframe embedding is enabled and deploy charts if needed
         if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
             status.update("[bold green]Deploying charts for iframe embedding...")
+            # noinspection PyTypeChecker
             success, embedder = await asyncio.to_thread(
-                validate_deploy_and_optionally_delete, 
-                analyzer.config
+                validate_deploy_and_optionally_delete,
+                analyzer.config,
             )
-            
+
             # If deployment was successful and delete_project flag is set, prompt to delete
             if success and delete_project and embedder:
                 if Confirm.ask(
-                    "Would you like to delete the Vercel project now that testing is complete?", 
-                    default=True
+                        "Would you like to delete the Vercel project now that testing is complete?",
+                        default=True
                 ):
                     status.update("[bold yellow]Deleting Vercel project...")
                     await asyncio.to_thread(embedder.delete_project)
 
 
-def _print_summary(analyzer: GithubLens, all_stats: List[RepoStats], mode: str) -> None:
-    """
-    Print analysis summary to console.
-    
-    Args:
-        analyzer: Initialized GithubLens instance
-        all_stats: List of RepoStats objects for analyzed repositories
-        mode: Analysis mode ("demo", "full", "test", or "quicktest")
-    """
-    analyzed_count = len(all_stats)
-    summary_text = (
-        f"✅ Analyzed {analyzed_count} repositories for @{analyzer.config['USERNAME']}\n\n"
-        f"📊 Generated reports in {analyzer.config['REPORTS_DIR']} directory\n"
-        f"📈 Created visualizations and interactive dashboard\n"
-    )
-
-    if analyzer.config.get("IFRAME_EMBEDDING", "disabled") != "disabled":
-        summary_text += f"🌐 Charts deployed for iframe embedding (mode: {analyzer.config['IFRAME_EMBEDDING']})\n"
-
-    if mode == "demo":
-        summary_text += "\n⚠️ Demo mode: Limited to 10 repositories\n"
-        summary_text += "🔄 Run without --demo flag to analyze all repositories"
-    elif mode == "test":
-        summary_text += "\n⚠️ Test mode: Limited to 1 repository for quick testing\n"
-        summary_text += "🔄 Run without --test flag to analyze all repositories"
-    elif mode == "quicktest":
-        summary_text += "\n⚠️ Quicktest mode: Limited to 1 personal repository and 1 repository per organization\n"
-        summary_text += "🔄 This is a temporary test mode for specific development purposes"
-
-    summary_panel = Panel(
-        summary_text,
-        title="[bold]Analysis Complete[/bold]",
-        border_style="green",
-        padding=(1, 2)
-    )
-
-    console.print(summary_panel)
-
-    # List reports and visualizations
-    print_header("Generated Reports & Visualizations")
-
-    reports_dir = Path(analyzer.config["REPORTS_DIR"])
-    if reports_dir.exists():
-        files = list(reports_dir.glob("*.html")) + list(reports_dir.glob("*.json"))
-        for file in sorted(files):
-            print_info(f"📄 {file.name}")
-    else:
-        print_warning("Reports directory not found")
-
-
-def _handle_rate_limit_exceeded() -> None:
-    """
-    Handle GitHub API rate limit exceeded exception.
-    """
-    message = (
-        "⛔ GitHub API rate limit exceeded!\n\n"
-        "The GitHub API enforces rate limits to prevent abuse.\n"
-        "Your analysis was interrupted because you reached this limit.\n\n"
-        "Please wait an hour for the rate limit to reset, then try again.\n"
-        "Your progress has been saved in the checkpoint file."
-    )
-
-    console.print(Panel(message, title="[bold red]Rate Limit Exceeded[/bold red]", border_style="red"))
-    logger.error("GitHub API rate limit exceeded")
-
-
-def _handle_github_exception(e: GithubException) -> None:
-    """
-    Handle GitHub API general exception.
-    
-    Args:
-        e: GitHub exception to handle
-    """
-    error_message = str(e)
-    if len(error_message) > 100:
-        error_message = error_message[:100] + "..."
-
-    message = (
-        f"⚠️ GitHub API error occurred: {e.status} - {error_message}\n\n"
-        "This could be due to:\n"
-        "- Invalid or expired GitHub token\n"
-        "- Network connectivity issues\n"
-        "- User or repository not found\n\n"
-        "Please check your GitHub token and try again."
-    )
-
-    console.print(Panel(message, title="[bold yellow]GitHub API Error[/bold yellow]", border_style="yellow"))
-    logger.error(f"GitHub exception: {e}")
-
-
-def _handle_generic_exception(e: Exception) -> None:
-    """
-    Handle general exception.
-    
-    Args:
-        e: Exception to handle
-    """
-    error_message = str(e)
-    if len(error_message) > 100:
-        error_message = error_message[:100] + "..."
-
-    message = (
-        f"❌ An error occurred: {error_message}\n\n"
-        "This could be due to:\n"
-        "- Missing or invalid configuration\n"
-        "- Network connectivity issues\n"
-        "- Unexpected data format\n\n"
-        "Check the log file for more details."
-    )
-
-    console.print(Panel(message, title="[bold red]Error[/bold red]", border_style="red"))
-    logger.exception(f"Unexpected error: {e}")
-
-
-async def main() -> None:
-    """
-    Main entry point for the GitHub Repository Analyzer tool.
-    
-    Handles command-line arguments, prompts for required inputs,
-    and runs the analysis process.
-    """
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="GitHub Repository Analyzer")
-    parser.add_argument('--quicktest', action='store_true', help='Run quick test with predefined parameters')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging to the console')
-    parser.add_argument('--iframe', choices=['disabled', 'partial', 'full'], 
-                       help='Enable iframe embedding of charts (requires Vercel account)')
-    parser.add_argument('--delete-project', action='store_true', 
-                       help='Delete Vercel project after deployment (only with --quicktest)')
+def parse_args():
+    parser = argparse.ArgumentParser(description="GitHub Repository RunnerAnalyzer")
+    parser.add_argument('--quicktest', action='store_true',
+                        help='Run quick test with predefined parameters')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose logging to the console')
+    parser.add_argument('--iframe', choices=['disabled', 'partial', 'full'],
+                        help='Enable iframe embedding of charts (requires Vercel account)')
+    parser.add_argument('--delete-project', action='store_true',
+                        help='Delete Vercel project after deployment (only with --quicktest)')
     parser.add_argument('--test-vercel', action='store_true',
-                       help='Test Vercel token validity without running analysis')
+                        help='Test Vercel token validity without running analysis')
+
     # Use parse_known_args to ignore any additional args (important for Google Colab)
-    args, _ = parser.parse_known_args()
+    return parser.parse_known_args()
 
-    # Configure logging based on verbosity
-    # This must be done before any logging happens
-    configure_logging(log_to_console=args.verbose)
 
-    # Create sample configuration files if they don't exist
-    create_sample_config()
-    create_sample_env()
+class EnvironmentManager:
+    """Manages environment variables and configuration."""
 
-    # Load environment variables from .env file if present
-    env_path = Path('.env')
-    if env_path.exists():
-        print_info(f"Loading environment variables from {env_path.absolute()}")
-        dotenv.load_dotenv(dotenv_path=env_path, override=True)
-    else:
-        print_warning("No .env file found in the current directory")
-        
-    # Debug: Show loaded environment variables (without showing sensitive values)
-    if args.verbose:
+    @staticmethod
+    def load_environment(verbose: bool = False):
+        """Load environment variables from .env file if present."""
+        env_path = Path('.env')
+        if env_path.exists():
+            print_info(f"Loading environment variables from {env_path.absolute()}")
+            dotenv.load_dotenv(dotenv_path=env_path, override=True)
+        else:
+            print_warning("No .env file found in the current directory")
+
+        if verbose:
+            EnvironmentManager._debug_environment_variables()
+
+    @staticmethod
+    def _debug_environment_variables():
+        """Debug: Show loaded environment variables (without showing sensitive values)."""
         print_info("Loaded environment variables:")
+
+        # Show non-sensitive variables
         for key in ["GITHUB_USERNAME", "IFRAME_EMBEDDING", "VERCEL_PROJECT_NAME"]:
             if key in os.environ:
                 print_info(f"  {key} = {os.environ[key]}")
-        # Show if token exists but not its value
+
+        # Show if sensitive tokens exist but not their values
         for key in ["GITHUB_TOKEN", "VERCEL_TOKEN"]:
             if key in os.environ:
                 print_info(f"  {key} = [HIDDEN]")
-                
-    # Test Vercel token if requested
-    if args.test_vercel:
-        vercel_token = os.environ.get("VERCEL_TOKEN", "")
-        if not vercel_token:
-            print_error("No Vercel token found in environment variables")
-            return
-            
+
+    @staticmethod
+    def get_required_env_var(var_name: str, error_message: str) -> Optional[str]:
+        """Get required environment variable with error handling."""
+        value = os.environ.get(var_name, "")
+        if not value:
+            print_error(error_message)
+            print_info("You can create a .env file with your credentials. See .env.sample for an example.")
+            return None
+        return value
+
+
+class VercelTokenValidator:
+    """Handles Vercel token validation and testing."""
+
+    @staticmethod
+    def test_token(token: str) -> bool:
+        """Test Vercel token validity."""
         print_info("Testing Vercel token validity...")
         try:
             headers = {
-                "Authorization": f"Bearer {vercel_token.strip()}",
+                "Authorization": f"Bearer {token.strip()}",
                 "Content-Type": "application/json"
             }
-            
-            response = requests.get(
-                "https://api.vercel.com/v2/user", 
-                headers=headers,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                user_data = response.json()
-                username = user_data.get("user", {}).get("username", "unknown")
-                print_success(f"Vercel token is valid! Authenticated as: {username}")
-                
-                # Also test listing projects
-                print_info("Testing project listing...")
-                proj_response = requests.get(
-                    "https://api.vercel.com/v2/projects", 
-                    headers=headers,
-                    timeout=10
-                )
-                
-                if proj_response.status_code == 200:
-                    projects = proj_response.json()  # v2 API returns array directly
-                    print_success(f"Successfully listed {len(projects)} projects")
-                    for project in projects[:5]:  # Show up to 5 projects
-                        print_info(f"  - {project.get('name')} (ID: {project.get('id')})")
-                else:
-                    print_error(f"Failed to list projects: HTTP {proj_response.status_code}")
-                    print_info(f"Response: {proj_response.text[:200]}")
-            else:
-                print_error(f"Vercel token validation failed: HTTP {response.status_code}")
-                print_info(f"Response: {response.text[:200]}")
-                
+
+            # Test user authentication
+            if not VercelTokenValidator._test_user_auth(headers):
+                return False
+
+            # Test project listing
+            return VercelTokenValidator._test_project_listing(headers)
+
         except Exception as e:
             print_error(f"Error testing Vercel token: {str(e)}")
-            
-        # Exit after token test
-        return
+            return False
 
-    if args.quicktest:
-        # Use environment variables or defaults for quicktest mode
-        github_token = os.environ.get("GITHUB_TOKEN", "")
+    @staticmethod
+    def _test_user_auth(headers: Dict[str, str]) -> bool:
+        """Test user authentication."""
+        response = requests.get("https://api.vercel.com/v2/user", headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            user_data = response.json()
+            username = user_data.get("user", {}).get("username", "unknown")
+            print_success(f"Vercel token is valid! Authenticated as: {username}")
+            return True
+        else:
+            print_error(f"Vercel token validation failed: HTTP {response.status_code}")
+            print_info(f"Response: {response.text[:200]}")
+            return False
+
+    @staticmethod
+    def _test_project_listing(headers: Dict[str, str]) -> bool:
+        """Test project listing capability."""
+        print_info("Testing project listing...")
+        proj_response = requests.get("https://api.vercel.com/v2/projects", headers=headers, timeout=10)
+
+        if proj_response.status_code == 200:
+            projects = proj_response.json()  # v2 API returns array directly
+            print_success(f"Successfully listed {len(projects)} projects")
+
+            # Show up to 5 projects
+            for project in projects[:5]:
+                print_info(f"  - {project.get('name')} (ID: {project.get('id')})")
+            return True
+        else:
+            print_error(f"Failed to list projects: HTTP {proj_response.status_code}")
+            print_info(f"Response: {proj_response.text[:200]}")
+            return False
+
+
+class QuickTestConfig:
+    """Handles configuration for quicktest mode."""
+
+    DEFAULT_ORGS = ["JsonAlchemy", "T2F-Labs"]
+
+    @classmethod
+    def create_config(cls, args) -> Optional[Dict[str, Any]]:
+        """Create configuration for quicktest mode."""
+        # Get required tokens
+        github_token = EnvironmentManager.get_required_env_var(
+            "GITHUB_TOKEN",
+            "GitHub token not found in environment. Set GITHUB_TOKEN environment variable."
+        )
         if not github_token:
-            print_error("GitHub token not found in environment. Set GITHUB_TOKEN environment variable.")
-            print_info("You can create a .env file with your credentials. See .env.sample for an example.")
-            return
+            return None
 
-        github_username = os.environ.get("GITHUB_USERNAME", "")
+        github_username = EnvironmentManager.get_required_env_var(
+            "GITHUB_USERNAME",
+            "GitHub username not found in environment. Set GITHUB_USERNAME environment variable."
+        )
         if not github_username:
-            print_error("GitHub username not found in environment. Set GITHUB_USERNAME environment variable.")
-            print_info("You can create a .env file with your credentials. See .env.sample for an example.")
-            return
+            return None
 
-        # Set predefined organizations for quicktest mode
-        include_orgs = ["JsonAlchemy", "T2F-Labs"]
+        # Get visibility setting
+        visibility = cls._get_visibility()
 
-        # Use default visibility (all)
+        # Get iframe and Vercel configuration
+        iframe_mode, vercel_token, vercel_project_name = cls._get_vercel_config(
+            args, github_username
+        )
+
+        if iframe_mode != "disabled" and not vercel_token:
+            return None
+
+        # Create configuration object
+        config = DEFAULT_CONFIG.copy()
+        config.update({
+            "GITHUB_TOKEN": github_token,
+            "USERNAME": github_username,
+            "VISIBILITY": visibility,
+            "INCLUDE_ORGS": cls.DEFAULT_ORGS,
+            "IFRAME_EMBEDDING": iframe_mode,
+            "VERCEL_TOKEN": vercel_token,
+            "VERCEL_PROJECT_NAME": vercel_project_name
+        })
+
+        return config
+
+    @staticmethod
+    def _get_visibility() -> str:
+        """Get and validate visibility setting."""
         visibility = os.environ.get("GITHUB_VISIBILITY", "all")
 
-        # Validate visibility value
         if visibility not in ["all", "public", "private"]:
             print_warning(f"Invalid visibility value '{visibility}', using default 'all'.")
             visibility = "all"
-            
-        # Check if iframe embedding is enabled from command line
+
+        return visibility
+
+    @staticmethod
+    def _get_vercel_config(args, github_username: str) -> tuple[str, str, str]:
+        """Get Vercel configuration for iframe embedding."""
         iframe_mode = args.iframe or os.environ.get("IFRAME_EMBEDDING", "disabled")
         vercel_token = os.environ.get("VERCEL_TOKEN", "")
         vercel_project_name = os.environ.get("VERCEL_PROJECT_NAME", "")
-        
+
         # Validate Vercel configuration if iframe embedding is enabled
         if iframe_mode != "disabled":
             if not vercel_token:
                 print_error("Vercel token not found in environment. Set VERCEL_TOKEN environment variable.")
                 print_info("You can create a .env file with your credentials. See .env.sample for an example.")
                 print_info("Or get a token from https://vercel.com/account/tokens")
-                return
-                
+                return iframe_mode, "", ""
+
             if not vercel_project_name:
                 # Generate a default project name based on username and timestamp
-                import time
                 timestamp = int(time.time())
                 vercel_project_name = f"ghrepolens-{github_username.lower()}-{timestamp}"
                 print_info(f"Generated Vercel project name: {vercel_project_name}")
 
-        # Create a configuration object
-        config = DEFAULT_CONFIG.copy()
-        config["GITHUB_TOKEN"] = github_token
-        config["USERNAME"] = github_username
-        config["VISIBILITY"] = visibility
-        config["INCLUDE_ORGS"] = include_orgs
-        config["IFRAME_EMBEDDING"] = iframe_mode
-        config["VERCEL_TOKEN"] = vercel_token
-        config["VERCEL_PROJECT_NAME"] = vercel_project_name
-        
-        # Initialize the analyzer
-        try:
-            analyzer = GithubLens(config["GITHUB_TOKEN"], config["USERNAME"], config)
-            
-            # Run the quicktest analysis
-            all_stats = await _run_quicktest_mode(
-                token=github_token,
-                username=github_username,
-                analyzer=analyzer,
-                include_orgs=include_orgs
+        return iframe_mode, vercel_token, vercel_project_name
+
+
+class InteractivePrompts:
+    """Handles interactive user prompts."""
+
+    @staticmethod
+    def github_credentials() -> tuple[str, str]:
+        """Get GitHub credentials from environment or user input."""
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        if not github_token:
+            github_token = Prompt.ask(
+                "[bold]GitHub Token[/bold] (create at https://github.com/settings/tokens)",
+                password=True
             )
-            
-            if not all_stats:
-                logger.error("❌ No repositories analyzed in quicktest mode")
-                return
-                
-            # Generate reports with quicktest options
-            await _generate_reports_with_quicktest(
-                analyzer=analyzer, 
-                all_stats=all_stats, 
-                delete_project=args.delete_project
+
+        github_username = os.environ.get("GITHUB_USERNAME", "")
+        if not github_username:
+            github_username = Prompt.ask("[bold]GitHub Username[/bold] (to analyze)")
+
+        return github_token, github_username
+
+    @staticmethod
+    def analysis_mode() -> str:
+        """Get analysis mode from user."""
+        mode_options = {"1": "full", "2": "demo", "3": "test"}
+
+        print_header("Select Analysis Mode")
+        console.print("[1] Full Analysis - Analyze all repositories (may take longer)")
+        console.print("[2] Demo Mode - Analyze up to 10 repositories")
+        console.print("[3] Test Mode - Analyze 1 repository (quick test)")
+
+        mode_choice = Prompt.ask("[bold]Choose mode[/bold]", choices=["1", "2", "3"], default="1")
+        return mode_options[mode_choice]
+
+    @staticmethod
+    def get_visibility_setting() -> str:
+        """Get repository visibility setting from user."""
+        visibility_options = {"1": "all", "2": "public", "3": "private"}
+
+        print_header("Select Repository Visibility")
+        console.print("[1] All - Include both public and private repositories")
+        console.print("[2] Public - Include only public repositories")
+        console.print("[3] Private - Include only private repositories")
+
+        visibility_choice = Prompt.ask("[bold]Choose visibility[/bold]", choices=["1", "2", "3"], default="1")
+        return visibility_options[visibility_choice]
+
+    @staticmethod
+    def config_file() -> Optional[str]:
+        """Get custom config file path from user."""
+        use_config = Confirm.ask("Use custom config file?", default=False)
+        if use_config:
+            return Prompt.ask("[bold]Path to config file[/bold]", default="config.ini")
+        return None
+
+    @staticmethod
+    def organization_list() -> List[str]:
+        """Get organization list from user."""
+        include_orgs = []
+        include_orgs_option = Confirm.ask("Include organization repositories?", default=False)
+
+        if include_orgs_option:
+            org_input = Prompt.ask(
+                "[bold]Organization names[/bold] (comma-separated)",
+                default=""
             )
-            
-            # Print summary
-            _print_summary(analyzer, all_stats, "quicktest")
-            
-        except RateLimitExceededException:
-            _handle_rate_limit_exceeded()
-        except GithubException as e:
-            _handle_github_exception(e)
-        except Exception as e:
-            _handle_generic_exception(e)
-            raise
 
-        return
+            if org_input:
+                include_orgs = InteractivePrompts._parse_organization_input(org_input)
 
-    # Interactive mode - original code from here
-    # Welcome banner
-    print_header("GitHub Repository Analyzer")
+        return include_orgs
 
-    # Check for token from environment variable
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        # Prompt for GitHub token if not in environment
-        github_token = Prompt.ask(
-            "[bold]GitHub Token[/bold] (create at https://github.com/settings/tokens)",
-            password=True
-        )
-
-    # Check for username from environment variable
-    github_username = os.environ.get("GITHUB_USERNAME", "")
-    if not github_username:
-        # Prompt for GitHub username if not in environment
-        github_username = Prompt.ask("[bold]GitHub Username[/bold] (to analyze)")
-
-    # Ask for analysis mode
-    mode_options = {
-        "1": "full",
-        "2": "demo",
-        "3": "test"
-    }
-
-    print_header("Select Analysis Mode")
-    console.print("[1] Full Analysis - Analyze all repositories (may take longer)")
-    console.print("[2] Demo Mode - Analyze up to 10 repositories")
-    console.print("[3] Test Mode - Analyze 1 repository (quick test)")
-
-    mode_choice = Prompt.ask("[bold]Choose mode[/bold]", choices=["1", "2", "3"], default="1")
-    selected_mode = mode_options[mode_choice]
-
-    # Ask for repository visibility
-    visibility_options = {
-        "1": "all",
-        "2": "public",
-        "3": "private"
-    }
-
-    print_header("Select Repository Visibility")
-    console.print("[1] All - Include both public and private repositories")
-    console.print("[2] Public - Include only public repositories")
-    console.print("[3] Private - Include only private repositories")
-
-    visibility_choice = Prompt.ask("[bold]Choose visibility[/bold]", choices=["1", "2", "3"], default="1")
-    selected_visibility = visibility_options[visibility_choice]
-
-    # Ask for custom config file
-    use_config = Confirm.ask("Use custom config file?", default=False)
-    config_file = None
-    if use_config:
-        config_file = Prompt.ask("[bold]Path to config file[/bold]", default="config.ini")
-
-    # Ask if user wants to include organization repositories
-    include_orgs = []
-    include_orgs_option = Confirm.ask("Include organization repositories?", default=False)
-    if include_orgs_option:
-        org_input = Prompt.ask(
-            "[bold]Organization names[/bold] (comma-separated)",
-            default=""
-        )
-        if org_input:
-            # Check if input follows the comma-separated format
-            if "," in org_input or not org_input.strip():
-                include_orgs = [org.strip() for org in org_input.split(",") if org.strip()]
-                if include_orgs:
-                    print_info(f"Will include repositories from organizations: {', '.join(include_orgs)}")
-                else:
-                    print_warning("No valid organization names provided. Continuing without organization repositories.")
+    @staticmethod
+    def _parse_organization_input(org_input: str) -> List[str]:
+        """Parse organization input string."""
+        if "," in org_input or not org_input.strip():
+            include_orgs = [org.strip() for org in org_input.split(",") if org.strip()]
+            if include_orgs:
+                print_info(f"Will include repositories from organizations: {', '.join(include_orgs)}")
             else:
-                # Single organization name without commas
-                include_orgs = [org_input.strip()]
-                print_info(f"Will include repositories from organization: {include_orgs[0]}")
+                print_warning("No valid organization names provided. Continuing without organization repositories.")
+        else:
+            # Single organization name without commas
+            include_orgs = [org_input.strip()]
+            print_info(f"Will include repositories from organization: {include_orgs[0]}")
 
-    # Ask for iframe embedding mode
-    iframe_mode = args.iframe
-    vercel_token = ""
-    vercel_project_name = ""
-    
-    if iframe_mode is None:  # Only ask if not provided in command line
-        iframe_options = {
-            "1": "disabled",
-            "2": "partial",
-            "3": "full"
-        }
-    
+        return include_orgs
+
+    @staticmethod
+    def iframe_settings(args, github_username: str) -> tuple[str, str, str]:
+        """Get iframe embedding settings from user."""
+        iframe_mode = args.iframe
+        vercel_token = ""
+        vercel_project_name = ""
+
+        if iframe_mode is None:  # Only ask if not provided in command line
+            iframe_mode = InteractivePrompts._get_iframe_mode()
+
+        # If iframe embedding is enabled, ask for Vercel token and project name
+        if iframe_mode and iframe_mode != "disabled":
+            vercel_token, vercel_project_name = InteractivePrompts._get_vercel_credentials(github_username)
+
+        return iframe_mode, vercel_token, vercel_project_name
+
+    @staticmethod
+    def _get_iframe_mode() -> str:
+        """Get iframe embedding mode from user."""
+        iframe_options = {"1": "disabled", "2": "partial", "3": "full"}
+
         print_header("IFrame Embedding Options")
         console.print("[1] Disabled - No iframe embedding (default)")
         console.print("[2] Partial - Deploy key chart HTML files")
         console.print("[3] Full - Deploy all HTML files including dashboard")
-    
-        iframe_choice = Prompt.ask("[bold]Choose iframe embedding mode[/bold]", choices=["1", "2", "3"], default="1")
-        iframe_mode = iframe_options[iframe_choice]
 
-    # If iframe embedding is enabled, ask for Vercel token and project name
-    if iframe_mode and iframe_mode != "disabled":
+        iframe_choice = Prompt.ask("[bold]Choose iframe embedding mode[/bold]", choices=["1", "2", "3"], default="1")
+        return iframe_options[iframe_choice]
+
+    @staticmethod
+    def _get_vercel_credentials(github_username: str) -> tuple[str, str]:
+        """Get Vercel credentials from user."""
         # Try to get token from environment
         vercel_token = os.environ.get("VERCEL_TOKEN", "")
         if not vercel_token:
             vercel_token = Prompt.ask("[bold]Vercel token[/bold] (required for deployment)", password=True)
-            
+
         vercel_project_name = os.environ.get("VERCEL_PROJECT_NAME", "")
         if not vercel_project_name:
             vercel_project_name = Prompt.ask(
-                "[bold]Vercel project name[/bold] (must be unique)", 
+                "[bold]Vercel project name[/bold] (must be unique)",
                 default=f"ghrepolens-{github_username.lower()}"
             )
+
+        return vercel_token, vercel_project_name
+
+
+async def run_quicktest(config: Dict[str, Any], delete_project: bool = False):
+    """Run quicktest analysis mode."""
+    try:
+        analyzer = GithubLens(config["GITHUB_TOKEN"], config["USERNAME"], config)
+
+        # Run the quicktest analysis
+        all_stats = await _run_quicktest_mode(
+            token=config["GITHUB_TOKEN"],
+            username=config["USERNAME"],
+            analyzer=analyzer,
+        )
+
+        if not all_stats:
+            logger.error("❌ No repositories analyzed in quicktest mode")
+            return
+
+        # Generate reports with quicktest options
+        await _generate_reports_with_quicktest(
+            analyzer=analyzer,
+            all_stats=all_stats,
+            delete_project=delete_project
+        )
+
+        # Print summary
+        _print_summary(analyzer, all_stats, "quicktest")
+
+    except RateLimitExceededException:
+        _handle_rate_limit_exceeded()
+    except GithubException as e:
+        _handle_github_exception(e)
+    except Exception as e:
+        _handle_generic_exception(e)
+        raise
+
+
+def collect_prompt_results(args, github_username) -> PromptResults:
+    selected_mode = InteractivePrompts.analysis_mode()
+    selected_visibility = InteractivePrompts.get_visibility_setting()
+    config_file = InteractivePrompts.config_file()
+    include_orgs = InteractivePrompts.organization_list()
+    iframe_mode, vercel_token, vercel_project_name = InteractivePrompts.iframe_settings(args, github_username)
+
+    return PromptResults(
+        selected_mode=selected_mode,
+        selected_visibility=selected_visibility,
+        config_file=config_file,
+        include_orgs=include_orgs,
+        iframe_mode=iframe_mode,
+        vercel_token=vercel_token,
+        vercel_project_name=vercel_project_name
+    )
+
+
+async def main() -> None:
+    """
+    Main entry point for the GitHub Repository RunnerAnalyzer tool.
+
+    Handles command-line arguments, prompts for required inputs,
+    and runs the analysis process.
+    """
+    # Parse command-line arguments
+    args, _ = parse_args()
+
+    # Configure logging based on verbosity
+    configure_logging(log_to_console=args.verbose)
+
+    # Create sample configuration files if they don't exist
+    create_sample_config()
+    create_sample_env()
+
+    # Load environment variables
+    EnvironmentManager.load_environment(verbose=args.verbose)
+
+    # Handle Vercel token testing
+    if args.test_vercel:
+        vercel_token = os.environ.get("VERCEL_TOKEN", "")
+        if not vercel_token:
+            print_error("No Vercel token found in environment variables")
+            return
+
+        VercelTokenValidator.test_token(vercel_token)
+        return
+
+    # Handle quicktest mode
+    if args.quicktest:
+        config = QuickTestConfig.create_config(args)
+        if config is None:
+            return
+
+        await run_quicktest(config, args.delete_project)
+        return
+
+    # Interactive mode
+    print_header("GitHub Repository RunnerAnalyzer")
+
+    # Get GitHub credentials
+    github_token, github_username = InteractivePrompts.github_credentials()
+
+    # Get analysis settings
+    results = collect_prompt_results(args, github_username)
 
     # Run the analysis
     await run_analysis(
         token=github_token,
         username=github_username,
-        mode=selected_mode,
-        config_file=config_file,
-        include_orgs=include_orgs,
-        visibility=selected_visibility,
-        iframe_mode=iframe_mode,
-        vercel_token=vercel_token,
-        vercel_project_name=vercel_project_name
+        mode=results.selected_mode,
+        config_file=results.config_file,
+        include_orgs=results.include_orgs,
+        visibility=results.selected_visibility,
+        iframe_mode=results.iframe_mode,
+        vercel_token=results.vercel_token,
+        vercel_project_name=results.vercel_project_name
     )
 
 
