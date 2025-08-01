@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Data Models for GitHub Repository Analyzer
+Data Models for GitHub Repository RunnerAnalyzer
 
 This module defines the data structures used to store and manipulate repository 
 information and statistics. The module uses dataclasses to create a clean, 

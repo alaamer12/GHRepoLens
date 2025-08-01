@@ -1,8 +1,8 @@
 """
-Configuration Module for GitHub Repository Analyzer
+Configuration Module for GitHub Repository RunnerAnalyzer
 
 This module provides configuration settings and constants used
-throughout the GitHub Repository Analyzer. It handles loading configuration from
+throughout the GitHub Repository RunnerAnalyzer. It handles loading configuration from
 files and defines constants for file categorization.
 
 Key components:

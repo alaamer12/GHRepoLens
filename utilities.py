@@ -1,8 +1,8 @@
 """
-Utility Classes and Functions for GitHub Repository Analyzer
+Utility Classes and Functions for GitHub Repository RunnerAnalyzer
 
 This module provides common utility functions and classes used across the GitHub
-Repository Analyzer tool. It includes utilities for checkpointing analysis progress, 
+Repository RunnerAnalyzer tool. It includes utilities for checkpointing analysis progress,
 file operations, and string/path manipulation.
 
 Key components:

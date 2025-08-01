@@ -297,42 +297,6 @@ class PersonalRepoAnalysis:
             )
         )
 
-        # Save a reference to the figure in JavaScript global scope with improved handling
-        store_as_global = """
-        window.dashboardFigure = document.getElementById('main-dashboard')._fullData;
-        
-        // Enhanced responsive handling
-        function updateModeBarVisibility() {
-            var modeBarButtons = document.querySelectorAll('.modebar-container');
-            var isMobile = window.innerWidth <= 768;
-            
-            for (var i = 0; i < modeBarButtons.length; i++) {
-                // Hide full modebar on mobile, show minimal controls
-                var buttons = modeBarButtons[i].querySelectorAll('.modebar-btn');
-                for (var j = 0; j < buttons.length; j++) {
-                    // On mobile, only show download and zoom buttons
-                    var isEssentialButton = buttons[j].getAttribute('data-title') === 'Download plot as a png' || 
-                                           buttons[j].getAttribute('data-title') === 'Zoom' ||
-                                           buttons[j].getAttribute('data-title') === 'Reset axes';
-                    buttons[j].style.display = (isMobile && !isEssentialButton) ? 'none' : 'inline-block';
-                }
-                
-                // Adjust modebar position on mobile
-                modeBarButtons[i].style.top = isMobile ? '10px' : '0';
-                modeBarButtons[i].style.right = isMobile ? '5px' : '0';
-            }
-        }
-        
-        window.addEventListener('resize', function() {
-            if (window.resizeTimer) clearTimeout(window.resizeTimer);
-            window.resizeTimer = setTimeout(updateModeBarVisibility, 250);
-        });
-        
-        // Initial setup
-        setTimeout(updateModeBarVisibility, 1000);
-        setTimeout(updateModeBarVisibility, 2000); // Run again to catch any late-loaded elements
-        """
-
         # Update config to be more mobile-friendly
         fig.update_layout(
             # Config for better touch interaction
