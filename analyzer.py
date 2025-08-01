@@ -7,6 +7,8 @@ and community engagement.
 """
 
 import concurrent.futures
+import contextlib
+import dataclasses
 import json
 import time
 from collections import defaultdict
@@ -148,6 +150,23 @@ def is_excluded_file(file_path: str) -> bool:
         return True
 
     return False
+
+
+@dataclasses.dataclass
+class LineProcessResult:
+    """Result of processing a single line for LOC counting"""
+    loc_count: int
+    in_block_comment: bool
+
+
+@dataclasses.dataclass
+class AnalysisState:
+    """Encapsulates the state of an ongoing analysis"""
+    all_stats: List
+    analyzed_repo_names: List[str]
+    repos_to_analyze: List[Repository]
+    newly_analyzed_repos: List
+    total_repos: int
 
 
 class CodeAnalyzer:
@@ -345,16 +364,19 @@ class CodeAnalyzer:
     def _count_standard_file_loc(self, content: str, language: str) -> int:
         """
         Count lines of code in a standard text-based file.
-        
+
         Args:
             content: File content as string
             language: The programming language identifier
-            
+
         Returns:
             Number of non-blank, non-comment lines
         """
-        # Get comment patterns for this language
-        patterns = self.language_patterns.get(language, {'line_comment': None, 'block_start': None, 'block_end': None})
+        patterns = self.language_patterns.get(language, {
+            'line_comment': None,
+            'block_start': None,
+            'block_end': None
+        })
 
         lines = content.split('\n')
         loc = 0
@@ -367,71 +389,139 @@ class CodeAnalyzer:
             if not stripped:
                 continue
 
-            # Check if we're in a block comment
-            if in_block_comment:
-                if patterns['block_end'] and patterns['block_end'] in stripped:
-                    # Look for the end of the block comment
-                    end_pos = stripped.find(patterns['block_end'])
-                    # If there's code after the block comment on the same line
-                    rest = stripped[end_pos + len(patterns['block_end']):].strip()
-                    in_block_comment = False
-
-                    # Count line if there's code after the block comment
-                    if rest and not (patterns['line_comment'] and rest.startswith(patterns['line_comment'])):
-                        loc += 1
-                continue
-
-            # Check for the start of a block comment
-            if patterns['block_start'] and patterns['block_start'] in stripped:
-                start_pos = stripped.find(patterns['block_start'])
-
-                # Check if there's code before the comment
-                before = stripped[:start_pos].strip()
-                if before:
-                    loc += 1
-
-                # Check if the block comment ends on the same line
-                if patterns['block_end'] and patterns['block_end'] in stripped[
-                                                                      start_pos + len(patterns['block_start']):]:
-                    end_pos = stripped.find(patterns['block_end'], start_pos + len(patterns['block_start']))
-                    # If there's code after the block comment on the same line
-                    after = stripped[end_pos + len(patterns['block_end']):].strip()
-                    if after and not (patterns['line_comment'] and after.startswith(patterns['line_comment'])):
-                        loc += 1
-                else:
-                    in_block_comment = True
-                continue
-
-            # Check for alternative block comment style (like Python's triple quotes)
-            if 'alt_block_start' in patterns and patterns['alt_block_start'] and patterns[
-                'alt_block_start'] in stripped:
-                start_pos = stripped.find(patterns['alt_block_start'])
-
-                # Check if there's code before the comment
-                before = stripped[:start_pos].strip()
-                if before:
-                    loc += 1
-
-                # Check if the block comment ends on the same line
-                if patterns['alt_block_end'] and patterns['alt_block_end'] in stripped[start_pos + len(
-                        patterns['alt_block_start']):]:
-                    end_pos = stripped.find(patterns['alt_block_end'], start_pos + len(patterns['alt_block_start']))
-                    # If there's code after the block comment on the same line
-                    after = stripped[end_pos + len(patterns['alt_block_end']):].strip()
-                    if after and not (patterns['line_comment'] and after.startswith(patterns['line_comment'])):
-                        loc += 1
-                else:
-                    in_block_comment = True
-                continue
-
-            # Check for line comments
-            if patterns['line_comment'] and stripped.startswith(patterns['line_comment']):
-                continue
-
-            # If we reach here, the line contains code
-            loc += 1
+            # Process line based on current comment state
+            line_result = self._process_line_for_loc(stripped, patterns, in_block_comment)
+            loc += line_result.loc_count
+            in_block_comment = line_result.in_block_comment
 
         return loc
+
+    def _process_line_for_loc(self, line: str, patterns: dict, in_block_comment: bool) -> 'LineProcessResult':
+        """
+        Process a single line to determine if it contains code and update block comment state.
+
+        Args:
+            line: Stripped line content
+            patterns: Language comment patterns
+            in_block_comment: Current block comment state
+
+        Returns:
+            LineProcessResult with loc_count and updated block comment state
+        """
+        if in_block_comment:
+            return self._process_line_in_block_comment(line, patterns)
+
+        return self._process_line_outside_comment(line, patterns)
+
+    def _process_line_in_block_comment(self, line: str, patterns: dict) -> 'LineProcessResult':
+        """Process a line that's inside a block comment"""
+        block_end = patterns.get('block_end')
+
+        if not block_end or block_end not in line:
+            return LineProcessResult(loc_count=0, in_block_comment=True)
+
+        # Found end of block comment
+        end_pos = line.find(block_end)
+        code_after_comment = line[end_pos + len(block_end):].strip()
+
+        # Check if there's code after the block comment ends
+        if self._is_code_line(code_after_comment, patterns):
+            return LineProcessResult(loc_count=1, in_block_comment=False)
+
+        return LineProcessResult(loc_count=0, in_block_comment=False)
+
+    def _process_line_outside_comment(self, line: str, patterns: dict) -> 'LineProcessResult':
+        """Process a line that's outside any block comment"""
+        # Check for line comments first
+        if self._is_line_comment(line, patterns):
+            return LineProcessResult(loc_count=0, in_block_comment=False)
+
+        # Check for block comments
+        block_result = self._check_for_block_comments(line, patterns)
+        if block_result is not None:
+            return block_result
+
+        # Check for alternative block comments (like Python triple quotes)
+        alt_block_result = self._check_for_alt_block_comments(line, patterns)
+        if alt_block_result is not None:
+            return alt_block_result
+
+        # If we reach here, the line contains code
+        return LineProcessResult(loc_count=1, in_block_comment=False)
+
+    @staticmethod
+    def _is_line_comment(line: str, patterns: dict) -> bool:
+        """Check if a line is a line comment"""
+        line_comment = patterns.get('line_comment')
+        return line_comment and line.startswith(line_comment)
+
+    def _check_for_block_comments(self, line: str, patterns: dict) -> Optional['LineProcessResult']:
+        """Check for standard block comments and process accordingly"""
+        block_start = patterns.get('block_start')
+        block_end = patterns.get('block_end')
+
+        if not block_start or block_start not in line:
+            return None
+
+        start_pos = line.find(block_start)
+
+        # Count code before the block comment
+        code_before = line[:start_pos].strip()
+        loc_count = 1 if code_before else 0
+
+        # Check if block comment ends on the same line
+        if block_end and block_end in line[start_pos + len(block_start):]:
+            code_after = self._get_code_after_block_end(line, start_pos, block_start, block_end)
+            if self._is_code_line(code_after, patterns):
+                loc_count = 1
+            return LineProcessResult(loc_count=loc_count, in_block_comment=False)
+
+        # Block comment continues to next line
+        return LineProcessResult(loc_count=loc_count, in_block_comment=True)
+
+    def _check_for_alt_block_comments(self, line: str, patterns: dict) -> Optional['LineProcessResult']:
+        """Check for alternative block comments (like Python triple quotes)"""
+        alt_block_start = patterns.get('alt_block_start')
+        alt_block_end = patterns.get('alt_block_end')
+
+        if not alt_block_start or alt_block_start not in line:
+            return None
+
+        start_pos = line.find(alt_block_start)
+
+        # Count code before the block comment
+        code_before = line[:start_pos].strip()
+        loc_count = 1 if code_before else 0
+
+        # Check if block comment ends on the same line
+        if alt_block_end and alt_block_end in line[start_pos + len(alt_block_start):]:
+            code_after = self._get_code_after_block_end(line, start_pos, alt_block_start, alt_block_end)
+            if self._is_code_line(code_after, patterns):
+                loc_count = 1
+            return LineProcessResult(loc_count=loc_count, in_block_comment=False)
+
+        # Block comment continues to next line
+        return LineProcessResult(loc_count=loc_count, in_block_comment=True)
+
+    @staticmethod
+    def _get_code_after_block_end(line: str, start_pos: int, block_start: str, block_end: str) -> str:
+        """Extract code that appears after a block comment ends"""
+        end_pos = line.find(block_end, start_pos + len(block_start))
+        if end_pos == -1:
+            return ""
+
+        return line[end_pos + len(block_end):].strip()
+
+    @staticmethod
+    def _is_code_line(code: str, patterns: dict) -> bool:
+        """Check if a code snippet represents actual code (not a comment)"""
+        if not code:
+            return False
+
+        line_comment = patterns.get('line_comment')
+        return not (line_comment and code.startswith(line_comment))
+
+    # Helper class to encapsulate line processing results
 
     def _count_jupyter_notebook_loc(self, content: str, file_path: str) -> int:
         """
@@ -547,284 +637,386 @@ class SingleRepoAnalyzer:
             # Get file analysis
             file_stats = self.github_analyzer.analyze_repository_files(repo)
 
-            # Check if repository is empty and handle accordingly
-            is_empty = file_stats.get('is_empty', False)
+            # Build analysis components
+            activity_data = self._analyze_repository_activity(repo)
+            community_data = self._analyze_community_metrics(repo)
+            language_data = self._analyze_languages(repo, file_stats)
 
-            # Calculate derived statistics
-            avg_loc = (file_stats['total_loc'] / file_stats['total_files']
-                       if file_stats['total_files'] > 0 else 0)
+            # Create repository statistics object
+            repo_stats = self._build_repo_stats(repo, file_stats, activity_data, community_data, language_data)
 
-            # Check if repository is active (commits in last N months)
-            is_active = False
-            last_commit_date = None
-            commits_last_month = 0
-            commits_last_year = 0
-            commit_frequency = 0.0
-
-            try:
-                # Get commit history with rate limit awareness
-                self.github_analyzer.check_rate_limit()
-                commits = list(repo.get_commits().get_page(0))
-
-                if commits:
-                    latest_commit = commits[0]
-                    last_commit_date = latest_commit.commit.author.date
-
-                    # Ensure timezone-aware datetime comparison
-                    # Create timezone-aware threshold date
-                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
-                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
-
-                    # Check activity within threshold using consistent timezone info
-                    if last_commit_date is not None:
-                        is_active = last_commit_date > inactive_threshold
-
-                    # Count recent commits
-                    one_month_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=30)
-                    one_year_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=365)
-
-                    # Get a sample of commits for frequency estimation
-                    try:
-                        recent_commits = list(repo.get_commits(since=one_year_ago))
-
-                        # Count commits in different periods
-                        commits_last_month = sum(1 for c in recent_commits
-                                                 if c.commit.author.date > one_month_ago)
-                        commits_last_year = len(recent_commits)
-
-                        # Calculate average monthly commit frequency
-                        if commits_last_year > 0:
-                            # Make sure created_at is timezone-aware for consistent comparison
-                            created_at = repo.created_at
-                            created_at = ensure_utc(created_at)
-
-                            months_active = min(12,
-                                                int((datetime.now().replace(
-                                                    tzinfo=timezone.utc) - created_at).days / 30))
-                            if months_active > 0:
-                                commit_frequency = commits_last_year / months_active
-                    except GithubException as e:
-                        logger.warning(f"Could not get recent commits for {repo.name}: {e}")
-            except GithubException as e:
-                # Handle empty repository specifically
-                if e.status == 409 and "Git Repository is empty" in str(e):
-                    logger.info(f"Repository {repo.name} has no commits")
-                    # Repository has no commits but we can still use pushed_at as a reference
-                    last_commit_date = repo.pushed_at
-                else:
-                    logger.warning(f"Could not get commit info for {repo.name}: {e}")
-                    last_commit_date = repo.pushed_at
-
-                if last_commit_date:
-                    # Ensure timezone awareness consistency
-                    inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
-                        days=self.config["INACTIVE_THRESHOLD_DAYS"])
-                    last_commit_date = ensure_utc(last_commit_date)
-                    is_active = last_commit_date > inactive_threshold
-
-            # Get contributors count
-            contributors_count = 0
-            try:
-                contributors_count = repo.get_contributors().totalCount
-            except GithubException as e:
-                # Skip logging for empty repos as this is expected
-                if not (e.status == 409 and "Git Repository is empty" in str(e)):
-                    logger.warning(f"Could not get contributors for {repo.name}: {e}")
-
-            # Get open PRs count
-            open_prs = 0
-            try:
-                open_prs = repo.get_pulls(state='open').totalCount
-            except Exception as e:
-                logger.warning(f"Could not get PRs for {repo.name}: {e}")
-
-            # Get closed issues count
-            closed_issues = 0
-            try:
-                closed_issues = repo.get_issues(state='closed').totalCount
-            except Exception as e:
-                logger.warning(f"Could not get closed issues for {repo.name}: {e}")
-
-            # Get languages from GitHub API
-            github_languages = {}
-            try:
-                github_languages = repo.get_languages()
-            except Exception as e:
-                logger.warning(f"Could not get languages from API for {repo.name}: {e}")
-
-            # Use our file analysis languages instead of merging with GitHub API data
-            # GitHub API returns sizes in bytes, not lines of code, so using these values
-            # as LOC would result in inflated numbers
-            combined_languages = dict(file_stats['languages'])
-
-            # Log the difference between our analysis and GitHub's for debugging
-            logger.debug(f"File analysis languages: {combined_languages}")
-            logger.debug(f"GitHub API languages (bytes): {github_languages}")
-
-            # We'll continue using our manually counted LOC
-
-            # Calculate estimated test coverage percentage based on test files to total files ratio
-            test_coverage_percentage = None
-            if file_stats['has_tests'] and file_stats['total_files'] > 0:
-                # Simple estimation based on test files count relative to codebase size
-                # More sophisticated estimation would require actual test coverage data
-                test_ratio = min(
-                    file_stats['test_files_count'] / max(1, file_stats['total_files'] - file_stats['test_files_count']),
-                    1.0)
-                # Scale to percentage with diminishing returns model
-                # 0 tests = 0%, 10% test files = ~30% coverage, 20% test files = ~50% coverage, 50% test files = ~90% coverage
-                test_coverage_percentage = min(100, 100 * (1 - (1 / (1 + 2 * test_ratio))))
-
-            # Calculate all scores
-            scores = self.github_analyzer.calculate_scores(file_stats, repo)
-
-            # Use ensure_utc consistently in this section
-            # Ensure created_at and last_pushed are timezone-aware
-            created_at = ensure_utc(repo.created_at)
-
-            last_pushed = ensure_utc(repo.pushed_at)
-
-            # Create base repository info
-            base_info = BaseRepoInfo(
-                name=repo.name,
-                is_private=repo.private,
-                default_branch=repo.default_branch,
-                is_fork=repo.fork,
-                is_archived=repo.archived,
-                is_template=repo.is_template,
-                created_at=created_at,
-                last_pushed=last_pushed,
-                description=repo.description,
-                homepage=repo.homepage
-            )
-
-            # Create code stats
-            code_stats = CodeStats(
-                languages=combined_languages,
-                total_files=file_stats['total_files'],
-                # Let CodeStats calculate total_loc based on languages when calculate_primary_language is called
-                avg_loc_per_file=avg_loc,
-                file_types=dict(file_stats['file_types']),
-                size_kb=repo.size,
-                excluded_file_count=file_stats.get('excluded_file_count', 0),
-                project_structure=file_stats.get('project_structure', {}),
-                is_game_repo=file_stats.get('is_game_repo', False),
-                game_engine=file_stats.get('game_engine', 'None'),
-                game_confidence=file_stats.get('game_confidence', 0.0)
-            )
-
-            # Calculate primary language which will also set the correct total_loc
-            code_stats.calculate_primary_language()
-
-            # Create quality indicators
-            quality = QualityIndicators(
-                has_docs=file_stats['has_docs'],
-                has_readme=file_stats['has_readme'],
-                has_tests=file_stats['has_tests'],
-                test_files_count=file_stats['test_files_count'],
-                test_coverage_percentage=test_coverage_percentage,
-                has_cicd=file_stats.get('has_cicd', False),
-                cicd_files=file_stats.get('cicd_files', []),
-                dependency_files=file_stats['dependency_files'],
-                # New metrics
-                has_packages=file_stats.get('has_packages', False),
-                package_files=file_stats.get('package_files', []),
-                has_deployments=file_stats.get('has_deployments', False),
-                deployment_files=file_stats.get('deployment_files', []),
-                has_releases=file_stats.get('has_releases', False),
-                release_count=file_stats.get('release_count', 0),
-                docs_size_category=file_stats.get('docs_size_category', "None"),
-                docs_files_count=file_stats.get('docs_files_count', 0),
-                readme_comprehensiveness=file_stats.get('readme_comprehensiveness', "None"),
-                readme_line_count=file_stats.get('readme_line_count', 0)
-            )
-
-            # Create activity metrics
-            activity = ActivityMetrics(
-                last_commit_date=last_commit_date or repo.pushed_at,
-                is_active=is_active,
-                commit_frequency=commit_frequency,
-                commits_last_month=commits_last_month,
-                commits_last_year=commits_last_year
-            )
-
-            # Create community metrics
-            community = CommunityMetrics(
-                license_name=repo.license.name if repo.license else None,
-                license_spdx_id=repo.license.spdx_id if repo.license else None,
-                contributors_count=contributors_count,
-                open_issues=repo.open_issues_count,
-                open_prs=open_prs,
-                closed_issues=closed_issues,
-                topics=repo.topics,
-                stars=repo.stargazers_count,
-                forks=repo.forks_count,
-                watchers=repo.watchers_count
-            )
-
-            # Create analysis scores
-            scores_obj = AnalysisScores(
-                maintenance_score=scores['maintenance_score'],
-                popularity_score=scores['popularity_score'],
-                code_quality_score=scores['code_quality_score'],
-                documentation_score=scores['documentation_score']
-            )
-
-            # Create a media metrics object
-            media = MediaMetrics(
-                image_count=file_stats.get('media_metrics', {}).get('image_count', 0),
-                audio_count=file_stats.get('media_metrics', {}).get('audio_count', 0),
-                video_count=file_stats.get('media_metrics', {}).get('video_count', 0),
-                model_3d_count=file_stats.get('media_metrics', {}).get('model_3d_count', 0),
-                image_files=file_stats.get('media_metrics', {}).get('image_files', []),
-                audio_files=file_stats.get('media_metrics', {}).get('audio_files', []),
-                video_files=file_stats.get('media_metrics', {}).get('video_files', []),
-                model_3d_files=file_stats.get('media_metrics', {}).get('model_3d_files', []),
-                image_size_kb=file_stats.get('media_metrics', {}).get('image_size_kb', 0),
-                audio_size_kb=file_stats.get('media_metrics', {}).get('audio_size_kb', 0),
-                video_size_kb=file_stats.get('media_metrics', {}).get('video_size_kb', 0),
-                model_3d_size_kb=file_stats.get('media_metrics', {}).get('model_3d_size_kb', 0)
-            )
-
-            # Create RepoStats object
-            repo_stats = RepoStats(
-                base_info=base_info,
-                code_stats=code_stats,
-                quality=quality,
-                activity=activity,
-                community=community,
-                scores=scores_obj,
-                media=media
-            )
-
-            # Add anomaly for empty repository
-            if is_empty:
-                repo_stats.add_anomaly("Empty repository with no files")
-
-            # Calculate additional derived metrics
-            repo_stats.detect_monorepo()
-
-            # Identify anomalies
-            self.github_analyzer.detect_anomalies(repo_stats)
+            # Finalize analysis
+            self._finalize_analysis(repo_stats, file_stats.get('is_empty', False))
 
             return repo_stats
 
         except Exception as e:
             logger.error(f"Error analyzing repository {repo.name}: {e}")
-            # Return minimal stats on error with proper object structure
-            base_info = BaseRepoInfo(
-                name=repo.name,
-                is_private=getattr(repo, 'private', False),
-                default_branch=getattr(repo, 'default_branch', 'unknown'),
-                is_fork=getattr(repo, 'fork', False),
-                is_archived=getattr(repo, 'archived', False),
-                is_template=getattr(repo, 'is_template', False),
-                created_at=getattr(repo, 'created_at', datetime.now().replace(tzinfo=timezone.utc)),
-                last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc)),
-                description=getattr(repo, 'description', None),
-                homepage=getattr(repo, 'homepage', None)
-            )
-            return RepoStats(base_info=base_info)
+            return self._create_minimal_repo_stats(repo)
+
+    def _analyze_repository_activity(self, repo: Repository) -> Dict:
+        """Analyze repository activity metrics including commits and dates"""
+        activity_data = {
+            'is_active': False,
+            'last_commit_date': None,
+            'commits_last_month': 0,
+            'commits_last_year': 0,
+            'commit_frequency': 0.0
+        }
+
+        try:
+            # Get commit history with rate limit awareness
+            self.github_analyzer.check_rate_limit()
+            commits = list(repo.get_commits().get_page(0))
+
+            if commits:
+                activity_data = self._process_commit_history(repo, commits)
+
+        except GithubException as e:
+            activity_data = self._handle_commit_analysis_error(repo, e)
+
+        return activity_data
+
+    def _process_commit_history(self, repo: Repository, commits: List) -> Dict:
+        """Process commit history to extract activity metrics"""
+        latest_commit = commits[0]
+        last_commit_date = latest_commit.commit.author.date
+
+        # Calculate activity status
+        inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
+            days=self.config["INACTIVE_THRESHOLD_DAYS"])
+        is_active = last_commit_date > inactive_threshold if last_commit_date else False
+
+        # Get recent commit counts
+        commits_last_month, commits_last_year = self._count_recent_commits(repo)
+
+        # Calculate commit frequency
+        commit_frequency = self._calculate_commit_frequency(repo, commits_last_year)
+
+        return {
+            'is_active': is_active,
+            'last_commit_date': last_commit_date,
+            'commits_last_month': commits_last_month,
+            'commits_last_year': commits_last_year,
+            'commit_frequency': commit_frequency
+        }
+
+    @staticmethod
+    def _count_recent_commits(repo: Repository) -> tuple[int, int]:
+        """Count commits in the last month and year"""
+        one_month_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=30)
+        one_year_ago = datetime.now().replace(tzinfo=timezone.utc) - timedelta(days=365)
+
+        commits_last_month = 0
+        commits_last_year = 0
+
+        try:
+            recent_commits = list(repo.get_commits(since=one_year_ago))
+            commits_last_month = sum(1 for c in recent_commits
+                                     if c.commit.author.date > one_month_ago)
+            commits_last_year = len(recent_commits)
+        except GithubException as e:
+            logger.warning(f"Could not get recent commits for {repo.name}: {e}")
+
+        return commits_last_month, commits_last_year
+
+    @staticmethod
+    def _calculate_commit_frequency(repo: Repository, commits_last_year: int) -> float:
+        """Calculate average monthly commit frequency"""
+        if commits_last_year == 0:
+            return 0.0
+
+        try:
+            created_at = ensure_utc(repo.created_at)
+            months_active = min(12, int((datetime.now().replace(
+                tzinfo=timezone.utc) - created_at).days / 30))
+
+            return commits_last_year / months_active if months_active > 0 else 0.0
+        except Exception:
+            return 0.0
+
+    def _handle_commit_analysis_error(self, repo: Repository, error: GithubException) -> Dict:
+        """Handle errors during commit analysis"""
+        activity_data = {
+            'is_active': False,
+            'last_commit_date': None,
+            'commits_last_month': 0,
+            'commits_last_year': 0,
+            'commit_frequency': 0.0
+        }
+
+        # Handle empty repository specifically
+        if error.status == 409 and "Git Repository is empty" in str(error):
+            logger.info(f"Repository {repo.name} has no commits")
+            last_commit_date = repo.pushed_at
+        else:
+            logger.warning(f"Could not get commit info for {repo.name}: {error}")
+            last_commit_date = repo.pushed_at
+
+        if last_commit_date:
+            inactive_threshold = datetime.now().replace(tzinfo=timezone.utc) - timedelta(
+                days=self.config["INACTIVE_THRESHOLD_DAYS"])
+            last_commit_date = ensure_utc(last_commit_date)
+            activity_data['is_active'] = last_commit_date > inactive_threshold
+            activity_data['last_commit_date'] = last_commit_date
+
+        return activity_data
+
+    def _analyze_community_metrics(self, repo: Repository) -> Dict:
+        """Analyze community-related metrics"""
+        community_data = {
+            'contributors_count': self._get_contributors_count(repo),
+            'open_prs': self._get_open_prs_count(repo),
+            'closed_issues': self._get_closed_issues_count(repo)
+        }
+
+        return community_data
+
+    @staticmethod
+    def _get_contributors_count(repo: Repository) -> int:
+        """Get the number of contributors for the repository"""
+        try:
+            return repo.get_contributors().totalCount
+        except GithubException as e:
+            if not (e.status == 409 and "Git Repository is empty" in str(e)):
+                logger.warning(f"Could not get contributors for {repo.name}: {e}")
+            return 0
+
+    @staticmethod
+    def _get_open_prs_count(repo: Repository) -> int:
+        """Get the number of open pull requests"""
+        try:
+            return repo.get_pulls(state='open').totalCount
+        except Exception as e:
+            logger.warning(f"Could not get PRs for {repo.name}: {e}")
+            return 0
+
+    @staticmethod
+    def _get_closed_issues_count(repo: Repository) -> int:
+        """Get the number of closed issues"""
+        try:
+            return repo.get_issues(state='closed').totalCount
+        except Exception as e:
+            logger.warning(f"Could not get closed issues for {repo.name}: {e}")
+            return 0
+
+    def _analyze_languages(self, repo: Repository, file_stats: Dict) -> Dict:
+        """Analyze repository languages and calculate test coverage"""
+        # Get languages from GitHub API (for reference/debugging)
+        github_languages = self._get_github_languages(repo)
+
+        # Use our file analysis languages instead of GitHub API data
+        combined_languages = dict(file_stats['languages'])
+
+        # Log the difference for debugging
+        logger.debug(f"File analysis languages: {combined_languages}")
+        logger.debug(f"GitHub API languages (bytes): {github_languages}")
+
+        # Calculate test coverage
+        test_coverage_percentage = self._calculate_test_coverage(file_stats)
+
+        return {
+            'languages': combined_languages,
+            'test_coverage_percentage': test_coverage_percentage
+        }
+
+    @staticmethod
+    def _get_github_languages(repo: Repository) -> Dict:
+        """Get languages from GitHub API"""
+        try:
+            return repo.get_languages()
+        except Exception as e:
+            logger.warning(f"Could not get languages from API for {repo.name}: {e}")
+            return {}
+
+    @staticmethod
+    def _calculate_test_coverage(file_stats: Dict) -> Optional[float]:
+        """Calculate estimated test coverage percentage"""
+        if not file_stats['has_tests'] or file_stats['total_files'] == 0:
+            return None
+
+        test_ratio = min(
+            file_stats['test_files_count'] / max(1, file_stats['total_files'] - file_stats['test_files_count']),
+            1.0
+        )
+
+        # Scale to percentage with diminishing returns model
+        return min(100, 100 * (1 - (1 / (1 + 2 * test_ratio))))
+
+    def _build_repo_stats(self, repo: Repository, file_stats: Dict, activity_data: Dict,
+                          community_data: Dict, language_data: Dict) -> RepoStats:
+        """Build the complete RepoStats object"""
+        # Calculate derived statistics
+        avg_loc = (file_stats['total_loc'] / file_stats['total_files']
+                   if file_stats['total_files'] > 0 else 0)
+
+        # Create component objects
+        base_info = self._create_base_info(repo)
+        code_stats = self._create_code_stats(file_stats, language_data, avg_loc, repo.size)
+        quality = self._create_quality_indicators(file_stats, language_data['test_coverage_percentage'])
+        activity = self._create_activity_metrics(activity_data)
+        community = self._create_community_metrics(repo, community_data)
+        media = self._create_media_metrics(file_stats)
+
+        # Calculate scores
+        scores_dict = self.github_analyzer.calculate_scores(file_stats, repo)
+        scores = self._create_analysis_scores(scores_dict)
+
+        return RepoStats(
+            base_info=base_info,
+            code_stats=code_stats,
+            quality=quality,
+            activity=activity,
+            community=community,
+            scores=scores,
+            media=media
+        )
+
+    @staticmethod
+    def _create_base_info(repo: Repository) -> BaseRepoInfo:
+        """Create base repository information"""
+        return BaseRepoInfo(
+            name=repo.name,
+            is_private=repo.private,
+            default_branch=repo.default_branch,
+            is_fork=repo.fork,
+            is_archived=repo.archived,
+            is_template=repo.is_template,
+            created_at=ensure_utc(repo.created_at),
+            last_pushed=ensure_utc(repo.pushed_at),
+            description=repo.description,
+            homepage=repo.homepage
+        )
+
+    @staticmethod
+    def _create_code_stats(file_stats: Dict, language_data: Dict, avg_loc: float, size_kb: int) -> CodeStats:
+        """Create code statistics object"""
+        code_stats = CodeStats(
+            languages=language_data['languages'],
+            total_files=file_stats['total_files'],
+            avg_loc_per_file=avg_loc,
+            file_types=dict(file_stats['file_types']),
+            size_kb=size_kb,
+            excluded_file_count=file_stats.get('excluded_file_count', 0),
+            project_structure=file_stats.get('project_structure', {}),
+            is_game_repo=file_stats.get('is_game_repo', False),
+            game_engine=file_stats.get('game_engine', 'None'),
+            game_confidence=file_stats.get('game_confidence', 0.0)
+        )
+
+        # Calculate primary language which will also set the correct total_loc
+        code_stats.calculate_primary_language()
+        return code_stats
+
+    @staticmethod
+    def _create_quality_indicators(file_stats: Dict, test_coverage: Optional[float]) -> QualityIndicators:
+        """Create quality indicators object"""
+        return QualityIndicators(
+            has_docs=file_stats['has_docs'],
+            has_readme=file_stats['has_readme'],
+            has_tests=file_stats['has_tests'],
+            test_files_count=file_stats['test_files_count'],
+            test_coverage_percentage=test_coverage,
+            has_cicd=file_stats.get('has_cicd', False),
+            cicd_files=file_stats.get('cicd_files', []),
+            dependency_files=file_stats['dependency_files'],
+            has_packages=file_stats.get('has_packages', False),
+            package_files=file_stats.get('package_files', []),
+            has_deployments=file_stats.get('has_deployments', False),
+            deployment_files=file_stats.get('deployment_files', []),
+            has_releases=file_stats.get('has_releases', False),
+            release_count=file_stats.get('release_count', 0),
+            docs_size_category=file_stats.get('docs_size_category', "None"),
+            docs_files_count=file_stats.get('docs_files_count', 0),
+            readme_comprehensiveness=file_stats.get('readme_comprehensiveness', "None"),
+            readme_line_count=file_stats.get('readme_line_count', 0)
+        )
+
+    @staticmethod
+    def _create_activity_metrics(activity_data: Dict) -> ActivityMetrics:
+        """Create activity metrics object"""
+        return ActivityMetrics(
+            last_commit_date=activity_data['last_commit_date'],
+            is_active=activity_data['is_active'],
+            commit_frequency=activity_data['commit_frequency'],
+            commits_last_month=activity_data['commits_last_month'],
+            commits_last_year=activity_data['commits_last_year']
+        )
+
+    @staticmethod
+    def _create_community_metrics(repo: Repository, community_data: Dict) -> CommunityMetrics:
+        """Create community metrics object"""
+        return CommunityMetrics(
+            license_name=repo.license.name if repo.license else None,
+            license_spdx_id=repo.license.spdx_id if repo.license else None,
+            contributors_count=community_data['contributors_count'],
+            open_issues=repo.open_issues_count,
+            open_prs=community_data['open_prs'],
+            closed_issues=community_data['closed_issues'],
+            topics=repo.topics,
+            stars=repo.stargazers_count,
+            forks=repo.forks_count,
+            watchers=repo.watchers_count
+        )
+
+    @staticmethod
+    def _create_analysis_scores(scores_dict: Dict[str, float]) -> AnalysisScores:
+        """Create analysis scores object"""
+        return AnalysisScores(
+            maintenance_score=scores_dict['maintenance_score'],
+            popularity_score=scores_dict['popularity_score'],
+            code_quality_score=scores_dict['code_quality_score'],
+            documentation_score=scores_dict['documentation_score']
+        )
+
+    @staticmethod
+    def _create_media_metrics(file_stats: Dict) -> MediaMetrics:
+        """Create media metrics object"""
+        media_data = file_stats.get('media_metrics', {})
+
+        return MediaMetrics(
+            image_count=media_data.get('image_count', 0),
+            audio_count=media_data.get('audio_count', 0),
+            video_count=media_data.get('video_count', 0),
+            model_3d_count=media_data.get('model_3d_count', 0),
+            image_files=media_data.get('image_files', []),
+            audio_files=media_data.get('audio_files', []),
+            video_files=media_data.get('video_files', []),
+            model_3d_files=media_data.get('model_3d_files', []),
+            image_size_kb=media_data.get('image_size_kb', 0),
+            audio_size_kb=media_data.get('audio_size_kb', 0),
+            video_size_kb=media_data.get('video_size_kb', 0),
+            model_3d_size_kb=media_data.get('model_3d_size_kb', 0)
+        )
+
+    def _finalize_analysis(self, repo_stats: RepoStats, is_empty: bool) -> None:
+        """Finalize the analysis with additional processing"""
+        # Add anomaly for empty repository
+        if is_empty:
+            repo_stats.add_anomaly("Empty repository with no files")
+
+        # Calculate additional derived metrics
+        repo_stats.detect_monorepo()
+
+        # Identify anomalies
+        self.github_analyzer.detect_anomalies(repo_stats)
+
+    @staticmethod
+    def _create_minimal_repo_stats(repo: Repository) -> RepoStats:
+        """Create minimal repository stats when analysis fails"""
+        base_info = BaseRepoInfo(
+            name=repo.name,
+            is_private=getattr(repo, 'private', False),
+            default_branch=getattr(repo, 'default_branch', 'unknown'),
+            is_fork=getattr(repo, 'fork', False),
+            is_archived=getattr(repo, 'archived', False),
+            is_template=getattr(repo, 'is_template', False),
+            created_at=getattr(repo, 'created_at', datetime.now().replace(tzinfo=timezone.utc)),
+            last_pushed=getattr(repo, 'pushed_at', datetime.now().replace(tzinfo=timezone.utc)),
+            description=getattr(repo, 'description', None),
+            homepage=getattr(repo, 'homepage', None)
+        )
+        return RepoStats(base_info=base_info)
 
 
 class AnalyzerRepoFiles:
@@ -838,7 +1030,27 @@ class AnalyzerRepoFiles:
 
     def analyze(self, repo: Repository) -> Dict[str, Any]:
         """Analyze files in a repository with improved detection capabilities"""
-        stats = {
+        stats = self._initialize_stats()
+
+        try:
+            # Early checks
+            self.github_analyzer.check_rate_limit()
+
+            # Main analysis pipeline
+            files_to_process = self._collect_repository_files(repo, stats)
+            self._process_files(repo, files_to_process, stats)
+            self._process_additional_metadata(repo, stats)
+            self._finalize_stats(repo, stats)
+
+            return dict(stats)
+
+        except (RateLimitExceededException, GithubException, Exception) as e:
+            return self._handle_analysis_error(repo, stats, e)
+
+    @staticmethod
+    def _initialize_stats() -> Dict[str, Any]:
+        """Initialize the statistics dictionary with default values"""
+        return {
             'total_files': 0,
             'total_loc': 0,
             'languages': defaultdict(int),
@@ -851,23 +1063,25 @@ class AnalyzerRepoFiles:
             'cicd_files': [],
             'dependency_files': [],
             'project_structure': defaultdict(int),
-            'is_empty': False,  # New flag to track empty repositories
-            'skipped_directories': set(),  # Track which directories were skipped
-            'excluded_file_count': 0,  # Count of excluded files
+            'is_empty': False,
+            'skipped_directories': set(),
+            'excluded_file_count': 0,
 
-            # Additional tracking for new metrics
+            # Package and deployment tracking
             'has_packages': False,
             'package_files': [],
             'has_deployments': False,
             'deployment_files': [],
             'has_releases': False,
             'release_files': [],
+
+            # Documentation tracking
             'docs_files': [],
             'readme_file': None,
             'readme_content': None,
             'readme_line_count': 0,
 
-            # Game repo detection
+            # Game repository detection
             'is_game_repo': False,
             'game_engine': 'None',
             'game_confidence': 0.0,
@@ -887,347 +1101,390 @@ class AnalyzerRepoFiles:
                 'video_size_kb': 0,
                 'model_3d_size_kb': 0
             },
-            # Add explicit flag for media presence
             'has_media': False
         }
 
+    def _collect_repository_files(self, repo: Repository, stats: Dict[str, Any]) -> List:
+        """Collect all files from repository, handling directories and exclusions"""
         try:
-            # Check for rate limits before making API calls
-            self.github_analyzer.check_rate_limit()
-
-            # Get repository contents recursively
             contents = repo.get_contents("")
             files_to_process = []
-
-            # Collect all files
             directories_seen = set()
+
             while contents:
                 file_content = contents.pop(0)
+
                 if file_content.type == "dir":
-                    try:
-                        # Check if directory should be excluded
-                        if self.github_analyzer.is_excluded_path(file_content.path):
-                            stats['skipped_directories'].add(file_content.path)
-                            logger.debug(f"Skipping excluded directory: {file_content.path}")
-                            continue
-
-                        if file_content.path not in directories_seen:
-                            directories_seen.add(file_content.path)
-                            contents.extend(repo.get_contents(file_content.path))
-
-                            # Update project structure statistics
-                            path_parts = file_content.path.split('/')
-                            if len(path_parts) == 1:  # Top-level directory
-                                stats['project_structure'][path_parts[0]] += 1
-                    except Exception as e:
-                        logger.warning(f"Could not access directory {file_content.path}: {e}")
-                        continue
+                    self._process_directory(repo, file_content, contents, directories_seen, stats)
                 else:
-                    # Skip files in excluded directories
-                    if self.github_analyzer.is_excluded_path(file_content.path):
-                        stats['excluded_file_count'] += 1
-                        logger.debug(f"Skipping file in excluded path: {file_content.path}")
-                        continue
+                    if self._should_process_file(file_content, stats):
+                        files_to_process.append(file_content)
 
-                    # Skip excluded files like .gitkeep and binary files
-                    if is_excluded_file(file_content.path):
-                        stats['excluded_file_count'] += 1
-                        logger.debug(f"Skipping excluded file: {file_content.path}")
+            return files_to_process
 
-                        # Even though we skip the file for code analysis, check if it's a media file to track it
-                        media_type = get_media_type(file_content.path)
-                        if media_type:
-                            # Calculate size in KB
-                            size_kb = file_content.size // 1024 if file_content.size else 0
+        except Exception as e:
+            logger.error(f"Error collecting files from {repo.name}: {e}")
+            return []
 
-                            # Track the media file in its category
-                            stats['media_metrics'][f'{media_type}_count'] += 1
-                            stats['media_metrics'][f'{media_type}_files'].append(file_content.path)
-                            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+    def _process_directory(self, repo: Repository, file_content, contents: List,
+                           directories_seen: set, stats: Dict[str, Any]) -> None:
+        """Process a directory, adding its contents to the processing queue"""
+        try:
+            if self.github_analyzer.is_excluded_path(file_content.path):
+                stats['skipped_directories'].add(file_content.path)
+                logger.debug(f"Skipping excluded directory: {file_content.path}")
+                return
 
-                            logger.debug(f"Detected {media_type} file: {file_content.path} ({size_kb} KB)")
+            if file_content.path not in directories_seen:
+                directories_seen.add(file_content.path)
+                contents.extend(repo.get_contents(file_content.path))
 
-                        continue
+                # Update project structure statistics
+                path_parts = file_content.path.split('/')
+                if len(path_parts) == 1:  # Top-level directory
+                    stats['project_structure'][path_parts[0]] += 1
 
-                    files_to_process.append(file_content)
+        except Exception as e:
+            logger.warning(f"Could not access directory {file_content.path}: {e}")
 
-            # Process files with progress bar
-            all_file_extensions = set()
+    def _should_process_file(self, file_content, stats: Dict[str, Any]) -> bool:
+        """Determine if a file should be processed for analysis"""
+        if self.github_analyzer.is_excluded_path(file_content.path):
+            stats['excluded_file_count'] += 1
+            logger.debug(f"Skipping file in excluded path: {file_content.path}")
+            self._track_media_if_applicable(file_content, stats)
+            return False
 
-            for file_content in tqdm(files_to_process,
-                                     desc=f"Analyzing {repo.name} files",
-                                     leave=False,
-                                     colour='cyan'):
-                try:
-                    file_path = file_content.path
-                    stats['total_files'] += 1
+        if is_excluded_file(file_content.path):
+            stats['excluded_file_count'] += 1
+            logger.debug(f"Skipping excluded file: {file_content.path}")
+            self._track_media_if_applicable(file_content, stats)
+            return False
 
-                    # Track all file extensions for debugging
-                    ext = Path(file_path).suffix.lower()
-                    if ext:
-                        all_file_extensions.add(ext)
+        return True
 
-                    # Add special debug for DrumVerse audio files
-                    if repo.name == "DrumVerse" and ext in AUDIO_FILE_EXTENSIONS:
-                        logger.info(f"Found audio file in DrumVerse: {file_path}")
+    @staticmethod
+    def _track_media_if_applicable(file_content, stats: Dict[str, Any]) -> None:
+        """Track media files even if they're excluded from code analysis"""
+        media_type = get_media_type(file_content.path)
+        if media_type:
+            size_kb = file_content.size // 1024 if file_content.size else 0
+            stats['media_metrics'][f'{media_type}_count'] += 1
+            stats['media_metrics'][f'{media_type}_files'].append(file_content.path)
+            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+            logger.debug(f"Detected {media_type} file: {file_content.path} ({size_kb} KB)")
 
-                    # Direct media detection regardless of other checks
-                    media_type = get_media_type(file_path)
-                    if media_type:
-                        # Calculate size in KB
-                        size_kb = file_content.size // 1024 if file_content.size else 0
+    def _process_files(self, repo: Repository, files_to_process: List, stats: Dict[str, Any]) -> None:
+        """Process all files for analysis"""
+        all_file_extensions = set()
 
-                        # Track the media file in its category
-                        stats['media_metrics'][f'{media_type}_count'] += 1
-                        stats['media_metrics'][f'{media_type}_files'].append(file_path)
-                        stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
-
-                        logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
-
-                    # Check for documentation
-                    is_doc = False
-                    if ('readme' in file_path.lower() or
-                            file_path.lower().startswith('docs/') or
-                            '/docs/' in file_path.lower() or
-                            file_path.lower().endswith('.md')):
-                        stats['has_docs'] = True
-                        is_doc = True
-                        stats['docs_files'].append(file_path)
-
-                    # Specific check for README
-                    if 'readme' in file_path.lower():
-                        stats['has_readme'] = True
-                        stats['readme_file'] = file_path
-
-                        # Get README content for comprehensiveness analysis
-                        try:
-                            if file_content.size < 1024 * 1024:  # Skip files larger than 1MB
-                                readme_content = file_content.decoded_content.decode('utf-8', errors='ignore')
-                                stats['readme_content'] = readme_content
-                                stats['readme_line_count'] = len(readme_content.splitlines())
-                        except Exception as e:
-                            logger.debug(f"Could not decode README {file_path}: {e}")
-
-                    # Check for tests
-                    if is_test_file(file_path):
-                        stats['has_tests'] = True
-                        stats['test_files_count'] += 1
-
-                    # Check for CI/CD configuration
-                    if is_cicd_file(file_path):
-                        stats['has_cicd'] = True
-                        stats['cicd_files'].append(file_path)
-
-                    # Check for dependency files
-                    if is_config_file(file_path):
-                        stats['dependency_files'].append(file_path)
-
-                    # Check for package files
-                    if is_package_file(file_path):
-                        stats['has_packages'] = True
-                        stats['package_files'].append(file_path)
-
-                    # Check for deployment files
-                    if is_deployment_file(file_path):
-                        stats['has_deployments'] = True
-                        stats['deployment_files'].append(file_path)
-
-                    # Check for release files
-                    if is_release_file(file_path):
-                        stats['has_releases'] = True
-                        stats['release_files'].append(file_path)
-
-                    # Skip binary files for LOC counting
-                    if is_binary_file(file_path):
-                        stats['file_types']['Binary'] += 1
-
-                        # Even if binary, check if it's a media file to track it
-                        media_type = get_media_type(file_path)
-                        if media_type:
-                            # Calculate size in KB
-                            size_kb = file_content.size // 1024 if file_content.size else 0
-
-                            # Track the media file in its category
-                            stats['media_metrics'][f'{media_type}_count'] += 1
-                            stats['media_metrics'][f'{media_type}_files'].append(file_path)
-                            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
-
-                            logger.debug(f"Detected {media_type} file: {file_path} ({size_kb} KB)")
-
-                        continue
-
-                    # Determine language and file type
-                    language = self.github_analyzer.get_file_language(file_path)
-
-                    # Get file extension or special category for file type
-                    path_obj = Path(file_path)
-                    filename = path_obj.name
-                    ext = path_obj.suffix.lower()
-
-                    # Skip counting LOC for meta files but still record them
-                    if ext == '.meta' or filename == '.gitkeep':
-                        stats['file_types'][ext if ext else filename] += 1
-                        continue
-
-                    # Record file type - either by extension or special filename
-                    if ext:
-                        stats['file_types'][ext] += 1
-                    elif filename in SPECIAL_FILENAMES:
-                        # Use filename as file type for files without extensions
-                        stats['file_types'][f"no_ext_{filename}"] += 1
-                    elif filename.startswith('.') and filename in SPECIAL_FILENAMES:
-                        # Handle dot files like .gitignore
-                        stats['file_types'][filename] += 1
-                    else:
-                        # Truly unknown files
-                        stats['file_types']['no_extension'] += 1
-
-                    # Get file content for LOC counting
-                    if file_content.size < 1024 * 1024:  # Skip files larger than 1MB
-                        try:
-                            content = file_content.decoded_content.decode('utf-8', errors='ignore')
-                            loc = count_lines_of_code(content, file_path)
-                            stats['total_loc'] += loc
-                            stats['languages'][language] += loc
-                        except Exception as e:
-                            logger.debug(f"Could not decode {file_path}: {e}")
-
-                except Exception as e:
-                    logger.warning(f"Error processing file {file_content.path}: {e}")
-                    continue
-
-            # Process additional metadata
-
-            # Check for GitHub releases
+        for file_content in tqdm(files_to_process,
+                                 desc=f"Analyzing {repo.name} files",
+                                 leave=False,
+                                 colour='cyan'):
             try:
-                releases = list(repo.get_releases())
-                if releases:
-                    stats['has_releases'] = True
-                    stats['release_count'] = len(releases)
+                self._process_single_file(repo, file_content, stats, all_file_extensions)
             except Exception as e:
-                logger.debug(f"Could not get releases for {repo.name}: {e}")
+                logger.warning(f"Error processing file {file_content.path}: {e}")
+                continue
 
-            # Categorize documentation size
-            docs_files_count = len(stats['docs_files'])
-            stats['docs_files_count'] = docs_files_count
+        # Log debugging information
+        self._log_file_analysis_debug(repo, stats, all_file_extensions)
 
-            if docs_files_count == 0:
-                stats['docs_size_category'] = "None"
-            elif docs_files_count <= 2:
-                stats['docs_size_category'] = "Small"
-            elif docs_files_count <= 10:
-                stats['docs_size_category'] = "Intermediate"
-            else:
-                stats['docs_size_category'] = "Big"
+    def _process_single_file(self, repo: Repository, file_content, stats: Dict[str, Any],
+                             all_file_extensions: set) -> None:
+        """Process a single file for all types of analysis"""
+        file_path = file_content.path
+        stats['total_files'] += 1
 
-            # Categorize README comprehensiveness
-            readme_lines = stats['readme_line_count']
-            if readme_lines == 0:
-                stats['readme_comprehensiveness'] = "None"
-            elif readme_lines < 20:
-                stats['readme_comprehensiveness'] = "Small"
-            elif readme_lines < 100:
-                stats['readme_comprehensiveness'] = "Good"
-            else:
-                stats['readme_comprehensiveness'] = "Comprehensive"
+        # Track file extensions
+        ext = Path(file_path).suffix.lower()
+        if ext:
+            all_file_extensions.add(ext)
 
-            # Clean up large content we don't need to keep
-            stats.pop('readme_content', None)
+        # Debug logging for specific repositories
+        if repo.name == "DrumVerse" and ext in AUDIO_FILE_EXTENSIONS:
+            logger.info(f"Found audio file in DrumVerse: {file_path}")
 
-            # After processing all files
-            # Process additional metadata like game repository detection
+        # Process different aspects of the file
+        self._track_media_file(file_content, stats)
+        self._analyze_file_type_and_purpose(file_content, stats)
+        self._count_lines_of_code(file_content, stats)
+
+    @staticmethod
+    def _track_media_file(file_content, stats: Dict[str, Any]) -> None:
+        """Track media files and their sizes"""
+        media_type = get_media_type(file_content.path)
+        if media_type:
+            size_kb = file_content.size // 1024 if file_content.size else 0
+            stats['media_metrics'][f'{media_type}_count'] += 1
+            stats['media_metrics'][f'{media_type}_files'].append(file_content.path)
+            stats['media_metrics'][f'{media_type}_size_kb'] += size_kb
+            logger.debug(f"Detected {media_type} file: {file_content.path} ({size_kb} KB)")
+
+    def _analyze_file_type_and_purpose(self, file_content, stats: Dict[str, Any]) -> None:
+        """Analyze file type and determine its purpose (docs, tests, CI/CD, etc.)"""
+        file_path = file_content.path
+
+        # Documentation analysis
+        if self._is_documentation_file(file_path):
+            stats['has_docs'] = True
+            stats['docs_files'].append(file_path)
+
+            if 'readme' in file_path.lower():
+                self._process_readme_file(file_content, stats)
+
+        # Other file type checks
+        if is_test_file(file_path):
+            stats['has_tests'] = True
+            stats['test_files_count'] += 1
+
+        if is_cicd_file(file_path):
+            stats['has_cicd'] = True
+            stats['cicd_files'].append(file_path)
+
+        if is_config_file(file_path):
+            stats['dependency_files'].append(file_path)
+
+        if is_package_file(file_path):
+            stats['has_packages'] = True
+            stats['package_files'].append(file_path)
+
+        if is_deployment_file(file_path):
+            stats['has_deployments'] = True
+            stats['deployment_files'].append(file_path)
+
+        if is_release_file(file_path):
+            stats['has_releases'] = True
+            stats['release_files'].append(file_path)
+
+    @staticmethod
+    def _is_documentation_file(file_path: str) -> bool:
+        """Check if a file is a documentation file"""
+        return ('readme' in file_path.lower() or
+                file_path.lower().startswith('docs/') or
+                '/docs/' in file_path.lower() or
+                file_path.lower().endswith('.md'))
+
+    @staticmethod
+    def _process_readme_file(file_content, stats: Dict[str, Any]) -> None:
+        """Process README file for content analysis"""
+        stats['has_readme'] = True
+        stats['readme_file'] = file_content.path
+
+        try:
+            if file_content.size < 1024 * 1024:  # Skip files larger than 1MB
+                readme_content = file_content.decoded_content.decode('utf-8', errors='ignore')
+                stats['readme_content'] = readme_content
+                stats['readme_line_count'] = len(readme_content.splitlines())
+        except Exception as e:
+            logger.debug(f"Could not decode README {file_content.path}: {e}")
+
+    def _count_lines_of_code(self, file_content, stats: Dict[str, Any]) -> None:
+        """Count lines of code for non-binary files"""
+        file_path = file_content.path
+
+        # Handle binary files
+        if is_binary_file(file_path):
+            stats['file_types']['Binary'] += 1
+            self._track_media_file(file_content, stats)  # Track media even if binary
+            return
+
+        # Determine language and file type
+        language = self.github_analyzer.get_file_language(file_path)
+        self._categorize_file_type(file_path, stats)
+
+        # Skip meta files for LOC counting
+        path_obj = Path(file_path)
+        if path_obj.suffix.lower() == '.meta' or path_obj.name == '.gitkeep':
+            return
+
+        # Count lines of code
+        if file_content.size < 1024 * 1024:  # Skip files larger than 1MB
             try:
-                game_repo_info = is_game_repo(stats['file_types'], stats['project_structure'])
-                stats['is_game_repo'] = game_repo_info['is_game_repo']
-                stats['game_engine'] = game_repo_info['engine_type']
-                stats['game_confidence'] = game_repo_info['confidence']
-
-                # If it's a game repo with high confidence, log it
-                if stats['is_game_repo'] and stats['game_confidence'] > 0.7:
-                    logger.info(
-                        f"Detected game repository using {stats['game_engine']} engine (confidence: {stats['game_confidence']:.2f})")
+                content = file_content.decoded_content.decode('utf-8', errors='ignore')
+                loc = count_lines_of_code(content, file_path)
+                stats['total_loc'] += loc
+                stats['languages'][language] += loc
             except Exception as e:
-                # Ensure game detection doesn't break the entire analysis
-                logger.error(f"Error during game repository detection: {e}")
-                stats['is_game_repo'] = False
-                stats['game_engine'] = 'None'
-                stats['game_confidence'] = 0.0
+                logger.debug(f"Could not decode {file_path}: {e}")
 
-            # Set has_media flag based on totals
-            media_metrics = stats['media_metrics']
-            stats['has_media'] = (
-                    media_metrics['image_count'] > 0 or
-                    media_metrics['audio_count'] > 0 or
-                    media_metrics['video_count'] > 0 or
-                    media_metrics['model_3d_count'] > 0
-            )
+    @staticmethod
+    def _categorize_file_type(file_path: str, stats: Dict[str, Any]) -> None:
+        """Categorize file type based on extension or filename"""
+        path_obj = Path(file_path)
+        filename = path_obj.name
+        ext = path_obj.suffix.lower()
 
-            # Log media file summary if present
-            if stats['has_media']:
-                logger.info(f"Repository {repo.name} contains media files:")
+        if ext:
+            stats['file_types'][ext] += 1
+        elif filename in SPECIAL_FILENAMES:
+            stats['file_types'][f"no_ext_{filename}"] += 1
+        elif filename.startswith('.') and filename in SPECIAL_FILENAMES:
+            stats['file_types'][filename] += 1
+        else:
+            stats['file_types']['no_extension'] += 1
 
-                if media_metrics['image_count'] > 0:
-                    logger.info(
-                        f"  Images: {media_metrics['image_count']} files, {media_metrics['image_size_kb'] / 1024:.2f} MB")
+    def _process_additional_metadata(self, repo: Repository, stats: Dict[str, Any]) -> None:
+        """Process additional repository metadata"""
+        self._check_github_releases(repo, stats)
+        self._categorize_documentation(stats)
+        self._detect_game_repository(stats)
 
-                if media_metrics['audio_count'] > 0:
-                    logger.info(
-                        f"  Audio: {media_metrics['audio_count']} files, {media_metrics['audio_size_kb'] / 1024:.2f} MB")
-                    # Log some audio files for debugging
-                    audio_examples = media_metrics['audio_files'][:min(5, len(media_metrics['audio_files']))]
+    @staticmethod
+    def _check_github_releases(repo: Repository, stats: Dict[str, Any]) -> None:
+        """Check for GitHub releases"""
+        try:
+            releases = list(repo.get_releases())
+            if releases:
+                stats['has_releases'] = True
+                stats['release_count'] = len(releases)
+        except Exception as e:
+            logger.debug(f"Could not get releases for {repo.name}: {e}")
+
+    @staticmethod
+    def _categorize_documentation(stats: Dict[str, Any]) -> None:
+        """Categorize documentation size and README comprehensiveness"""
+        # Categorize documentation size
+        docs_files_count = len(stats['docs_files'])
+        stats['docs_files_count'] = docs_files_count
+
+        if docs_files_count == 0:
+            stats['docs_size_category'] = "None"
+        elif docs_files_count <= 2:
+            stats['docs_size_category'] = "Small"
+        elif docs_files_count <= 10:
+            stats['docs_size_category'] = "Intermediate"
+        else:
+            stats['docs_size_category'] = "Big"
+
+        # Categorize README comprehensiveness
+        readme_lines = stats['readme_line_count']
+        if readme_lines == 0:
+            stats['readme_comprehensiveness'] = "None"
+        elif readme_lines < 20:
+            stats['readme_comprehensiveness'] = "Small"
+        elif readme_lines < 100:
+            stats['readme_comprehensiveness'] = "Good"
+        else:
+            stats['readme_comprehensiveness'] = "Comprehensive"
+
+    @staticmethod
+    def _detect_game_repository(stats: Dict[str, Any]) -> None:
+        """Detect if repository is a game repository"""
+        try:
+            game_repo_info = is_game_repo(stats['file_types'], stats['project_structure'])
+            stats['is_game_repo'] = game_repo_info['is_game_repo']
+            stats['game_engine'] = game_repo_info['engine_type']
+            stats['game_confidence'] = game_repo_info['confidence']
+
+            if stats['is_game_repo'] and stats['game_confidence'] > 0.7:
+                logger.info(f"Detected game repository using {stats['game_engine']} engine "
+                            f"(confidence: {stats['game_confidence']:.2f})")
+        except Exception as e:
+            logger.error(f"Error during game repository detection: {e}")
+            stats['is_game_repo'] = False
+            stats['game_engine'] = 'None'
+            stats['game_confidence'] = 0.0
+
+    def _finalize_stats(self, repo: Repository, stats: Dict[str, Any]) -> None:
+        """Finalize statistics and perform cleanup"""
+        self._set_media_flags(stats)
+        self._log_media_summary(repo, stats)
+        self._log_exclusion_summary(repo, stats)
+        self._cleanup_stats(stats)
+
+    @staticmethod
+    def _set_media_flags(stats: Dict[str, Any]) -> None:
+        """Set media-related flags based on counts"""
+        media_metrics = stats['media_metrics']
+        stats['has_media'] = (
+                media_metrics['image_count'] > 0 or
+                media_metrics['audio_count'] > 0 or
+                media_metrics['video_count'] > 0 or
+                media_metrics['model_3d_count'] > 0
+        )
+
+    @staticmethod
+    def _log_media_summary(repo: Repository, stats: Dict[str, Any]) -> None:
+        """Log summary of media files found"""
+        if not stats['has_media']:
+            return
+
+        media_metrics = stats['media_metrics']
+        logger.info(f"Repository {repo.name} contains media files:")
+
+        media_types = [
+            ('image', 'Images'),
+            ('audio', 'Audio'),
+            ('video', 'Video'),
+            ('model_3d', '3D Models')
+        ]
+
+        for media_type, display_name in media_types:
+            count = media_metrics[f'{media_type}_count']
+            if count > 0:
+                size_mb = media_metrics[f'{media_type}_size_kb'] / 1024
+                logger.info(f"  {display_name}: {count} files, {size_mb:.2f} MB")
+
+                if media_type == 'audio':
+                    # Log audio file examples for debugging
+                    audio_examples = media_metrics['audio_files'][:5]
                     logger.debug(f"  Audio file examples: {audio_examples}")
 
-                if media_metrics['video_count'] > 0:
-                    logger.info(
-                        f"  Video: {media_metrics['video_count']} files, {media_metrics['video_size_kb'] / 1024:.2f} MB")
+    @staticmethod
+    def _log_file_analysis_debug(repo: Repository, stats: Dict[str, Any],
+                                 all_file_extensions: set) -> None:
+        """Log debugging information about file analysis"""
+        logger.debug(f"All file extensions found in {repo.name}: {sorted(all_file_extensions)}")
 
-                if media_metrics['model_3d_count'] > 0:
-                    logger.info(
-                        f"  3D Models: {media_metrics['model_3d_count']} files, {media_metrics['model_3d_size_kb'] / 1024:.2f} MB")
+        # Special logging for DrumVerse
+        if repo.name == "DrumVerse":
+            logger.info("DrumVerse analysis summary:")
+            logger.info(f"  Total files: {stats['total_files']}")
+            logger.info(f"  Extensions found: {sorted(all_file_extensions)}")
+            logger.info(f"  Has media: {stats['has_media']}")
+            logger.info(f"  Media metrics: {stats['media_metrics']}")
+            logger.info(f"  Looking for audio extensions: {sorted(AUDIO_FILE_EXTENSIONS)}")
 
-            # Log all file extensions found for debugging
-            logger.debug(f"All file extensions found in {repo.name}: {sorted(all_file_extensions)}")
+    @staticmethod
+    def _log_exclusion_summary(repo: Repository, stats: Dict[str, Any]) -> None:
+        """Log summary of excluded directories and files"""
+        if stats['skipped_directories']:
+            skipped_dirs = list(stats['skipped_directories'])
+            logger.info(f"Skipped {len(skipped_dirs)} directories and "
+                        f"{stats['excluded_file_count']} files in {repo.name}")
 
-            # Special logging for DrumVerse to check for audio files
-            if repo.name == "DrumVerse":
-                logger.info("DrumVerse analysis summary:")
-                logger.info(f"  Total files: {stats['total_files']}")
-                logger.info(f"  Extensions found: {sorted(all_file_extensions)}")
-                logger.info(f"  Has media: {stats['has_media']}")
-                logger.info(f"  Media metrics: {stats['media_metrics']}")
+            # Show first 5 directories
+            dirs_to_show = skipped_dirs[:5]
+            dirs_summary = ', '.join(dirs_to_show)
+            if len(skipped_dirs) > 5:
+                dirs_summary += f" and {len(skipped_dirs) - 5} more..."
+            logger.debug(f"Skipped directories in {repo.name}: {dirs_summary}")
 
-                # Check audio extensions
-                audio_extensions = sorted(AUDIO_FILE_EXTENSIONS)
-                logger.info(f"  Looking for audio extensions: {audio_extensions}")
+    @staticmethod
+    def _cleanup_stats(stats: Dict[str, Any]) -> None:
+        """Clean up temporary data from stats"""
+        stats.pop('readme_content', None)
+        stats.pop('skipped_directories', None)
 
-            # Clean up large content we don't need to keep
-            stats.pop('readme_content', None)
-
-        except RateLimitExceededException:
+    def _handle_analysis_error(self, repo: Repository, stats: Dict[str, Any],
+                               error: Exception) -> Dict[str, Any]:
+        """Handle analysis errors appropriately"""
+        if isinstance(error, RateLimitExceededException):
             logger.error(f"GitHub API rate limit exceeded while analyzing repository {repo.name}")
-            # Wait and continue with partial results
             self.github_analyzer.check_rate_limit()
-        except GithubException as e:
-            # Handle empty repository specifically
-            if e.status == 404 and "This repository is empty" in str(e):
+        elif isinstance(error, GithubException):
+            if error.status == 404 and "This repository is empty" in str(error):
                 logger.info(f"Repository {repo.name} is empty")
                 stats['is_empty'] = True
             else:
-                logger.error(f"GitHub API error analyzing repository {repo.name}: {e}")
-        except Exception as e:
-            logger.error(f"Error analyzing repository {repo.name}: {e}")
+                logger.error(f"GitHub API error analyzing repository {repo.name}: {error}")
+        else:
+            logger.error(f"Error analyzing repository {repo.name}: {error}")
 
-        # Log summary of excluded directories
-        if stats['skipped_directories']:
-            logger.info(
-                f"Skipped {len(stats['skipped_directories'])} directories and {stats['excluded_file_count']} files in {repo.name}")
-            logger.debug(f"Skipped directories in {repo.name}: {', '.join(list(stats['skipped_directories'])[:5])}" +
-                         (f" and {len(stats['skipped_directories']) - 5} more..." if len(
-                             stats['skipped_directories']) > 5 else ""))
-
-        # Remove the tracking set from final stats
-        stats.pop('skipped_directories', None)
-
+        # Clean up and return partial results
+        self._cleanup_stats(stats)
         return dict(stats)
 
 
@@ -1237,214 +1494,288 @@ class ScoreCalculator:
     @staticmethod
     def calculate_scores(repo_stats: Dict[str, Any], repo: Repository) -> Dict[str, float]:
         """Calculate various quality scores for a repository"""
-        scores = {
-            'maintenance_score': 0.0,
-            'popularity_score': 0.0,
-            'code_quality_score': 0.0,
-            'documentation_score': 0.0
+        return {
+            'maintenance_score': ScoreCalculator._calculate_maintenance_score(repo_stats, repo),
+            'popularity_score': ScoreCalculator._calculate_popularity_score(repo_stats, repo),
+            'code_quality_score': ScoreCalculator._calculate_code_quality_score(repo_stats),
+            'documentation_score': ScoreCalculator._calculate_documentation_score(repo_stats, repo)
         }
 
-        # Maintenance score (0-100)
-        maintenance_score = 0.0
+    @staticmethod
+    def _calculate_maintenance_score(repo_stats: Dict[str, Any], repo: Repository) -> float:
+        """Calculate maintenance score (0-100) based on project maintenance indicators"""
+        score = 0.0
 
         # Documentation (15 points)
-        if repo_stats.get('has_docs', False):
-            # Add points based on documentation size
-            docs_size = repo_stats.get('docs_size_category', "None")
-            if docs_size == "Big":
-                maintenance_score += 15
-            elif docs_size == "Intermediate":
-                maintenance_score += 10
-            elif docs_size == "Small":
-                maintenance_score += 5
+        score += ScoreCalculator._score_documentation_size(repo_stats, max_points=15)
 
         # README quality (10 points)
-        if repo_stats.get('has_readme', False):
-            # Add points based on README comprehensiveness
-            readme_quality = repo_stats.get('readme_comprehensiveness', "None")
-            if readme_quality == "Comprehensive":
-                maintenance_score += 10
-            elif readme_quality == "Good":
-                maintenance_score += 7
-            elif readme_quality == "Small":
-                maintenance_score += 3
+        score += ScoreCalculator._score_readme_quality(repo_stats, max_points=10)
 
         # Tests (15 points)
-        if repo_stats.get('has_tests', False):
-            test_count = repo_stats.get('test_files_count', 0)
-            if test_count > 10:
-                maintenance_score += 15
-            elif test_count > 5:
-                maintenance_score += 10
-            elif test_count > 0:
-                maintenance_score += 5
+        score += ScoreCalculator._score_testing(repo_stats, max_points=15)
 
         # CI/CD (10 points)
         if repo_stats.get('has_cicd', False):
-            maintenance_score += 10
+            score += 10
 
         # Package management (5 points)
         if repo_stats.get('has_packages', False):
-            maintenance_score += 5
+            score += 5
 
         # Deployment configuration (5 points)
         if repo_stats.get('has_deployments', False):
-            maintenance_score += 5
+            score += 5
 
         # Releases (5 points)
-        if repo_stats.get('has_releases', False):
-            release_count = repo_stats.get('release_count', 0)
-            if release_count > 5:
-                maintenance_score += 5
-            else:
-                maintenance_score += min(release_count, 5)
+        score += ScoreCalculator._score_releases(repo_stats, max_points=5)
 
         # Recent activity (15 points)
-        if repo_stats.get('is_active', False):
-            maintenance_score += 10
-
-            # More points for higher activity
-            commits_last_month = repo_stats.get('commits_last_month', 0)
-            if commits_last_month > 10:
-                maintenance_score += 5
-            elif commits_last_month > 0:
-                maintenance_score += commits_last_month / 2  # Up to 5 points
+        score += ScoreCalculator._score_activity(repo_stats, max_points=15)
 
         # License (5 points)
-        if repo.license:
-            maintenance_score += 5
+        if getattr(repo, 'license', None):
+            score += 5
 
         # Issues management (5 points)
-        try:
-            if repo.open_issues_count < 10:
-                maintenance_score += 5
-            elif repo.open_issues_count < 50:
-                maintenance_score += 3
-        except:
-            pass
+        score += ScoreCalculator._score_issue_management(repo, max_points=5)
 
-        # Repository size and structure (5 points)
-        if repo_stats.get('total_files', 0) > 5:
-            maintenance_score += 3
-        if len(repo_stats.get('dependency_files', [])) > 0:
-            maintenance_score += 2
+        # Repository structure (5 points)
+        score += ScoreCalculator._score_repository_structure(repo_stats, max_points=5)
 
-        scores['maintenance_score'] = min(maintenance_score, 100.0)
+        return min(score, 100.0)
 
-        # Popularity score (0-100)
-        popularity_score = 0.0
+    @staticmethod
+    def _calculate_popularity_score(repo_stats: Dict[str, Any], repo: Repository) -> float:
+        """Calculate popularity score (0-100) based on community engagement"""
+        score = 0.0
 
         # Stars (up to 50 points)
-        if repo.stargazers_count > 1000:
-            popularity_score += 50
-        elif repo.stargazers_count > 100:
-            popularity_score += 30
-        elif repo.stargazers_count > 10:
-            popularity_score += 15
-        elif repo.stargazers_count > 0:
-            popularity_score += 5
+        stars = getattr(repo, 'stargazers_count', 0)
+        if stars > 1000:
+            score += 50
+        elif stars > 100:
+            score += 30
+        elif stars > 10:
+            score += 15
+        elif stars > 0:
+            score += 5
 
         # Forks (up to 30 points)
-        if repo.forks_count > 100:
-            popularity_score += 30
-        elif repo.forks_count > 10:
-            popularity_score += 20
-        elif repo.forks_count > 0:
-            popularity_score += 10
+        forks = getattr(repo, 'forks_count', 0)
+        if forks > 100:
+            score += 30
+        elif forks > 10:
+            score += 20
+        elif forks > 0:
+            score += 10
 
-        # Watchers and contributors (up to 20 points)
+        # Contributors (up to 10 points)
         contributors_count = repo_stats.get('contributors_count', 0)
         if contributors_count > 10:
-            popularity_score += 10
+            score += 10
         elif contributors_count > 1:
-            popularity_score += 5
+            score += 5
 
-        if repo.watchers_count > 10:
-            popularity_score += 10
-        elif repo.watchers_count > 0:
-            popularity_score += 5
+        # Watchers (up to 10 points)
+        watchers = getattr(repo, 'watchers_count', 0)
+        if watchers > 10:
+            score += 10
+        elif watchers > 0:
+            score += 5
 
-        scores['popularity_score'] = min(popularity_score, 100.0)
+        return min(score, 100.0)
 
-        # Code quality score (0-100)
-        code_quality_score = 0.0
+    @staticmethod
+    def _calculate_code_quality_score(repo_stats: Dict[str, Any]) -> float:
+        """Calculate code quality score (0-100) based on development practices"""
+        score = 0.0
 
         # Test coverage (up to 30 points)
-        if repo_stats.get('has_tests', False):
-            test_count = repo_stats.get('test_files_count', 0)
-            total_files = repo_stats.get('total_files', 0)
-            if total_files > 0:
-                test_ratio = min(test_count / max(1, total_files - test_count), 1.0)
-                # Up to 30 points based on test ratio
-                code_quality_score += min(30, int(30 * test_ratio))
-            else:
-                code_quality_score += 10  # Some tests are better than none
+        score += ScoreCalculator._score_test_coverage(repo_stats, max_points=30)
 
         # CI/CD (up to 20 points)
         if repo_stats.get('has_cicd', False):
-            code_quality_score += 20
+            score += 20
 
         # Package management (up to 10 points)
-        if repo_stats.get('has_packages', False):
-            package_files_count = len(repo_stats.get('package_files', []))
-            if package_files_count > 3:
-                code_quality_score += 10
-            else:
-                code_quality_score += package_files_count * 3
+        score += ScoreCalculator._score_package_management(repo_stats, max_points=10)
 
         # Code size and complexity (up to 20 points)
-        if repo_stats.get('total_loc', 0) > 0:
-            avg_loc = repo_stats.get('avg_loc_per_file', 0)
-            if 0 < avg_loc < 300:  # Reasonable file size
-                code_quality_score += 20
-            elif avg_loc > 0:
-                code_quality_score += 10
+        score += ScoreCalculator._score_code_complexity(repo_stats, max_points=20)
 
         # Documentation (up to 20 points)
-        if repo_stats.get('has_docs', False):
-            docs_category = repo_stats.get('docs_size_category', "None")
-            if docs_category == "Big":
-                code_quality_score += 20
-            elif docs_category == "Intermediate":
-                code_quality_score += 15
-            elif docs_category == "Small":
-                code_quality_score += 10
+        score += ScoreCalculator._score_documentation_size(repo_stats, max_points=20)
 
-        scores['code_quality_score'] = min(code_quality_score, 100.0)
+        return min(score, 100.0)
 
-        # Documentation score (0-100)
-        documentation_score = 0.0
+    @staticmethod
+    def _calculate_documentation_score(repo_stats: Dict[str, Any], repo: Repository) -> float:
+        """Calculate documentation score (0-100) based on documentation quality and coverage"""
+        score = 0.0
 
         # README quality (up to 40 points)
-        if repo_stats.get('has_readme', False):
-            readme_quality = repo_stats.get('readme_comprehensiveness', "None")
-            if readme_quality == "Comprehensive":
-                documentation_score += 40
-            elif readme_quality == "Good":
-                documentation_score += 30
-            elif readme_quality == "Small":
-                documentation_score += 15
+        score += ScoreCalculator._score_readme_quality(repo_stats, max_points=40)
 
         # Additional documentation (up to 40 points)
-        if repo_stats.get('has_docs', False):
-            docs_category = repo_stats.get('docs_size_category', "None")
-            if docs_category == "Big":
-                documentation_score += 40
-            elif docs_category == "Intermediate":
-                documentation_score += 30
-            elif docs_category == "Small":
-                documentation_score += 15
+        score += ScoreCalculator._score_documentation_size(repo_stats, max_points=40)
 
         # Wiki presence (up to 20 points)
         try:
-            if repo.has_wiki:
-                documentation_score += 20
-        except:
+            if getattr(repo, 'has_wiki', False):
+                score += 20
+        except (AttributeError, Exception):
             pass
 
-        scores['documentation_score'] = min(documentation_score, 100.0)
+        return min(score, 100.0)
 
-        return scores
+    # Helper methods for scoring specific aspects
+
+    @staticmethod
+    def _score_documentation_size(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on documentation size category"""
+        if not repo_stats.get('has_docs', False):
+            return 0.0
+
+        docs_size = repo_stats.get('docs_size_category', "None")
+        if docs_size == "Big":
+            return max_points
+        elif docs_size == "Intermediate":
+            return max_points * 0.67  # ~2/3 of max points
+        elif docs_size == "Small":
+            return max_points * 0.33  # ~1/3 of max points
+
+        return 0.0
+
+    @staticmethod
+    def _score_readme_quality(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on README comprehensiveness"""
+        if not repo_stats.get('has_readme', False):
+            return 0.0
+
+        readme_quality = repo_stats.get('readme_comprehensiveness', "None")
+        if readme_quality == "Comprehensive":
+            return max_points
+        elif readme_quality == "Good":
+            return max_points * 0.7
+        elif readme_quality == "Small":
+            return max_points * 0.3
+
+        return 0.0
+
+    @staticmethod
+    def _score_testing(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on test presence and quantity"""
+        if not repo_stats.get('has_tests', False):
+            return 0.0
+
+        test_count = repo_stats.get('test_files_count', 0)
+        if test_count > 10:
+            return max_points
+        elif test_count > 5:
+            return max_points * 0.67
+        elif test_count > 0:
+            return max_points * 0.33
+
+        return 0.0
+
+    @staticmethod
+    def _score_releases(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on release management"""
+        if not repo_stats.get('has_releases', False):
+            return 0.0
+
+        release_count = repo_stats.get('release_count', 0)
+        if release_count > 5:
+            return max_points
+        else:
+            return min(release_count, max_points)
+
+    @staticmethod
+    def _score_activity(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on recent repository activity"""
+        base_score = 10 if repo_stats.get('is_active', False) else 0
+
+        if base_score > 0:
+            commits_last_month = repo_stats.get('commits_last_month', 0)
+            additional_points = max_points - 10  # Remaining points after base
+
+            if commits_last_month > 10:
+                return base_score + additional_points
+            elif commits_last_month > 0:
+                return base_score + min(commits_last_month / 2, additional_points)
+
+        return base_score
+
+    @staticmethod
+    def _score_issue_management(repo: Repository, max_points: int) -> float:
+        """Score based on open issues management"""
+        try:
+            open_issues = getattr(repo, 'open_issues_count', 0)
+            if open_issues < 10:
+                return max_points
+            elif open_issues < 50:
+                return max_points * 0.6
+        except (AttributeError, Exception):
+            pass
+
+        return 0.0
+
+    @staticmethod
+    def _score_repository_structure(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on repository structure and organization"""
+        score = 0.0
+
+        # File count indicates project size/complexity
+        if repo_stats.get('total_files', 0) > 5:
+            score += max_points * 0.6
+
+        # Dependency files indicate proper project setup
+        if len(repo_stats.get('dependency_files', [])) > 0:
+            score += max_points * 0.4
+
+        return score
+
+    @staticmethod
+    def _score_test_coverage(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on test coverage ratio"""
+        if not repo_stats.get('has_tests', False):
+            return 0.0
+
+        test_count = repo_stats.get('test_files_count', 0)
+        total_files = repo_stats.get('total_files', 0)
+
+        if total_files > 0:
+            test_ratio = min(test_count / max(1, total_files - test_count), 1.0)
+            return min(max_points, int(max_points * test_ratio))
+        else:
+            return max_points * 0.33  # Some tests are better than none
+
+    @staticmethod
+    def _score_package_management(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on package management setup"""
+        if not repo_stats.get('has_packages', False):
+            return 0.0
+
+        package_files_count = len(repo_stats.get('package_files', []))
+        if package_files_count > 3:
+            return max_points
+        else:
+            return min(package_files_count * (max_points / 3), max_points)
+
+    @staticmethod
+    def _score_code_complexity(repo_stats: Dict[str, Any], max_points: int) -> float:
+        """Score based on code complexity metrics"""
+        if repo_stats.get('total_loc', 0) <= 0:
+            return 0.0
+
+        avg_loc = repo_stats.get('avg_loc_per_file', 0)
+        if 0 < avg_loc < 300:  # Reasonable file size
+            return max_points
+        elif avg_loc > 0:
+            return max_points * 0.5
+
+        return 0.0
 
 
 class AnomalyDetctor:
@@ -1456,87 +1787,156 @@ class AnomalyDetctor:
 
     def detect(self, repo_stats: RepoStats) -> None:
         """Detect anomalies in repository data"""
+        self._detect_documentation_issues(repo_stats)
+        self._detect_testing_issues(repo_stats)
+        self._detect_maintenance_issues(repo_stats)
+        self._detect_project_maturity_issues(repo_stats)
+        self._detect_media_anomalies(repo_stats)
+        self._detect_special_repository_types(repo_stats)
+        self._detect_age_related_issues(repo_stats)
+
+    def _detect_documentation_issues(self, repo_stats: RepoStats) -> None:
+        """Detect documentation-related anomalies"""
+        large_repo_threshold = self.config.get("LARGE_REPO_LOC_THRESHOLD", 10000)
+        total_loc = repo_stats.code_stats.total_loc
+        has_docs = repo_stats.quality.has_docs
+        stars = repo_stats.community.stars
+        readme_quality = repo_stats.quality.readme_comprehensiveness
+
         # Large repo without documentation
-        if repo_stats.code_stats.total_loc > self.config[
-            "LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.quality.has_docs:
+        if total_loc > large_repo_threshold and not has_docs:
             repo_stats.add_anomaly("Large repository without documentation")
 
-        # Large repo without tests
-        if repo_stats.code_stats.total_loc > self.config[
-            "LARGE_REPO_LOC_THRESHOLD"] and not repo_stats.quality.has_tests:
-            repo_stats.add_anomaly("Large repository without tests")
-
         # Popular repo without docs
-        if repo_stats.community.stars > 10 and not repo_stats.quality.has_docs:
+        if stars > 10 and not has_docs:
             repo_stats.add_anomaly("Popular repository without documentation")
 
         # Small/inadequate README for larger codebases
-        if repo_stats.code_stats.total_loc > 1000 and repo_stats.quality.readme_comprehensiveness in ["None", "Small"]:
+        if total_loc > 1000 and readme_quality in ["None", "Small"]:
             repo_stats.add_anomaly("Large codebase with inadequate README")
 
-        # Many open issues
-        if repo_stats.community.open_issues > 20 and not repo_stats.activity.is_active:
+    def _detect_testing_issues(self, repo_stats: RepoStats) -> None:
+        """Detect testing-related anomalies"""
+        large_repo_threshold = self.config.get("LARGE_REPO_LOC_THRESHOLD", 10000)
+        total_loc = repo_stats.code_stats.total_loc
+        has_tests = repo_stats.quality.has_tests
+        test_files_count = getattr(repo_stats.quality, 'test_files_count', 0)
+        total_files = repo_stats.code_stats.total_files
+
+        # Large repo without tests
+        if total_loc > large_repo_threshold and not has_tests:
+            repo_stats.add_anomaly("Large repository without tests")
+
+        # Imbalanced test coverage
+        if has_tests and total_files > 0 and test_files_count < total_files * 0.05:
+            repo_stats.add_anomaly("Low test coverage ratio")
+
+    @staticmethod
+    def _detect_maintenance_issues(repo_stats: RepoStats) -> None:
+        """Detect maintenance and activity-related anomalies"""
+        open_issues = repo_stats.community.open_issues
+        is_active = repo_stats.activity.is_active
+        stars = repo_stats.community.stars
+        has_cicd = repo_stats.quality.has_cicd
+        total_loc = repo_stats.code_stats.total_loc
+
+        # Many open issues in inactive repo
+        if open_issues > 20 and not is_active:
             repo_stats.add_anomaly("Many open issues but repository is inactive")
 
         # Stale repository with stars
-        if not repo_stats.activity.is_active and repo_stats.community.stars > 10:
+        if not is_active and stars > 10:
             repo_stats.add_anomaly("Popular repository appears to be abandoned")
 
+        # Missing CI/CD in active project
+        if is_active and total_loc > 1000 and not has_cicd:
+            repo_stats.add_anomaly("Active project without CI/CD configuration")
+
+    @staticmethod
+    def _detect_project_maturity_issues(repo_stats: RepoStats) -> None:
+        """Detect issues related to project maturity and best practices"""
+        is_active = repo_stats.activity.is_active
+        total_loc = repo_stats.code_stats.total_loc
+        has_packages = repo_stats.quality.has_packages
+        has_releases = repo_stats.quality.has_releases
+        license_name = getattr(repo_stats.community, 'license_name', None)
+
         # Active project without package management
-        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_packages:
+        if is_active and total_loc > 1000 and not has_packages:
             repo_stats.add_anomaly("Active project without package management")
 
         # Missing releases in mature project
-        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_releases:
+        if is_active and total_loc > 1000 and not has_releases:
             repo_stats.add_anomaly("Mature project without releases")
 
         # Project with code but no license
-        if repo_stats.code_stats.total_loc > 1000 and not repo_stats.community.license_name:
+        if total_loc > 1000 and not license_name:
             repo_stats.add_anomaly("Substantial code without license")
 
-        # Imbalanced test coverage
-        if repo_stats.quality.has_tests and repo_stats.quality.test_files_count < repo_stats.code_stats.total_files * 0.05:
-            repo_stats.add_anomaly("Low test coverage ratio")
+    def _detect_media_anomalies(self, repo_stats: RepoStats) -> None:
+        """Detect anomalies related to media files"""
+        total_media_count = getattr(repo_stats, 'total_media_count', 0)
 
-        # Missing CI/CD in active project
-        if repo_stats.activity.is_active and repo_stats.code_stats.total_loc > 1000 and not repo_stats.quality.has_cicd:
-            repo_stats.add_anomaly("Active project without CI/CD configuration")
+        if total_media_count == 0:
+            return
 
-        # Media heavy repositories
-        if repo_stats.total_media_count > 0:
-            if repo_stats.total_media_size_kb > 100000:  # More than 100MB
-                repo_stats.add_anomaly(f"Very large media files ({repo_stats.total_media_size_kb // 1024} MB)")
+        total_media_size_kb = getattr(repo_stats, 'total_media_size_kb', 0)
+        total_files = repo_stats.code_stats.total_files
 
-            # Check if the repository is dominated by media files
-            if (repo_stats.total_media_count > repo_stats.code_stats.total_files * 0.5 and
-                    repo_stats.code_stats.total_files > 10):
-                repo_stats.add_anomaly("Repository contains more media files than code files")
+        # Very large media files
+        if total_media_size_kb > 100000:  # More than 100MB
+            size_mb = total_media_size_kb // 1024
+            repo_stats.add_anomaly(f"Very large media files ({size_mb} MB)")
 
-            # Check for specific media types
-            if repo_stats.image_count > 100:
-                repo_stats.add_anomaly(f"Repository contains {repo_stats.image_count} images")
+        # Repository dominated by media files
+        if total_files > 10 and total_media_count > total_files * 0.5:
+            repo_stats.add_anomaly("Repository contains more media files than code files")
 
-            if repo_stats.video_count > 10:
-                repo_stats.add_anomaly(f"Repository contains {repo_stats.video_count} video files")
+        # Check for specific media type thresholds
+        self._check_media_type_thresholds(repo_stats)
 
-            if repo_stats.audio_count > 20:
-                repo_stats.add_anomaly(f"Repository contains {repo_stats.audio_count} audio files")
+    @staticmethod
+    def _check_media_type_thresholds(repo_stats: RepoStats) -> None:
+        """Check individual media type counts against thresholds"""
+        media_thresholds = [
+            ('image_count', 100, 'images'),
+            ('video_count', 10, 'video files'),
+            ('audio_count', 20, 'audio files'),
+            ('model_3d_count', 10, '3D model files')
+        ]
 
-            if repo_stats.model_3d_count > 10:
-                repo_stats.add_anomaly(f"Repository contains {repo_stats.model_3d_count} 3D model files")
+        for attr_name, threshold, description in media_thresholds:
+            count = getattr(repo_stats, attr_name, 0)
+            if count > threshold:
+                repo_stats.add_anomaly(f"Repository contains {count} {description}")
 
-        # Add game repository anomaly if it's a game repo
-        if repo_stats.code_stats.is_game_repo:
-            repo_stats.add_anomaly(f"Game repository detected ({repo_stats.code_stats.game_engine})")
+    @staticmethod
+    def _detect_special_repository_types(repo_stats: RepoStats) -> None:
+        """Detect special repository types (games, etc.)"""
+        is_game_repo = getattr(repo_stats.code_stats, 'is_game_repo', False)
 
-        # Old repository without recent activity
-        if repo_stats.base_info.created_at and repo_stats.activity.last_commit_date:
+        if is_game_repo:
+            game_engine = getattr(repo_stats.code_stats, 'game_engine', 'Unknown')
+            repo_stats.add_anomaly(f"Game repository detected ({game_engine})")
+
+    @staticmethod
+    def _detect_age_related_issues(repo_stats: RepoStats) -> None:
+        """Detect issues related to repository age and activity"""
+        created_at = getattr(repo_stats.base_info, 'created_at', None)
+        last_commit_date = getattr(repo_stats.activity, 'last_commit_date', None)
+
+        if not created_at or not last_commit_date:
+            return
+
+        with contextlib.suppress(Exception):
+            from datetime import datetime, timezone
+
             now = datetime.now().replace(tzinfo=timezone.utc)
-            created_at = ensure_utc(repo_stats.base_info.created_at)
-            last_commit = ensure_utc(repo_stats.activity.last_commit_date)
+            created_at_utc = ensure_utc(created_at)
+            last_commit_utc = ensure_utc(last_commit_date)
 
-            years_since_created = (now - created_at).days / 365.25
-            months_since_last_commit = (now - last_commit).days / 30
+            years_since_created = (now - created_at_utc).days / 365.25
+            months_since_last_commit = (now - last_commit_utc).days / 30
 
             if years_since_created > 3 and months_since_last_commit > 12:
                 repo_stats.add_anomaly("Old repository without updates in over a year")
@@ -1555,98 +1955,155 @@ class ReposAnalyzer:
     def analyze(self, repositories: List[Repository]) -> List[RepoStats]:
         """
         Analyze a specific list of repositories.
-        
+
         This method analyzes a provided list of repositories with support for
         checkpointing, rate limiting, and parallel processing.
         Args:
             repositories: List of Repository objects to analyze
-            
+
         Returns:
             List of RepoStats objects, one for each analyzed repository
         """
         logger.info(f"Starting analysis of {len(repositories)} specified repositories")
 
+        analysis_state: Optional[AnalysisState] = None
+        try:
+            # Initialize analysis state
+            analysis_state = self._initialize_analysis_state(repositories)
+
+            # Early exit if no work to do
+            if self._should_exit_early(analysis_state):
+                return analysis_state.all_stats
+
+            # Setup and execute analysis
+            self._prepare_for_analysis()
+            self._execute_analysis(analysis_state)
+            self._finalize_analysis(analysis_state)
+
+            logger.info(f"Successfully analyzed {len(analysis_state.all_stats)} repositories")
+            return analysis_state.all_stats
+
+        except (RateLimitExceededException, GithubException, Exception) as e:
+            return self._handle_analysis_error(e, analysis_state if 'analysis_state' in locals() else None)
+
+    def _initialize_analysis_state(self, repositories: List[Repository]) -> 'AnalysisState':
+        """Initialize analysis state including checkpoint recovery"""
         all_stats = []
         analyzed_repo_names = []
         repos_to_analyze = repositories
 
-        try:
-            # Check for existing checkpoint
-            checkpoint_data = self.github_analyzer.load_checkpoint()
+        # Check for existing checkpoint
+        checkpoint_data = self.github_analyzer.load_checkpoint()
 
-            # If checkpoint exists and resume is enabled, load the checkpoint data
-            if checkpoint_data:
-                all_stats = checkpoint_data.get('all_stats', [])
-                analyzed_repo_names = checkpoint_data.get('analyzed_repos', [])
+        if checkpoint_data:
+            all_stats = checkpoint_data.get('all_stats', [])
+            analyzed_repo_names = checkpoint_data.get('analyzed_repos', [])
+            repos_to_analyze = [repo for repo in repositories if repo.name not in analyzed_repo_names]
 
-                # Filter out repositories that have already been analyzed
-                repos_to_analyze = [repo for repo in repositories if repo.name not in analyzed_repo_names]
+            logger.info(f"Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
+            rprint(
+                f"[blue]📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories[/blue]")
 
-                logger.info(f"Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories")
-                rprint(
-                    f"[blue]📋 Resuming analysis from checkpoint with {len(all_stats)} already analyzed repositories[/blue]")
+        logger.info(f"Analyzing {len(repos_to_analyze)} repositories after checkpoint filtering")
 
-            # Initialize GitHub with rate limit check
-            self.github_analyzer.check_rate_limit()
+        return AnalysisState(
+            all_stats=all_stats,
+            analyzed_repo_names=analyzed_repo_names,
+            repos_to_analyze=repos_to_analyze,
+            newly_analyzed_repos=[],
+            total_repos=len(repos_to_analyze) + len(all_stats)
+        )
 
-            logger.info(f"Analyzing {len(repos_to_analyze)} repositories after checkpoint filtering")
+    @staticmethod
+    def _should_exit_early(state: 'AnalysisState') -> bool:
+        """Check if analysis should exit early"""
+        if not state.repos_to_analyze and not state.all_stats:
+            logger.warning("No repositories found matching the criteria")
+            return True
 
-            if not repos_to_analyze and not all_stats:
-                logger.warning("No repositories found matching the criteria")
-                return []
+        if not state.repos_to_analyze and state.all_stats:
+            logger.info("All repositories have already been analyzed according to checkpoint")
+            return True
 
-            if not repos_to_analyze and all_stats:
-                logger.info("All repositories have already been analyzed according to checkpoint")
-                return all_stats
+        return False
 
-            # Track newly analyzed repositories in this session
-            newly_analyzed_repos = []
+    def _prepare_for_analysis(self) -> None:
+        """Prepare system for analysis (rate limit checks, displays)"""
+        # Initialize GitHub with rate limit check
+        self.github_analyzer.check_rate_limit()
 
-            # For progress bar display, accurate counts including checkpoint
-            total_repos = len(repos_to_analyze) + len(all_stats)
+        # Display initial rate limit usage
+        rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
+        self.rate_display.display_once()
+        rprint("[bold]-------------------------------[/bold]")
 
-            # Display initial rate limit usage before starting
-            rprint("\n[bold]--- Initial API Rate Status ---[/bold]")
-            self.rate_display.display_once()  # Use our interactive display
-            rprint("[bold]-------------------------------[/bold]")
+    def _execute_analysis(self, state: 'AnalysisState') -> None:
+        """Execute the main analysis logic"""
+        should_use_parallel = (
+                self.github_analyzer.max_workers > 1 and
+                len(state.repos_to_analyze) > 1
+        )
 
-            # Use parallel processing if configured with multiple workers
-            if self.github_analyzer.max_workers > 1 and len(repos_to_analyze) > 1:
-                all_stats = self._analyze_parallel(repos_to_analyze, all_stats, analyzed_repo_names,
-                                                   newly_analyzed_repos, total_repos)
-            else:
-                all_stats = self._analyze_sequential(repos_to_analyze, all_stats, analyzed_repo_names,
-                                                     newly_analyzed_repos, total_repos)
-            # Final rate limit status display
-            rprint("\n[bold]--- Final API Rate Status ---[/bold]")
-            self.rate_display.display_once()
-            rprint("[bold]----------------------------[/bold]")
+        if should_use_parallel:
+            state.all_stats = self._analyze_parallel(
+                state.repos_to_analyze,
+                state.all_stats,
+                state.analyzed_repo_names,
+                state.newly_analyzed_repos,
+                state.total_repos
+            )
+        else:
+            state.all_stats = self._analyze_sequential(
+                state.repos_to_analyze,
+                state.all_stats,
+                state.analyzed_repo_names,
+                state.newly_analyzed_repos,
+                state.total_repos
+            )
 
-            # If all repositories were successfully analyzed, clean up the checkpoint file
-            if self.config["ENABLE_CHECKPOINTING"] and not repos_to_analyze:
-                try:
-                    Path(self.config["CHECKPOINT_FILE"]).unlink(missing_ok=True)
-                except:
-                    pass  # Silently ignore any issues with checkpoint deletion
+    def _finalize_analysis(self, state: 'AnalysisState') -> None:
+        """Finalize analysis (cleanup, final displays)"""
+        # Final rate limit status display
+        rprint("\n[bold]--- Final API Rate Status ---[/bold]")
+        self.rate_display.display_once()
+        rprint("[bold]----------------------------[/bold]")
 
-            logger.info(f"Successfully analyzed {len(all_stats)} repositories")
-            return all_stats
+        # Clean up checkpoint if all repositories were analyzed
+        if self._should_cleanup_checkpoint(state):
+            self._cleanup_checkpoint()
 
-        except RateLimitExceededException:
+    def _should_cleanup_checkpoint(self, state: 'AnalysisState') -> bool:
+        """Determine if checkpoint should be cleaned up"""
+        return (
+                self.config.get("ENABLE_CHECKPOINTING", False) and
+                not state.repos_to_analyze
+        )
+
+    def _cleanup_checkpoint(self) -> None:
+        """Clean up checkpoint file"""
+        with contextlib.suppress(Exception):
+            checkpoint_file = self.config.get("CHECKPOINT_FILE")
+            if checkpoint_file:
+                Path(checkpoint_file).unlink(missing_ok=True)
+
+    def _handle_analysis_error(self, error: Exception, state: 'AnalysisState' = None) -> List[RepoStats]:
+        """Handle analysis errors with appropriate logging and checkpointing"""
+        if isinstance(error, RateLimitExceededException):
             logger.error("GitHub API rate limit exceeded during repository analysis")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
-        except GithubException as e:
-            logger.error(f"GitHub API error: {e}")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
-        except Exception as e:
-            logger.error(f"Unexpected error during analysis: {e}")
-            if all_stats and self.config["ENABLE_CHECKPOINTING"]:
-                self.github_analyzer.save_checkpoint(all_stats, analyzed_repo_names, repos_to_analyze)
-            return all_stats
+        elif isinstance(error, GithubException):
+            logger.error(f"GitHub API error: {error}")
+        else:
+            logger.error(f"Unexpected error during analysis: {error}")
+
+        # Save checkpoint if we have progress and checkpointing is enabled
+        if state and state.all_stats and self.config.get("ENABLE_CHECKPOINTING", False):
+            self.github_analyzer.save_checkpoint(
+                state.all_stats,
+                state.analyzed_repo_names,
+                state.repos_to_analyze
+            )
+
+        return state.all_stats if state else []
 
     def _analyze_parallel(self, repos_to_analyze: List[Repository], all_stats: List[RepoStats],
                           analyzed_repo_names: List[str], newly_analyzed_repos: List[Repository],
@@ -1679,10 +2136,11 @@ class ReposAnalyzer:
                     rprint("[bold]-------------------------------[/bold]")
 
                 # Check if we need to checkpoint before processing this batch
-                if self.github_analyzer.check_rate_limit_and_checkpoint(all_stats,
-                                                                        analyzed_repo_names + [r.name for r in
-                                                                                               newly_analyzed_repos],
-                                                                        remaining_repos + batch):
+                names_new_analyzed_repos = [r.name for r in newly_analyzed_repos]
+                _all_analyzed_repo_names = analyzed_repo_names + names_new_analyzed_repos
+                _remaining_batch_repos = remaining_repos + batch
+
+                if self.github_analyzer.check_ratelimit_and_checkpoint(all_stats, _all_analyzed_repo_names, _remaining_batch_repos):
                     logger.info("Stopping analysis due to approaching API rate limit")
                     return all_stats
 
@@ -1719,7 +2177,7 @@ class ReposAnalyzer:
 
             # Update progress bar for already analyzed repos from checkpoint
             if all_stats:
-                pbar.set_description(f"Analyzing repositories (resumed from checkpoint)")
+                pbar.set_description("Analyzing repositories (resumed from checkpoint)")
 
             for repo in repos_to_analyze:
                 # Periodically check and display rate limit status
@@ -1729,9 +2187,8 @@ class ReposAnalyzer:
                     rprint("[bold]-------------------------------[/bold]")
 
                 # Check if we need to checkpoint
-                if self.github_analyzer.check_rate_limit_and_checkpoint(all_stats, analyzed_repo_names,
-                                                                        repos_to_analyze[
-                                                                        repos_to_analyze.index(repo):]):
+                stop_repo = repos_to_analyze[repos_to_analyze.index(repo):]
+                if self.github_analyzer.check_ratelimit_and_checkpoint(all_stats, analyzed_repo_names, stop_repo):
                     logger.info("Stopping analysis due to approaching API rate limit")
                     return all_stats
 
@@ -1799,7 +2256,7 @@ class GithubAnalyzer:
         for _ in tqdm(range(wait_seconds), desc=desc, colour="yellow", leave=True):
             time.sleep(1)
 
-    def check_rate_limit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
+    def check_ratelimit_and_checkpoint(self, all_stats, analyzed_repo_names, remaining_repos):
         """
         Check if the rate limit is approaching threshold and create a checkpoint if needed.
         

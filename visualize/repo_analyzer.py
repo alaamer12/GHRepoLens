@@ -18,6 +18,7 @@ class PersonalRepoAnalysis:
         self.username = username
         self.theme = theme if theme is not None else DefaultTheme.get_default_theme()
 
+    # noinspection da
     @staticmethod
     def create_charts_section() -> str:
         """Create the charts section of the HTML file"""

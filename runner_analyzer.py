@@ -245,7 +245,7 @@ class RunnerAnalyzer:
                     progress.update(task, advance=1, description=f"Failed to analyze {repo.name}")
                     continue
 
-                if analyzer.analyzer.check_rate_limit_and_checkpoint(
+                if analyzer.analyzer.check_ratelimit_and_checkpoint(
                         demo_stats, [s.name for s in demo_stats], []
                 ):
                     break

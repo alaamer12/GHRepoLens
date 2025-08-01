@@ -116,6 +116,28 @@ class GithubLens:
         return self.analyzer.analyze_single_repository(repo)
 
     @property
+    def repos_to_analyze(self) -> List[Repository]:
+        """
+        Get all repositories to analyze based on configuration.
+
+        Returns:
+            List of Repository objects to be analyzed
+        """
+        repositories = list(self.prepo)  # Always include personal repositories
+
+        # Add repositories from configured organizations
+        for org_name in self.config.get("INCLUDE_ORGS", []):
+            org_repos = self.get_orepo(org_name)
+            repositories.extend(org_repos)
+            logger.info(f"Added {len(org_repos)} repositories from organization '{org_name}'")
+
+        # Filter repositories
+        filtered_repos = [repo for repo in repositories if self._is_repo_included(repo)]
+
+        logger.info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
+        return filtered_repos
+
+    @property
     def prepo(self) -> List[Repository]:
         """
         Get personal repositories (non-organization) for the authenticated user.
@@ -176,28 +198,6 @@ class GithubLens:
             logger.error(f"Error getting repositories for organization {org_name}: {e}")
             return []
 
-    @property
-    def repos_to_analyze(self) -> List[Repository]:
-        """
-        Get all repositories to analyze based on configuration.
-
-        Returns:
-            List of Repository objects to be analyzed
-        """
-        repositories = list(self.prepo)  # Always include personal repositories
-
-        # Add repositories from configured organizations
-        for org_name in self.config.get("INCLUDE_ORGS", []):
-            org_repos = self.get_orepo(org_name)
-            repositories.extend(org_repos)
-            logger.info(f"Added {len(org_repos)} repositories from organization '{org_name}'")
-
-        # Filter repositories
-        filtered_repos = [repo for repo in repositories if self._is_repo_included(repo)]
-
-        logger.info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
-        return filtered_repos
-
     def _is_repo_included(self, repo: Repository) -> bool:
         """Check if a repository should be included based on config filters."""
         if self.config.get("SKIP_FORKS", False) and repo.fork:
@@ -238,7 +238,7 @@ class GithubLens:
             all_stats: List of RepoStats objects to include in the reports
         """
         reporter = GithubReporter(self.username, self.reports_dir)
-        reporter.generate_detailed_report(all_stats)
+        reporter.generate_reports(all_stats)
         logger.info("Generated detailed repository reports")
 
         # Generate visualizations
