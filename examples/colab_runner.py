@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GitHub Repository Analyzer - Google Colab Runner
+GitHub Repository RunnerAnalyzer - Google Colab Runner
 
-This module provides a simple interface for running the GitHub Repository Analyzer in Google Colab.
+This module provides a simple interface for running the GitHub Repository RunnerAnalyzer in Google Colab.
 It automatically installs required dependencies and handles Colab-specific configurations.
 """
 
@@ -40,7 +40,7 @@ def setup_environment():
 
 async def run_analyzer(github_token=None, github_username=None, mode="quicktest"):
     """
-    Run the GitHub Repository Analyzer with the specified parameters.
+    Run the GitHub Repository RunnerAnalyzer with the specified parameters.
     
     Args:
         github_token: GitHub personal access token (default: from env)
@@ -48,7 +48,7 @@ async def run_analyzer(github_token=None, github_username=None, mode="quicktest"
         mode: Analysis mode (default: "quicktest")
     """
     # Import main module
-    from main import run_analysis
+    from runner_analyzer import run_analysis
 
     # Use provided token or get from environment
     token = github_token or os.environ.get("GITHUB_TOKEN")

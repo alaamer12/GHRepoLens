@@ -13,13 +13,12 @@ import tempfile
 import time
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set
-
+from typing import List, Optional, Tuple, Set
 import requests
 from bs4 import BeautifulSoup
 from rich.prompt import Confirm
 
-from console import console, logger, print_info, print_success, print_warning, print_error
+from console import logger, print_info, print_success, print_warning, print_error
 from config import Configuration
 
 # List of HTML files to deploy in "partial" mode
@@ -373,13 +372,11 @@ class IframeEmbedder:
         vercel_dir = temp_path / ".vercel"
         vercel_dir.mkdir(exist_ok=True)
 
+        # Simplified project configuration to avoid invalid settings
         project_config = {
-            "projectId": "",  # Will be assigned by Vercel
-            "orgId": "",  # Will be assigned by Vercel
+            "orgId": "",
             "settings": {
-                "framework": None,
-                "createBuilds": True,
-                "projectName": self.vercel_project_name  # Explicitly set project name here
+                "framework": None
             }
         }
 
@@ -398,6 +395,7 @@ class IframeEmbedder:
         Returns:
             Tuple[bool, str]: Success flag and deployment URL
         """
+        import subprocess
         print_info("Deploying to Vercel...")
 
         # Check if vercel CLI is available
@@ -409,8 +407,26 @@ class IframeEmbedder:
         # Deploy using CLI
         env = os.environ.copy()
         env["VERCEL_TOKEN"] = self.vercel_token
-
-        # Construct the command - use environment variable for token instead of command line
+        
+        # First, try to create the project if it doesn't exist
+        create_cmd = f'vercel project add {self.vercel_project_name} --yes'
+        try:
+            create_process = subprocess.run(
+                create_cmd,
+                shell=True,
+                env=env,
+                capture_output=True,
+                text=True
+            )
+            if create_process.returncode == 0:
+                logger.info(f"Successfully created project: {self.vercel_project_name}")
+                print_info(f"Created project: {self.vercel_project_name}")
+            else:
+                logger.info(f"Project creation output: {create_process.stderr}")
+        except Exception as e:
+            logger.warning(f"Project creation attempt failed: {str(e)}")
+            
+        # Construct the deployment command - use environment variable for token
         # This avoids issues with token format and shell escaping
         cmd = f'vercel --prod --yes'
         
@@ -554,28 +570,41 @@ class IframeEmbedder:
             try:
                 result = subprocess.run(url_cmd, shell=True, env=env, capture_output=True, text=True)
                 if result.returncode == 0:
-                    deployments = json.loads(result.stdout)
-                    if deployments and len(deployments) > 0:
-                        url = deployments[0].get("url", "")
-                        if url:
-                            url = f"https://{url}"
-                            print_success(f"Deployment successful! URL: {url}")
+                    try:
+                        deployments = json.loads(result.stdout)
+                        if deployments:
+                            # Handle both array format and object format
+                            if isinstance(deployments, list) and len(deployments) > 0:
+                                url = deployments[0].get("url", "")
+                            elif isinstance(deployments, dict) and "deployments" in deployments:
+                                deployment_list = deployments.get("deployments", [])
+                                if deployment_list and len(deployment_list) > 0:
+                                    url = deployment_list[0].get("url", "")
                             
-                            # Try to get the project ID
-                            project_cmd = f'vercel project ls --json'
-                            proj_result = subprocess.run(project_cmd, shell=True, env=env, capture_output=True, text=True)
-                            if proj_result.returncode == 0:
-                                try:
-                                    projects = json.loads(proj_result.stdout)
-                                    for project in projects:
-                                        if project.get("name") == self.vercel_project_name:
-                                            self.project_id = project.get("id", "")
-                                            logger.info(f"Found project ID: {self.project_id}")
-                                            break
-                                except Exception as e:
-                                    logger.warning(f"Error parsing project list: {str(e)}")
+                            if url:
+                                url = f"https://{url}"
+                                print_success(f"Deployment successful! URL: {url}")
+                                
+                                # Try to get the project ID
+                                project_cmd = f'vercel project ls --json'
+                                proj_result = subprocess.run(project_cmd, shell=True, env=env, capture_output=True, text=True)
+                                if proj_result.returncode == 0:
+                                    try:
+                                        projects = json.loads(proj_result.stdout)
+                                        # Handle both array format (v2 API) and object with projects property (v9 API)
+                                        project_list = projects if isinstance(projects, list) else projects.get("projects", [])
+                                        for project in project_list:
+                                            if project.get("name") == self.vercel_project_name:
+                                                self.project_id = project.get("id", "")
+                                                logger.info(f"Found project ID: {self.project_id}")
+                                                break
+                                    except Exception as e:
+                                        logger.warning(f"Error parsing project list: {str(e)}")
                             
                             return True, url
+                    except Exception as e:
+                        logger.warning(f"Error parsing deployment list: {str(e)}")
+
             except Exception as e:
                 logger.error(f"Error getting deployment URL: {str(e)}")
 

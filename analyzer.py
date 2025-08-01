@@ -1,5 +1,5 @@
 """
-GitHub Repository Analyzer Module
+GitHub Repository RunnerAnalyzer Module
 
 This module provides detailed analysis of GitHub repositories.
 It handles fetching repository data, analyzing code quality, activity metrics,
