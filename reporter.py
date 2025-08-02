@@ -1160,14 +1160,15 @@ class GithubReporter:
 
     def generate_aggregated_report(self, all_stats: List[RepoStats]) -> None:
         """Generate aggregated statistics report"""
-        logger.info("Generating detailed repository report")
+        logger.info("Generating aggregated repository report")
 
-        report_path = self.reports_dir / "repo_agg_details.md"
-
-        agger = ReportAggregator(report_path, self.username, all_stats)
+        # Pass the reports directory, not a file path
+        agger = ReportAggregator(self.reports_dir, self.username, all_stats)
         agger.generate_aggregated_report()
 
-        logger.info(f"Detailed report saved to {report_path}")
+        # The actual report path is determined inside ReportAggregator
+        report_path = self.reports_dir / "aggregated_stats.md"
+        logger.info(f"Aggregated report saved to {report_path}")
 
     def generate_reports(self, all_stats: List[RepoStats]) -> None:
         self.generate_detailed_report(all_stats)
