@@ -17,7 +17,7 @@ from github.Repository import Repository
 
 from analyzer import GithubAnalyzer
 from config import DEFAULT_CONFIG, Configuration, load_theme_config
-from console import logger, RateLimitDisplay
+from console import logger, RateLimitDisplay, print_info, print_error
 from models import RepoStats
 from reporter import GithubReporter
 from utilities import Checkpoint
@@ -123,7 +123,9 @@ class GithubLens:
         Returns:
             List of Repository objects to be analyzed
         """
+        print_info("Getting repositories to analyze...")
         repositories = list(self.prepo)  # Always include personal repositories
+        print_info(f"Found {len(repositories)} personal repositories")
 
         # Add repositories from configured organizations
         for org_name in self.config.get("INCLUDE_ORGS", []):
@@ -131,43 +133,77 @@ class GithubLens:
             repositories.extend(org_repos)
             logger.info(f"Added {len(org_repos)} repositories from organization '{org_name}'")
 
+        print_info(f"Total repositories before filtering: {len(repositories)}")
+
         # Filter repositories
         filtered_repos = [repo for repo in repositories if self._is_repo_included(repo)]
 
+        print_info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
         logger.info(f"Selected {len(filtered_repos)} repositories for analysis after filtering")
+        
+        if len(filtered_repos) == 0:
+            print_error("No repositories found to analyze! This might be why the analysis is exiting.")
+            
         return filtered_repos
 
     @property
     def prepo(self) -> List[Repository]:
         """
-        Get personal repositories (non-organization) for the authenticated user.
+        Get personal repositories for the specified user.
         
         Returns:
             List of Repository objects owned by the user
         """
         try:
-            user = self.github.get_user()
-            username = user.login
+            print_info("Fetching personal repositories...")
+            # Get the authenticated user first
+            auth_user = self.github.get_user()
+            target_username = self.config.get("USERNAME")
+            
+            print_info(f"Authenticated user: {auth_user.login}, Target user: {target_username}")
+            
+            # Check if analyzing authenticated user (same logic as demo/quicktest modes)
+            if target_username == auth_user.login:
+                print_info(f"Analyzing authenticated user {target_username}, will include private repositories")
+                user = auth_user
+            else:
+                print_info(f"Analyzing user {target_username} (authenticated as {auth_user.login})")
+                user = self.github.get_user(target_username)
 
             # Use visibility parameter if configured (all, public, or private)
             visibility = self.config.get("VISIBILITY", "all")
+            print_info(f"Using visibility setting: {visibility}")
 
             # Get repositories using visibility parameter if specified
+            print_info("Fetching repositories from GitHub API...")
             if visibility != "all":
                 all_repos = list(user.get_repos(visibility=visibility))
             else:
                 all_repos = list(user.get_repos())
 
-            # Filter repositories to only include those owned by the user
+            print_info(f"Retrieved {len(all_repos)} repositories from GitHub API")
+
+            # Filter repositories to only include those owned by the target user
             personal_repos = [
                 repo for repo in all_repos
-                if repo.owner.login == username
+                if repo.owner.login == target_username
             ]
 
-            logger.info(f"Found {len(personal_repos)} personal repositories")
+            print_info(f"After filtering by owner, found {len(personal_repos)} personal repositories for {target_username}")
+            logger.info(f"Found {len(personal_repos)} personal repositories for {target_username}")
+            
+            if len(personal_repos) == 0:
+                print_error(f"No personal repositories found for user {target_username}!")
+                print_info("This could be because:")
+                print_info("- The user has no repositories")
+                print_info("- All repositories are filtered out by visibility settings")
+                print_info("- There's an authentication issue")
+                
             return personal_repos
         except Exception as e:
             logger.error(f"Error getting personal repositories: {e}")
+            print_error(f"Failed to get personal repositories: {str(e)}")
+            print_error("This is likely the cause of the analysis exiting early!")
             return []
 
     def get_orepo(self, org_name: str) -> List[Repository]:
