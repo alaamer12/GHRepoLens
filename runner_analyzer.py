@@ -274,7 +274,7 @@ async def _run_full_analysis(analyzer: GithubLens) -> List[RepoStats]:
     rprint("[bold]-------------------------------[/bold]")
 
     # Run repository analysis and wait for completion
-    return analyzer.analyze_all_repos()
+    return await asyncio.to_thread(analyzer.analyze_all_repos)
 
 
 async def _generate_reports(analyzer: GithubLens, all_stats: List[RepoStats]) -> None:
@@ -476,12 +476,12 @@ async def run_analysis(
         await _handle_checkpoint_message(config)
 
         if quicktest_mode:
-            all_stats = analyzer_instance.quicktest_mode(token, username, analyzer)
+            all_stats = await asyncio.to_thread(analyzer_instance.quicktest_mode, token, username, analyzer)
             if not all_stats:
                 logger.error("❌ No repositories analyzed in quicktest mode")
                 return
         elif demo_mode or test_mode:
-            all_stats = analyzer_instance.demo_mode(token, username, analyzer, test_mode, include_orgs)
+            all_stats = await asyncio.to_thread(analyzer_instance.demo_mode, token, username, analyzer, test_mode, include_orgs)
             if not all_stats:
                 logger.error(f"❌ No repositories analyzed in {mode} mode")
                 return
